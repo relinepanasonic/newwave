@@ -1,12 +1,10 @@
 'use client'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, CalendarDays, Users, DollarSign,
-  DoorOpen, LogIn, LogOut, Globe, BarChart2, ClipboardList,
-  X, Shield,
+  DoorOpen, BarChart2, ClipboardList, X, Shield,
 } from 'lucide-react'
 import type { Lang } from '@/lib/i18n'
 import { tr } from '@/lib/i18n'
@@ -15,8 +13,7 @@ type Role = 'superadmin' | 'host' | 'client'
 
 interface Props {
   role: Role
-  lang: Lang
-  onLangToggle: () => void
+  lang?: Lang
   userName: string
   onClose?: () => void
 }
@@ -43,17 +40,9 @@ const NAV_CLIENT = [
   { key: 'brandreport',    icon: BarChart2,    href: '/brand-report' },
 ]
 
-export default function Sidebar({ role, lang, onLangToggle, userName, onClose }: Props) {
+export default function Sidebar({ role, lang = 'id', userName, onClose }: Props) {
   const pathname = usePathname()
-  const router = useRouter()
   const navItems = role === 'superadmin' ? NAV_SUPERADMIN : role === 'host' ? NAV_HOST : NAV_CLIENT
-
-  async function handleLogout() {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login')
-    router.refresh()
-  }
 
   const roleLabel: Record<Role, string> = {
     superadmin: 'Super Admin',
@@ -107,25 +96,9 @@ export default function Sidebar({ role, lang, onLangToggle, userName, onClose }:
         })}
       </nav>
 
-      {/* Bottom */}
-      <div className="px-3 py-4 border-t border-gray-100 space-y-1">
-        <button
-          onClick={onLangToggle}
-          className="flex items-center gap-3 w-full px-3 py-2 rounded-xl text-sm text-gray-500 hover:bg-gray-50 transition-colors"
-        >
-          <Globe size={16} className="text-gray-400" />
-          {lang === 'id' ? 'Switch to English' : 'Ganti ke Indonesia'}
-        </button>
-
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-3 w-full px-3 py-2 rounded-xl text-sm text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors"
-        >
-          <LogOut size={16} />
-          {tr('logout', lang)}
-        </button>
-
-        <div className="mt-2 px-3 py-2 bg-brand-50 rounded-xl">
+      {/* Bottom — user info only */}
+      <div className="px-3 py-4 border-t border-gray-100">
+        <div className="px-3 py-2 bg-brand-50 rounded-xl">
           <p className="text-xs font-semibold text-brand-800 truncate">{userName}</p>
           <p className="text-[10px] text-brand-500">{roleLabel[role]}</p>
         </div>
