@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__visualize__read_me",
+      "mcp__visualize__show_widget",
+      "Bash(npx tsc *)",
+      "Bash(npm install *)",
+      "Bash(node -e \"require\\('recharts'\\); console.log\\('recharts ok'\\)\")",
+      "Bash(ipconfig)",
+      "Bash(findstr \"IPv4\")",
+      "Bash(npx next *)",
+      "PowerShell(netsh advfirewall firewall add rule name=\"Next.js Dev 3000\" dir=in action=allow protocol=TCP localport=3000)",
+      "Bash(npm run *)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ]
+  }
+}

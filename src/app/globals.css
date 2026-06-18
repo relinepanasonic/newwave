@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --sidebar-w: 220px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: #f8f7ff;
+  color: #1a1a2e;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #c4b5fd; border-radius: 3px; }
+
+/* Schedule grid cell */
+.slot-cell {
+  @apply min-h-[52px] border border-gray-100 rounded-md p-1 cursor-pointer transition-all duration-150;
+}
+.slot-cell:hover { @apply bg-brand-50 border-brand-200; }
+.slot-cell.filled { @apply bg-brand-50 border-brand-300; }
+.slot-cell.live { @apply bg-green-50 border-green-300; }
+.slot-cell.done { @apply bg-gray-50 border-gray-200; }
+
+/* Tab */
+.tab-btn {
+  @apply px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors;
+}
+.tab-btn.active {
+  @apply border-brand-600 text-brand-700 bg-white;
+}
+.tab-btn:not(.active) {
+  @apply border-transparent text-gray-500 hover:text-brand-600 hover:bg-brand-50;
+}
