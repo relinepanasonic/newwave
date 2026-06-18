@@ -64,9 +64,11 @@ export async function POST(req: Request) {
     }
   }
 
-  // 4. Update profile with all data
-  const { error: profileErr } = await admin.from('profiles').update({
+  // 4. Upsert profile (create if not exists, update if exists)
+  const { error: profileErr } = await admin.from('profiles').upsert({
+    id: userId,
     full_name,
+    email,
     role: 'host',
     alamat: alamat || null,
     nik_id: nik_id || null,
@@ -75,9 +77,11 @@ export async function POST(req: Request) {
     target_hours: invite.target_hours,
     hourly_rate: invite.hourly_rate,
     is_active: true,
-  }).eq('id', userId)
+  }, { onConflict: 'id' })
 
   if (profileErr) {
+    // Rollback: delete the auth user so they can retry
+    await admin.auth.admin.deleteUser(userId)
     return NextResponse.json({ error: profileErr.message }, { status: 400 })
   }
 
