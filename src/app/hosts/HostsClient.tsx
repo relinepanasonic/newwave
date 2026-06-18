@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, cn } from '@/lib/utils'
 import { Plus, X, Save, Pencil, Link2, Copy, Check, ChevronUp, ChevronDown, Clock, UserCheck, UserX } from 'lucide-react'
 
-const TIPE_HOST = ['Regular', 'Senior', 'Part-time', 'Contract', 'Probation']
+const TIPE_HOST = ['Regular', 'Silver', 'Gold', 'Platinum', 'Rubi']
 
 interface Profile {
   id: string; full_name: string; role: string; hourly_rate: number
