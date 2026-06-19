@@ -4,7 +4,169 @@ import { useSearchParams } from 'next/navigation'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { getPayPeriod, toLocalDateStr, SESSION_LABELS, PLATFORM_COLORS, formatCurrency } from '@/lib/utils'
-import { Upload, X, CheckCircle2, Camera, TrendingUp, ChevronDown } from 'lucide-react'
+import { Upload, X, CheckCircle2, Camera, TrendingUp, ChevronDown, ChevronUp, Plus, Package, Trash2 } from 'lucide-react'
+
+interface Product {
+  id?: string
+  live_report_id: string
+  produk_terjual: string
+  product_klik: number
+  item_sold: number
+  total: number
+}
+
+function ProductsSection({ reportId, hostId, brand, reportDate }: { reportId: string; hostId: string; brand: string; reportDate: string }) {
+  const [products, setProducts] = useState<Product[]>([])
+  const [expanded, setExpanded] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [newProduct, setNewProduct] = useState({ produk_terjual: '', product_klik: 0, item_sold: 1, total: 0 })
+
+  useEffect(() => {
+    if (!expanded) return
+    createClient().from('live_report_products').select('*').eq('live_report_id', reportId).order('created_at').then(({ data }) => {
+      setProducts(data || [])
+    })
+  }, [reportId, expanded])
+
+  async function addProduct() {
+    if (!newProduct.produk_terjual.trim()) return
+    setSaving(true)
+    const supabase = createClient()
+    const { data, error } = await supabase.from('live_report_products').insert({
+      live_report_id: reportId,
+      host_id: hostId,
+      report_date: reportDate,
+      brand,
+      produk_terjual: newProduct.produk_terjual,
+      product_klik: Number(newProduct.product_klik),
+      item_sold: Number(newProduct.item_sold),
+      total: Number(newProduct.total),
+    }).select().single()
+    setSaving(false)
+    if (!error && data) {
+      setProducts(prev => [...prev, data])
+      setNewProduct({ produk_terjual: '', product_klik: 0, item_sold: 1, total: 0 })
+      setAdding(false)
+    }
+  }
+
+  async function deleteProduct(id: string) {
+    await createClient().from('live_report_products').delete().eq('id', id)
+    setProducts(prev => prev.filter(p => p.id !== id))
+  }
+
+  function fmtRp(n: number) {
+    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n)
+  }
+
+  const totalGmv = products.reduce((s, p) => s + (p.total || 0), 0)
+
+  return (
+    <div className="border-t border-gray-50">
+      <button onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-gray-500 hover:bg-gray-50 transition-colors">
+        <div className="flex items-center gap-2">
+          <Package size={12} className="text-gray-400"/>
+          <span className="font-medium">Produk Terjual {products.length > 0 && !expanded ? `(${products.length} produk)` : ''}</span>
+          {totalGmv > 0 && expanded && <span className="text-emerald-600 font-semibold">{fmtRp(totalGmv)}</span>}
+        </div>
+        {expanded ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-4 space-y-3">
+          {/* Products table */}
+          {products.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-500 uppercase tracking-wide">
+                    <th className="px-2 py-2 text-left font-semibold">Produk</th>
+                    <th className="px-2 py-2 text-center font-semibold">Klik</th>
+                    <th className="px-2 py-2 text-center font-semibold">Terjual</th>
+                    <th className="px-2 py-2 text-right font-semibold">Total</th>
+                    <th className="px-2 py-2 w-6"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {products.map(p => (
+                    <tr key={p.id} className="hover:bg-gray-50">
+                      <td className="px-2 py-2 text-gray-800 max-w-[180px]">
+                        <p className="truncate font-medium">{p.produk_terjual}</p>
+                      </td>
+                      <td className="px-2 py-2 text-center text-gray-600">{p.product_klik}</td>
+                      <td className="px-2 py-2 text-center font-semibold text-gray-800">{p.item_sold}</td>
+                      <td className="px-2 py-2 text-right font-semibold text-emerald-700">{fmtRp(p.total)}</td>
+                      <td className="px-2 py-2">
+                        <button onClick={() => p.id && deleteProduct(p.id)} className="text-gray-300 hover:text-red-400 transition-colors">
+                          <Trash2 size={11}/>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="bg-emerald-50">
+                    <td colSpan={3} className="px-2 py-1.5 text-xs font-bold text-emerald-700">Total</td>
+                    <td className="px-2 py-1.5 text-right text-xs font-bold text-emerald-700">{fmtRp(totalGmv)}</td>
+                    <td/>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Add product form */}
+          {adding ? (
+            <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+              <div>
+                <label className="text-[10px] text-gray-400 font-medium block mb-1">Nama Produk *</label>
+                <input value={newProduct.produk_terjual}
+                  onChange={e => setNewProduct(p => ({ ...p, produk_terjual: e.target.value }))}
+                  placeholder="Kompas Gas 3 Tungku - NIKO..."
+                  className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"/>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[10px] text-gray-400 font-medium block mb-1">Product Klik</label>
+                  <input type="number" min="0" value={newProduct.product_klik}
+                    onChange={e => setNewProduct(p => ({ ...p, product_klik: parseInt(e.target.value) || 0 }))}
+                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"/>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-400 font-medium block mb-1">Item Sold</label>
+                  <input type="number" min="0" value={newProduct.item_sold}
+                    onChange={e => setNewProduct(p => ({ ...p, item_sold: parseInt(e.target.value) || 0 }))}
+                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"/>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-400 font-medium block mb-1">Total (Rp)</label>
+                  <input type="number" min="0" value={newProduct.total}
+                    onChange={e => setNewProduct(p => ({ ...p, total: parseInt(e.target.value) || 0 }))}
+                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"/>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={addProduct} disabled={saving || !newProduct.produk_terjual.trim()}
+                  className="flex-1 bg-brand-600 text-white rounded-lg py-1.5 text-xs font-semibold hover:bg-brand-700 disabled:opacity-50">
+                  {saving ? 'Menyimpan...' : '+ Simpan Produk'}
+                </button>
+                <button onClick={() => { setAdding(false); setNewProduct({ produk_terjual: '', product_klik: 0, item_sold: 1, total: 0 }) }}
+                  className="px-3 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-200">
+                  Batal
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setAdding(true)}
+              className="w-full flex items-center justify-center gap-1.5 border border-dashed border-gray-200 rounded-xl py-2 text-xs text-gray-400 hover:border-brand-300 hover:text-brand-600 transition-colors">
+              <Plus size={12}/> Tambah Produk
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 const PLATFORMS = ['TikTok', 'Shopee', 'Instagram', 'YouTube', 'Other']
 
@@ -384,6 +546,12 @@ export default function LiveReportClient({ profile }: { profile: any }) {
                       {r.notes && <p className="text-xs text-gray-400 mt-1 italic">{r.notes}</p>}
                     </div>
                   </div>
+                  <ProductsSection
+                    reportId={r.id}
+                    hostId={profile.id}
+                    brand={r.brand || ''}
+                    reportDate={r.report_date}
+                  />
                 </div>
               ))}
             </div>

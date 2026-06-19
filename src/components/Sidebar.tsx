@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, CalendarDays, Users, DollarSign,
-  DoorOpen, BarChart2, ClipboardList, X, Shield,
+  DoorOpen, BarChart2, ClipboardList, X, Shield, FileText,
 } from 'lucide-react'
 import type { Lang } from '@/lib/i18n'
 import { tr } from '@/lib/i18n'
@@ -23,6 +23,7 @@ const NAV_SUPERADMIN = [
   { key: 'schedule',       icon: CalendarDays,    href: '/schedule' },
   { key: 'recapschedule',  icon: ClipboardList,   href: '/recap-schedule' },
   { key: 'payroll',        icon: DollarSign,      href: '/payroll' },
+  { key: 'invoice',        icon: FileText,        href: '/invoice' },
   { key: 'brandreport',    icon: BarChart2,       href: '/brand-report' },
   { key: 'rooms',          icon: DoorOpen,        href: '/rooms' },
   { key: 'hrd',            icon: Shield,          href: '/hrd' },
@@ -36,8 +37,10 @@ const NAV_HOST = [
 ]
 
 const NAV_CLIENT = [
-  { key: 'clientschedule', icon: CalendarDays, href: '/client-schedule' },
-  { key: 'brandreport',    icon: BarChart2,    href: '/brand-report' },
+  { key: 'dashboard',      icon: LayoutDashboard, href: '/dashboard' },
+  { key: 'clientschedule', icon: CalendarDays,    href: '/client-schedule' },
+  { key: 'invoice',        icon: FileText,        href: '/invoice' },
+  { key: 'brandreport',    icon: BarChart2,       href: '/brand-report' },
 ]
 
 export default function Sidebar({ role, lang = 'id', userName, onClose }: Props) {
