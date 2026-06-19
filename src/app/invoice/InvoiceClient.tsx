@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, X, Save, ChevronDown, ChevronUp, FileText, CheckCircle, Clock } from 'lucide-react'
+import { Plus, X, Save, ChevronDown, ChevronUp, FileText, CheckCircle } from 'lucide-react'
 
 const TIPE_LIVE = ['Regular', 'Silver', 'Gold', 'Platinum', 'Rubi', 'UGC', 'Pre Content', 'Background Design', 'Other']
 const STATUS_COLORS: Record<string, string> = {
@@ -14,6 +14,8 @@ const STATUS_COLORS: Record<string, string> = {
 function fmtRp(n: number) {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n)
 }
+
+interface ClientProfile { id: string; full_name: string; client_brand: string }
 
 interface InvoiceItem {
   id?: string
@@ -36,6 +38,7 @@ interface Invoice {
   sub_total: number
   discount_pct: number
   ppn_pct: number
+  pph_pct: number
   total_amount: number
   bank_name: string
   bank_account_name: string
@@ -50,40 +53,59 @@ const EMPTY_ITEM: InvoiceItem = {
   name: '', description: '', tipe_live: 'Regular', jam_per_sesi: 4, qty: 1, price: 0, amount: 0, is_free: false
 }
 
+const FORM_DEFAULT = {
+  invoice_number: '', invoice_date: new Date().toISOString().slice(0, 10),
+  brand: '', invoice_to: '', discount_pct: 0, ppn_pct: 11, pph_pct: 2,
+  bank_name: 'Bank BCA', bank_account_name: 'PT Pintu Langit Inovasi Global',
+  bank_account_number: '4295775788', notes: '',
+}
+
 export default function InvoiceClient({ profile }: { profile: any }) {
   const isSuperadmin = profile.role === 'superadmin'
   const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [clients, setClients] = useState<ClientProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const [form, setForm] = useState({
-    invoice_number: '', invoice_date: new Date().toISOString().slice(0, 10),
-    brand: '', invoice_to: '', discount_pct: 0, ppn_pct: 11,
-    bank_name: 'Bank BCA', bank_account_name: 'PT Pintu Langit Inovasi Global',
-    bank_account_number: '4295775788', notes: '',
-  })
+  const [form, setForm] = useState({ ...FORM_DEFAULT })
   const [items, setItems] = useState<InvoiceItem[]>([{ ...EMPTY_ITEM }])
 
   const clientBrand = profile.client_brand
 
   useEffect(() => {
     const supabase = createClient()
-    let query = supabase.from('invoices')
-      .select('*, invoice_items(*)')
-      .order('invoice_date', { ascending: false })
-
-    if (!isSuperadmin && clientBrand) {
-      query = query.eq('brand', clientBrand)
+    const promises: Promise<any>[] = [
+      supabase.from('invoices')
+        .select('*, invoice_items(*)')
+        .order('invoice_date', { ascending: false })
+        .then(({ data }) => data || []),
+    ]
+    if (isSuperadmin) {
+      promises.push(
+        supabase.from('profiles').select('id, full_name, client_brand')
+          .eq('role', 'client')
+          .not('client_brand', 'is', null)
+          .then(({ data }) => data || [])
+      )
     }
-
-    query.then(({ data }) => {
-      setInvoices(data || [])
+    Promise.all(promises).then(([invData, clientData]) => {
+      let filtered = invData as Invoice[]
+      if (!isSuperadmin && clientBrand) {
+        filtered = filtered.filter((inv: Invoice) => inv.brand === clientBrand)
+      }
+      setInvoices(filtered)
+      if (clientData) setClients(clientData as ClientProfile[])
       setLoading(false)
     })
   }, [isSuperadmin, clientBrand])
+
+  function handleBrandChange(brand: string) {
+    const client = clients.find(c => c.client_brand === brand)
+    setForm(f => ({ ...f, brand, invoice_to: client?.full_name || f.invoice_to }))
+  }
 
   function updateItem(idx: number, field: keyof InvoiceItem, value: any) {
     setItems(prev => {
@@ -99,8 +121,11 @@ export default function InvoiceClient({ profile }: { profile: any }) {
 
   const subTotal = items.reduce((s, i) => s + (i.amount || 0), 0)
   const discountAmt = Math.round(subTotal * (form.discount_pct / 100))
-  const ppnAmt = Math.round((subTotal - discountAmt) * (form.ppn_pct / 100))
-  const totalAmount = subTotal - discountAmt + ppnAmt
+  const afterDiscount = subTotal - discountAmt
+  const ppnAmt = Math.round(afterDiscount * (form.ppn_pct / 100))
+  const totalAmount = afterDiscount + ppnAmt
+  const pphAmt = Math.round(totalAmount * (form.pph_pct / 100))
+  const realTotal = totalAmount - pphAmt
 
   async function handleSave() {
     if (!form.invoice_number || !form.brand) { setError('Nomor invoice dan brand wajib diisi'); return }
@@ -110,6 +135,7 @@ export default function InvoiceClient({ profile }: { profile: any }) {
       ...form,
       discount_pct: Number(form.discount_pct),
       ppn_pct: Number(form.ppn_pct),
+      pph_pct: Number(form.pph_pct),
       sub_total: subTotal,
       total_amount: totalAmount,
       created_by: profile.id,
@@ -120,14 +146,9 @@ export default function InvoiceClient({ profile }: { profile: any }) {
 
     const itemsToInsert = items.filter(i => i.name.trim()).map(i => ({
       invoice_id: inv.id,
-      name: i.name,
-      description: i.description,
-      tipe_live: i.tipe_live,
-      jam_per_sesi: Number(i.jam_per_sesi),
-      qty: Number(i.qty),
-      price: Number(i.price),
-      amount: Number(i.amount),
-      is_free: i.is_free,
+      name: i.name, description: i.description, tipe_live: i.tipe_live,
+      jam_per_sesi: Number(i.jam_per_sesi), qty: Number(i.qty),
+      price: Number(i.price), amount: Number(i.amount), is_free: i.is_free,
     }))
 
     if (itemsToInsert.length > 0) {
@@ -137,13 +158,18 @@ export default function InvoiceClient({ profile }: { profile: any }) {
     setSaving(false)
     setShowCreate(false)
     setInvoices(prev => [{ ...inv, invoice_items: itemsToInsert } as Invoice, ...prev])
-    setForm({ invoice_number: '', invoice_date: new Date().toISOString().slice(0, 10), brand: '', invoice_to: '', discount_pct: 0, ppn_pct: 11, bank_name: 'Bank BCA', bank_account_name: 'PT Pintu Langit Inovasi Global', bank_account_number: '4295775788', notes: '' })
+    setForm({ ...FORM_DEFAULT })
     setItems([{ ...EMPTY_ITEM }])
   }
 
   async function markPaid(id: string) {
     await createClient().from('invoices').update({ status: 'paid' }).eq('id', id)
     setInvoices(prev => prev.map(inv => inv.id === id ? { ...inv, status: 'paid' } : inv))
+  }
+
+  function calcInvPph(inv: Invoice) {
+    const pct = inv.pph_pct ?? 2
+    return Math.round(inv.total_amount * pct / 100)
   }
 
   return (
@@ -190,14 +216,18 @@ export default function InvoiceClient({ profile }: { profile: any }) {
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Brand *</label>
-                  <input value={form.brand} onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
-                    placeholder="Nama brand"
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                  <select value={form.brand} onChange={e => handleBrandChange(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+                    <option value="">— Pilih Brand —</option>
+                    {clients.map(c => (
+                      <option key={c.id} value={c.client_brand}>{c.client_brand}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Invoice To</label>
                   <input value={form.invoice_to} onChange={e => setForm(f => ({ ...f, invoice_to: e.target.value }))}
-                    placeholder="Nama perusahaan/kontak"
+                    placeholder="Nama perusahaan/kontak (auto dari client)"
                     className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
                 </div>
               </div>
@@ -236,7 +266,7 @@ export default function InvoiceClient({ profile }: { profile: any }) {
                       <div>
                         <label className="text-[10px] text-gray-400 font-medium mb-0.5 block">Deskripsi</label>
                         <input value={item.description} onChange={e => updateItem(idx, 'description', e.target.value)}
-                          placeholder="• 4 jam per sesi&#10;• Concept Live"
+                          placeholder="4 jam per sesi · Concept Live"
                           className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"/>
                       </div>
                       <div className="grid grid-cols-4 gap-2">
@@ -253,10 +283,13 @@ export default function InvoiceClient({ profile }: { profile: any }) {
                             className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"/>
                         </div>
                         <div>
-                          <label className="text-[10px] text-gray-400 font-medium mb-0.5 block">Harga/sesi</label>
-                          <input type="number" min="0" value={item.price} disabled={item.is_free}
-                            onChange={e => updateItem(idx, 'price', parseInt(e.target.value) || 0)}
-                            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white disabled:bg-gray-100"/>
+                          <label className="text-[10px] text-gray-400 font-medium mb-0.5 block">Harga/Sesi</label>
+                          <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-brand-400 bg-white">
+                            <span className="px-1.5 py-1.5 bg-gray-50 text-[10px] text-gray-500 border-r border-gray-200 font-medium">Rp</span>
+                            <input type="number" min="0" value={item.price} disabled={item.is_free}
+                              onChange={e => updateItem(idx, 'price', parseInt(e.target.value) || 0)}
+                              className="flex-1 w-0 px-1.5 py-1.5 text-xs focus:outline-none disabled:bg-gray-100"/>
+                          </div>
                         </div>
                         <div>
                           <label className="text-[10px] text-gray-400 font-medium mb-0.5 block">Amount</label>
@@ -277,7 +310,7 @@ export default function InvoiceClient({ profile }: { profile: any }) {
 
               {/* Totals */}
               <div className="bg-gray-50 rounded-xl p-4">
-                <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="grid grid-cols-3 gap-3 mb-3">
                   <div>
                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Diskon (%)</label>
                     <input type="number" min="0" max="100" value={form.discount_pct}
@@ -290,13 +323,26 @@ export default function InvoiceClient({ profile }: { profile: any }) {
                       onChange={e => setForm(f => ({ ...f, ppn_pct: parseFloat(e.target.value) || 0 }))}
                       className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"/>
                   </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">PPH (%)</label>
+                    <input type="number" min="0" max="100" value={form.pph_pct}
+                      onChange={e => setForm(f => ({ ...f, pph_pct: parseFloat(e.target.value) || 0 }))}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"/>
+                  </div>
                 </div>
                 <div className="space-y-1.5 text-sm">
                   <div className="flex justify-between text-gray-600"><span>Sub Total</span><span className="font-medium">{fmtRp(subTotal)}</span></div>
                   <div className="flex justify-between text-gray-600"><span>Diskon {form.discount_pct}%</span><span className="font-medium text-red-500">- {fmtRp(discountAmt)}</span></div>
                   <div className="flex justify-between text-gray-600"><span>PPN {form.ppn_pct}%</span><span className="font-medium">{fmtRp(ppnAmt)}</span></div>
                   <div className="flex justify-between text-brand-700 font-bold text-base pt-2 border-t border-gray-200">
-                    <span>Total Amount</span><span>{fmtRp(totalAmount)}</span>
+                    <span>Total Invoice</span><span>{fmtRp(totalAmount)}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-600 text-xs">
+                    <span>PPH {form.pph_pct}% (dipotong client)</span>
+                    <span className="text-red-500">- {fmtRp(pphAmt)}</span>
+                  </div>
+                  <div className="flex justify-between text-emerald-700 font-bold text-sm pt-1.5 border-t border-dashed border-gray-200">
+                    <span>Total Diterima</span><span>{fmtRp(realTotal)}</span>
                   </div>
                 </div>
               </div>
@@ -348,6 +394,8 @@ export default function InvoiceClient({ profile }: { profile: any }) {
               const isExpanded = expandedId === inv.id
               const totalSesi = inv.invoice_items?.reduce((s, i) => s + (i.qty || 0), 0) || 0
               const totalJam = inv.invoice_items?.reduce((s, i) => s + ((i.qty || 0) * (i.jam_per_sesi || 0)), 0) || 0
+              const invPphAmt = calcInvPph(inv)
+              const invRealTotal = inv.total_amount - invPphAmt
               return (
                 <div key={inv.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                   <div className="p-4 flex items-start gap-4 cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : inv.id)}>
@@ -361,7 +409,7 @@ export default function InvoiceClient({ profile }: { profile: any }) {
                           {inv.status === 'paid' ? '✓ Lunas' : inv.status === 'cancelled' ? 'Dibatalkan' : '⏳ Belum Bayar'}
                         </span>
                       </div>
-                      <p className="text-xs text-gray-500 mt-0.5">{inv.brand} {inv.invoice_to ? `· ${inv.invoice_to}` : ''}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{inv.brand}{inv.invoice_to ? ` · ${inv.invoice_to}` : ''}</p>
                       <p className="text-xs text-gray-400">
                         {new Date(inv.invoice_date + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
                         {totalSesi > 0 && ` · ${totalSesi} sesi · ${totalJam} jam`}
@@ -369,6 +417,7 @@ export default function InvoiceClient({ profile }: { profile: any }) {
                     </div>
                     <div className="text-right flex-shrink-0">
                       <p className="font-bold text-brand-700 text-sm">{fmtRp(inv.total_amount)}</p>
+                      <p className="text-[10px] text-emerald-600">Terima {fmtRp(invRealTotal)}</p>
                       {isExpanded ? <ChevronUp size={14} className="text-gray-400 ml-auto mt-1"/> : <ChevronDown size={14} className="text-gray-400 ml-auto mt-1"/>}
                     </div>
                   </div>
@@ -413,10 +462,23 @@ export default function InvoiceClient({ profile }: { profile: any }) {
                       {/* Summary */}
                       <div className="bg-gray-50 rounded-xl p-3 space-y-1 text-xs">
                         <div className="flex justify-between text-gray-500"><span>Sub Total</span><span>{fmtRp(inv.sub_total)}</span></div>
-                        <div className="flex justify-between text-gray-500"><span>Diskon {inv.discount_pct}%</span><span className="text-red-500">- {fmtRp(Math.round(inv.sub_total * inv.discount_pct / 100))}</span></div>
-                        <div className="flex justify-between text-gray-500"><span>PPN {inv.ppn_pct}%</span><span>{fmtRp(Math.round((inv.sub_total - inv.sub_total * inv.discount_pct / 100) * inv.ppn_pct / 100))}</span></div>
+                        <div className="flex justify-between text-gray-500">
+                          <span>Diskon {inv.discount_pct}%</span>
+                          <span className="text-red-500">- {fmtRp(Math.round(inv.sub_total * inv.discount_pct / 100))}</span>
+                        </div>
+                        <div className="flex justify-between text-gray-500">
+                          <span>PPN {inv.ppn_pct}%</span>
+                          <span>{fmtRp(Math.round((inv.sub_total - inv.sub_total * inv.discount_pct / 100) * inv.ppn_pct / 100))}</span>
+                        </div>
                         <div className="flex justify-between font-bold text-brand-700 text-sm pt-1.5 border-t border-gray-200">
-                          <span>Total</span><span>{fmtRp(inv.total_amount)}</span>
+                          <span>Total Invoice</span><span>{fmtRp(inv.total_amount)}</span>
+                        </div>
+                        <div className="flex justify-between text-gray-500">
+                          <span>PPH {inv.pph_pct ?? 2}% (dipotong client)</span>
+                          <span className="text-red-500">- {fmtRp(invPphAmt)}</span>
+                        </div>
+                        <div className="flex justify-between font-bold text-emerald-700 text-sm pt-1 border-t border-dashed border-gray-200">
+                          <span>Total Diterima</span><span>{fmtRp(invRealTotal)}</span>
                         </div>
                       </div>
 

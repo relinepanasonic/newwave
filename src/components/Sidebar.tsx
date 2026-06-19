@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, CalendarDays, Users, DollarSign,
-  DoorOpen, BarChart2, ClipboardList, X, Shield, FileText,
+  BarChart2, ClipboardList, X, Shield, FileText,
 } from 'lucide-react'
 import type { Lang } from '@/lib/i18n'
 import { tr } from '@/lib/i18n'
@@ -25,7 +25,6 @@ const NAV_SUPERADMIN = [
   { key: 'payroll',        icon: DollarSign,      href: '/payroll' },
   { key: 'invoice',        icon: FileText,        href: '/invoice' },
   { key: 'brandreport',    icon: BarChart2,       href: '/brand-report' },
-  { key: 'rooms',          icon: DoorOpen,        href: '/rooms' },
   { key: 'hrd',            icon: Shield,          href: '/hrd' },
   { key: 'onboarding',     icon: Users,           href: '/hosts' },
 ]
@@ -56,7 +55,7 @@ export default function Sidebar({ role, lang = 'id', userName, onClose }: Props)
   return (
     <aside className="h-full w-[220px] bg-white border-r border-gray-100 shadow-sm flex flex-col">
       {/* Logo + close button */}
-      <div className="px-5 py-5 border-b border-gray-100 flex items-center justify-between">
+      <div className="px-4 py-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center flex-shrink-0">
             <span className="text-white text-xs font-bold">NW</span>
@@ -77,7 +76,7 @@ export default function Sidebar({ role, lang = 'id', userName, onClose }: Props)
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+      <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
         {navItems.map(({ key, icon: Icon, href }) => {
           const active = pathname === href || (href !== '/dashboard' && pathname.startsWith(href))
           return (
@@ -86,7 +85,7 @@ export default function Sidebar({ role, lang = 'id', userName, onClose }: Props)
               href={href}
               onClick={onClose}
               className={cn(
-                'flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium transition-all',
+                'flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all',
                 active
                   ? 'bg-brand-100 text-brand-700'
                   : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'

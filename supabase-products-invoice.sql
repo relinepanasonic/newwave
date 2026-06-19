@@ -17,6 +17,9 @@ create policy "Authenticated can read products" on public.live_report_products f
 create policy "Host can insert own products" on public.live_report_products for insert with check (auth.uid() = host_id);
 create policy "Host can delete own products" on public.live_report_products for delete using (auth.uid() = host_id);
 
+-- If tables already exist, run these ALTER statements first:
+-- alter table public.invoices add column if not exists pph_pct numeric(5,2) default 2;
+
 -- Invoices
 create table if not exists public.invoices (
   id uuid default gen_random_uuid() primary key,
@@ -28,6 +31,7 @@ create table if not exists public.invoices (
   sub_total numeric(12,0) default 0,
   discount_pct numeric(5,2) default 0,
   ppn_pct numeric(5,2) default 11,
+  pph_pct numeric(5,2) default 2,
   total_amount numeric(12,0) default 0,
   bank_name text default 'Bank BCA',
   bank_account_name text default 'PT Pintu Langit Inovasi Global',
