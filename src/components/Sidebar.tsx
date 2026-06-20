@@ -3,8 +3,8 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
-  LayoutDashboard, CalendarDays, Users, DollarSign,
-  BarChart2, ClipboardList, X, Shield, FileText,
+  LayoutDashboard, CalendarDays, Users,
+  BarChart2, ClipboardList, X, Shield, FileText, Briefcase,
 } from 'lucide-react'
 import type { Lang } from '@/lib/i18n'
 import { tr } from '@/lib/i18n'
@@ -19,14 +19,12 @@ interface Props {
 }
 
 const NAV_SUPERADMIN = [
-  { key: 'dashboard',      icon: LayoutDashboard, href: '/dashboard' },
-  { key: 'schedule',       icon: CalendarDays,    href: '/schedule' },
-  { key: 'recapschedule',  icon: ClipboardList,   href: '/recap-schedule' },
-  { key: 'payroll',        icon: DollarSign,      href: '/payroll' },
-  { key: 'invoice',        icon: FileText,        href: '/invoice' },
-  { key: 'brandreport',    icon: BarChart2,       href: '/brand-report' },
-  { key: 'hrd',            icon: Shield,          href: '/hrd' },
-  { key: 'onboarding',     icon: Users,           href: '/hosts' },
+  { key: 'dashboard',     icon: LayoutDashboard, href: '/dashboard' },
+  { key: 'schedule',      icon: CalendarDays,    href: '/schedule' },
+  { key: 'recapschedule', icon: ClipboardList,   href: '/recap-schedule' },
+  { key: 'clients',       icon: Briefcase,       href: '/clients' },
+  { key: 'hrd',           icon: Shield,          href: '/hrd' },
+  { key: 'onboarding',    icon: Users,           href: '/hosts' },
 ]
 
 const NAV_HOST = [

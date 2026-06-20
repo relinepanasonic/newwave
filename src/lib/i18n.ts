@@ -15,6 +15,7 @@ export const t: Record<string, Record<Lang, string>> = {
   livereport:    { id: 'Live Report',     en: 'Live Report' },
   clientschedule:{ id: 'Jadwal Live',     en: 'Live Schedule' },
   brandreport:   { id: 'Client',          en: 'Client' },
+  clients:       { id: 'Clients',         en: 'Clients' },
   hrd:           { id: 'HRD',             en: 'HRD' },
   invoice:       { id: 'Invoice',         en: 'Invoice' },
   logout:        { id: 'Keluar',          en: 'Logout' },

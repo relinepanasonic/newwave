@@ -1,0 +1,201 @@
+'use client'
+import { useState, useEffect } from 'react'
+import AppShell from '@/components/AppShell'
+import { createClient } from '@/lib/supabase/client'
+import InvoicePanel from '@/app/invoice/InvoicePanel'
+import { ChevronDown, ChevronUp } from 'lucide-react'
+
+type Tab = 'clients' | 'invoice'
+
+interface ClientProfile { id: string; full_name: string; client_brand: string }
+interface ClientMeter { brand: string; clientName: string; slots: number; reports: number }
+
+function getMonthOptions() {
+  return Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i)
+    const y = d.getFullYear(); const m = d.getMonth()
+    return {
+      label: d.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }),
+      start: `${y}-${String(m + 1).padStart(2, '0')}-01`,
+      end: `${y}-${String(m + 1).padStart(2, '0')}-${new Date(y, m + 1, 0).getDate()}`,
+    }
+  })
+}
+
+function ClientListTab() {
+  const [meters, setMeters] = useState<ClientMeter[]>([])
+  const [scheduleByBrand, setScheduleByBrand] = useState<Record<string, any[]>>({})
+  const [expandedBrand, setExpandedBrand] = useState<string | null>(null)
+  const [monthIdx, setMonthIdx] = useState(0)
+  const [loading, setLoading] = useState(true)
+
+  const monthOptions = getMonthOptions()
+  const selectedMonth = monthOptions[monthIdx]
+
+  useEffect(() => {
+    const supabase = createClient()
+    setLoading(true)
+    Promise.all([
+      supabase.from('profiles').select('id, full_name, client_brand')
+        .eq('role', 'client').not('client_brand', 'is', null)
+        .then(({ data }) => (data || []) as ClientProfile[]),
+      supabase.from('schedule_slots')
+        .select('id, brand, slot_date, session_no, profiles:host_id(full_name)')
+        .not('host_id', 'is', null)
+        .gte('slot_date', selectedMonth.start).lte('slot_date', selectedMonth.end)
+        .order('slot_date')
+        .then(({ data }) => data || []),
+      supabase.from('live_reports').select('id, brand')
+        .gte('report_date', selectedMonth.start).lte('report_date', selectedMonth.end)
+        .then(({ data }) => data || []),
+    ]).then(([clients, slots, reports]) => {
+      const slotsByBrand: Record<string, number> = {}
+      const scheduleMap: Record<string, any[]> = {}
+      slots.forEach((s: any) => {
+        if (!s.brand) return
+        slotsByBrand[s.brand] = (slotsByBrand[s.brand] || 0) + 1
+        if (!scheduleMap[s.brand]) scheduleMap[s.brand] = []
+        scheduleMap[s.brand].push(s)
+      })
+      setScheduleByBrand(scheduleMap)
+
+      const reportsByBrand: Record<string, number> = {}
+      reports.forEach((r: any) => {
+        if (r.brand) reportsByBrand[r.brand] = (reportsByBrand[r.brand] || 0) + 1
+      })
+
+      setMeters(clients.map(c => ({
+        brand: c.client_brand,
+        clientName: c.full_name,
+        slots: slotsByBrand[c.client_brand] || 0,
+        reports: reportsByBrand[c.client_brand] || 0,
+      })))
+      setLoading(false)
+    })
+  }, [selectedMonth.start, selectedMonth.end])
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-bold text-gray-900">Client List</h2>
+          <p className="text-sm text-gray-500">{meters.length} client terdaftar</p>
+        </div>
+        <select value={monthIdx} onChange={e => setMonthIdx(Number(e.target.value))}
+          className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+          {monthOptions.map((m, i) => <option key={i} value={i}>{m.label}</option>)}
+        </select>
+      </div>
+
+      {loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3].map(i => <div key={i} className="bg-white rounded-2xl border border-gray-100 h-32 animate-pulse"/>)}
+        </div>
+      ) : meters.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center">
+          <p className="text-sm font-medium text-gray-400">Belum ada client terdaftar</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {meters.map(m => {
+            const pct = m.slots > 0 ? Math.round((m.reports / m.slots) * 100) : 0
+            const isExpanded = expandedBrand === m.brand
+            const slots = scheduleByBrand[m.brand] || []
+            return (
+              <div key={m.brand} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="p-4">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="min-w-0">
+                      <p className="font-bold text-gray-900 text-sm truncate">{m.brand}</p>
+                      <p className="text-xs text-gray-400 truncate">{m.clientName}</p>
+                    </div>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 ml-2 ${
+                      pct >= 80 ? 'bg-emerald-100 text-emerald-700'
+                        : pct >= 50 ? 'bg-amber-100 text-amber-700'
+                        : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {pct}%
+                    </span>
+                  </div>
+                  <div className="space-y-1.5 mb-3">
+                    <div className="flex justify-between text-xs text-gray-500">
+                      <span>Live Sukses</span>
+                      <span className="font-semibold text-gray-800">{m.reports} / {m.slots} sesi</span>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-brand-500 rounded-full transition-all duration-500"
+                        style={{ width: m.slots > 0 ? `${Math.min(pct, 100)}%` : '0%' }}/>
+                    </div>
+                  </div>
+                  {slots.length > 0 && (
+                    <button
+                      onClick={() => setExpandedBrand(isExpanded ? null : m.brand)}
+                      className="flex items-center gap-1.5 text-[10px] text-brand-600 font-semibold hover:text-brand-700 transition-colors">
+                      {isExpanded ? <ChevronUp size={11}/> : <ChevronDown size={11}/>}
+                      {isExpanded ? 'Sembunyikan' : `Lihat ${slots.length} jadwal`}
+                    </button>
+                  )}
+                </div>
+
+                {isExpanded && slots.length > 0 && (
+                  <div className="border-t border-gray-100 bg-gray-50/50">
+                    <div className="overflow-x-auto max-h-52 overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0">
+                          <tr className="bg-gray-100 text-gray-500 uppercase tracking-wide text-[10px]">
+                            <th className="px-3 py-2 text-left font-semibold">Tanggal</th>
+                            <th className="px-3 py-2 text-left font-semibold">Sesi</th>
+                            <th className="px-3 py-2 text-left font-semibold">Host</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {slots.map((s: any) => (
+                            <tr key={s.id} className="hover:bg-gray-100 transition-colors">
+                              <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
+                                {new Date(s.slot_date + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+                              </td>
+                              <td className="px-3 py-2 text-gray-500">Sesi {s.session_no}</td>
+                              <td className="px-3 py-2 font-medium text-gray-800">{(s.profiles as any)?.full_name || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function ClientsClient({ profile }: { profile: any }) {
+  const [tab, setTab] = useState<Tab>('clients')
+
+  return (
+    <AppShell role="superadmin" userName={profile.full_name}>
+      <div className="p-4 md:p-6 max-w-7xl mx-auto">
+        <div className="mb-5">
+          <h1 className="text-xl font-bold text-gray-900">Clients</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Manajemen client, jadwal live & invoice</p>
+        </div>
+
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-5 w-fit">
+          {(['clients', 'invoice'] as Tab[]).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}>
+              {t === 'clients' ? 'Client List' : 'Invoice'}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'clients' ? <ClientListTab/> : <InvoicePanel profile={profile}/>}
+      </div>
+    </AppShell>
+  )
+}
