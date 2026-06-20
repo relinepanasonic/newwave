@@ -198,26 +198,23 @@ export default function HostDashboard({ profile }: { profile: any }) {
             </select>
           </div>
           <div className="grid grid-cols-2 gap-2.5">
-            <div className="bg-white rounded-2xl border border-gray-100 p-3.5">
-              <p className="text-xs text-gray-500 mb-0.5">Total Live</p>
-              <p className="text-2xl font-bold text-gray-900">{totalLive}</p>
-              <p className="text-[10px] text-gray-400">sesi bulan ini</p>
-            </div>
-            <div className="bg-white rounded-2xl border border-emerald-100 p-3.5">
-              <p className="text-xs text-emerald-600 mb-0.5">Live Sukses</p>
-              <p className="text-2xl font-bold text-emerald-600">{liveSucceed}</p>
-              <p className="text-[10px] text-emerald-400">{successPct}% laporan masuk</p>
-            </div>
-            <div className="bg-white rounded-2xl border border-brand-100 p-3.5">
-              <p className="text-xs text-brand-600 mb-0.5">Target Jam</p>
-              <p className="text-2xl font-bold text-brand-700">{periodHours.toFixed(1)}</p>
-              <p className="text-[10px] text-brand-400">dari {targetHours} jam</p>
-            </div>
-            <div className="bg-white rounded-2xl border border-gray-100 p-3.5">
-              <p className="text-xs text-gray-500 mb-0.5">Total GMV</p>
-              <p className="text-xl font-bold text-gray-900 leading-tight">{fmtGMV(totalGmv)}</p>
-              <p className="text-[10px] text-gray-400">bulan ini</p>
-            </div>
+            {[
+              { label: 'Total Live', value: totalLive, sub: 'sesi bulan ini', ib: 'bg-blue-50', ic: 'text-blue-500', icon: Bell },
+              { label: 'Live Sukses', value: liveSucceed, sub: `${successPct}% laporan`, ib: 'bg-emerald-50', ic: 'text-emerald-500', icon: Target },
+              { label: 'Target Jam', value: `${periodHours.toFixed(1)}j`, sub: `dari ${targetHours} jam`, ib: 'bg-brand-50', ic: 'text-brand-500', icon: Target },
+              { label: 'Total GMV', value: fmtGMV(totalGmv), sub: 'bulan ini', ib: 'bg-purple-50', ic: 'text-purple-500', icon: Bell },
+            ].map(({ label, value, sub, ib, ic, icon: Icon }) => (
+              <div key={label} className="bg-white rounded-2xl border border-gray-100 p-3.5 hover:shadow-sm transition-shadow">
+                <div className="flex items-start justify-between mb-2">
+                  <p className="text-xs text-gray-500">{label}</p>
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${ib}`}>
+                    <Icon size={12} className={ic}/>
+                  </div>
+                </div>
+                <p className="text-2xl font-bold text-gray-900 leading-tight">{value}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>
+              </div>
+            ))}
           </div>
         </div>
 

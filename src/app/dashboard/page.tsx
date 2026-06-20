@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import AuthGuard from '@/components/AuthGuard'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
-import { Users, CalendarDays, Activity, Camera } from 'lucide-react'
+import { Users, CalendarDays, Activity, Camera, CheckCircle, TrendingUp, Eye, MessageCircle, Target, Zap } from 'lucide-react'
 import { getPayPeriod, toLocalDateStr, PLATFORM_COLORS } from '@/lib/utils'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -107,16 +107,21 @@ function ClientDashboard({ profile }: { profile: any }) {
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
           {[
-            { label: 'Total Live Plan', value: stats.totalPlan, color: 'bg-blue-50 border-blue-100', text: 'text-blue-700' },
-            { label: 'Live Sukses', value: `${stats.totalSucceed} (${successPct}%)`, color: 'bg-emerald-50 border-emerald-100', text: 'text-emerald-700' },
-            { label: 'Total GMV', value: fmtGMV(stats.gmv), color: 'bg-purple-50 border-purple-100', text: 'text-purple-700' },
-            { label: 'Total Impresi', value: fmtNum(stats.impression), color: 'bg-sky-50 border-sky-100', text: 'text-sky-700' },
-            { label: 'Total Penonton', value: fmtNum(stats.viewer), color: 'bg-teal-50 border-teal-100', text: 'text-teal-700' },
-            { label: 'Total Komentar', value: fmtNum(stats.comment), color: 'bg-amber-50 border-amber-100', text: 'text-amber-700' },
-          ].map(({ label, value, color, text }) => (
-            <div key={label} className={`bg-white rounded-2xl border p-4 shadow-sm ${color}`}>
-              <p className={`text-xs font-medium mb-1 ${text}`}>{label}</p>
-              <p className={`text-xl font-bold ${text}`}>{value}</p>
+            { label: 'Total Live Plan', value: stats.totalPlan, icon: CalendarDays, ib: 'bg-blue-50', ic: 'text-blue-600' },
+            { label: 'Live Sukses', value: `${stats.totalSucceed} (${successPct}%)`, icon: CheckCircle, ib: 'bg-emerald-50', ic: 'text-emerald-600' },
+            { label: 'Total GMV', value: fmtGMV(stats.gmv), icon: TrendingUp, ib: 'bg-purple-50', ic: 'text-purple-600' },
+            { label: 'Total Impresi', value: fmtNum(stats.impression), icon: Eye, ib: 'bg-sky-50', ic: 'text-sky-600' },
+            { label: 'Total Penonton', value: fmtNum(stats.viewer), icon: Users, ib: 'bg-teal-50', ic: 'text-teal-600' },
+            { label: 'Total Komentar', value: fmtNum(stats.comment), icon: MessageCircle, ib: 'bg-amber-50', ic: 'text-amber-600' },
+          ].map(({ label, value, icon: Icon, ib, ic }) => (
+            <div key={label} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between mb-3">
+                <p className="text-xs text-gray-500 font-medium">{label}</p>
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${ib}`}>
+                  <Icon size={14} className={ic}/>
+                </div>
+              </div>
+              <p className="text-xl font-bold text-gray-900">{value}</p>
             </div>
           ))}
         </div>
@@ -305,21 +310,29 @@ function CompanyDashboard({ profile }: { profile: any }) {
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[
-            { label: 'Total Host Aktif', value: activeHosts, color: 'bg-brand-50 border-brand-100', text: 'text-brand-700' },
-            { label: 'Total Live', value: totalLive, color: 'bg-blue-50 border-blue-100', text: 'text-blue-700' },
-            { label: 'Live Sukses', value: `${liveSucceed} (${successPct}%)`, color: 'bg-emerald-50 border-emerald-100', text: 'text-emerald-700' },
-            { label: 'Total GMV', value: fmtGMV(totalGmv), color: 'bg-purple-50 border-purple-100', text: 'text-purple-700' },
-          ].map(({ label, value, color, text }) => (
-            <div key={label} className={`bg-white rounded-2xl border p-4 shadow-sm ${color}`}>
-              <p className={`text-xs font-medium mb-1 ${text}`}>{label}</p>
-              <p className={`text-2xl font-bold ${text}`}>{value}</p>
+            { label: 'Host Aktif', value: activeHosts, icon: Users, ib: 'bg-brand-50', ic: 'text-brand-600' },
+            { label: 'Total Live', value: totalLive, icon: CalendarDays, ib: 'bg-blue-50', ic: 'text-blue-600' },
+            { label: 'Live Sukses', value: `${liveSucceed} (${successPct}%)`, icon: CheckCircle, ib: 'bg-emerald-50', ic: 'text-emerald-600' },
+            { label: 'Total GMV', value: fmtGMV(totalGmv), icon: TrendingUp, ib: 'bg-purple-50', ic: 'text-purple-600' },
+          ].map(({ label, value, icon: Icon, ib, ic }) => (
+            <div key={label} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between mb-3">
+                <p className="text-xs text-gray-500 font-medium">{label}</p>
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${ib}`}>
+                  <Icon size={14} className={ic}/>
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-gray-900">{value}</p>
             </div>
           ))}
         </div>
 
         {/* Traffic chart — MAIN FOCAL POINT (full width, biggest) */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <h2 className="font-bold text-gray-900 text-sm">Traffic per Hari</h2>
+          <div className="flex items-start justify-between mb-1">
+            <h2 className="font-bold text-gray-900 text-sm">Traffic per Hari</h2>
+            <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{selectedMonth.label}</span>
+          </div>
           <p className="text-xs text-gray-400 mb-3">Impresi · Penonton · Komentar — semua host</p>
           {emptyChart ? (
             <div className="h-[160px] flex items-center justify-center text-sm text-gray-300">{loading ? 'Memuat...' : 'Belum ada data bulan ini'}</div>
