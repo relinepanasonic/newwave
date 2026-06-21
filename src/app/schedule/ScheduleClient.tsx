@@ -3,12 +3,25 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { SESSION_LABELS, PLATFORM_COLORS, getWeekDates, toLocalDateStr, cn } from '@/lib/utils'
-import { ChevronLeft, ChevronRight, X, Save, Plus, Trash2, Copy } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronDown, X, Save, Plus, Trash2, Copy } from 'lucide-react'
 import { tr, type Lang } from '@/lib/i18n'
 
 const DAYS_ID = ['Senin','Selasa','Rabu','Kamis','Jumat','Sabtu','Minggu']
 const DAYS_EN = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
 const PLATFORMS = ['Shopee','TikTok','Instagram','YouTube','Other']
+
+// Sessions grouped by time of day. Session N covers hour (N-1):00–N:00,
+// so Morning = sessions 1–8 (00–08), Afternoon = 9–16 (08–16), Night = 17–24 (16–24).
+const TIME_GROUPS = [
+  { key: 'morning',   label: 'Morning',   sub: '00:00 – 08:00', sessions: [1, 2, 3, 4, 5, 6, 7, 8] },
+  { key: 'afternoon', label: 'Afternoon', sub: '08:00 – 16:00', sessions: [9, 10, 11, 12, 13, 14, 15, 16] },
+  { key: 'night',     label: 'Night',     sub: '16:00 – 00:00', sessions: [17, 18, 19, 20, 21, 22, 23, 24] },
+] as const
+
+function currentTimeGroup(): string {
+  const h = new Date().getHours()
+  return h < 8 ? 'morning' : h < 16 ? 'afternoon' : 'night'
+}
 
 interface Room { id: string; name: string; group_name: string; sort_order: number }
 interface Host { id: string; full_name: string }
@@ -74,7 +87,16 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
   const [showDupConfirm, setShowDupConfirm] = useState(false)
   const [duplicating, setDuplicating] = useState(false)
   const [dupResult, setDupResult] = useState('')
+  // Time-group collapse: open only the group covering the current hour by default
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
+    const cur = currentTimeGroup()
+    return { morning: cur !== 'morning', afternoon: cur !== 'afternoon', night: cur !== 'night' }
+  })
   const isAdmin = profile.role === 'superadmin'
+
+  function toggleGroup(key: string) {
+    setCollapsedGroups(prev => ({ ...prev, [key]: !prev[key] }))
+  }
 
   useEffect(() => {
     const dates = getWeekDates(baseDate)
@@ -225,6 +247,74 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
   // Other days of the week (excluding the active/current edit day)
   const otherDays = weekDates.filter(d => toLocalDateStr(d) !== (editSlot?.date || activeDateStr))
 
+  const roomsWidth = rooms.length * 150
+
+  function renderSessionRow(session: number) {
+    const rowHasData = rooms.some(r => !!getSlot(session, r.id)?.host_id || coveredBySlot.has(`${session}_${r.id}`))
+    return (
+      <div key={session} className={cn('flex border-b border-gray-100', rowHasData ? 'bg-white' : 'bg-gray-50/50')}
+        style={{ minHeight: '36px' }}>
+        <div className="w-20 flex-shrink-0 px-2 border-r border-gray-100 flex items-center gap-1">
+          <span className="text-[9px] text-gray-300 font-mono w-3">{session}</span>
+          <span className="text-[10px] font-mono text-gray-500">{SESSION_LABELS[session]}</span>
+        </div>
+        {rooms.map(room => {
+          const coveringSlot = coveredBySlot.get(`${session}_${room.id}`)
+          if (coveringSlot) {
+            // Continuation cell — blocked by spanning slot above
+            return (
+              <div key={room.id}
+                onClick={() => isAdmin && openEdit(coveringSlot.session_no, room.id)}
+                className={cn('border-r border-gray-100 last:border-r-0 transition-colors',
+                  isAdmin ? 'cursor-pointer hover:opacity-70' : 'cursor-default',
+                  PLATFORM_SPAN[coveringSlot.platform || ''] || PLATFORM_SPAN['']
+                )}
+                style={{ width: '150px', minHeight: '36px' }}
+              />
+            )
+          }
+
+          const slot = getSlot(session, room.id)
+          const host = getHost(slot?.host_id)
+          return (
+            <div key={room.id}
+              onClick={() => openEdit(session, room.id)}
+              className={cn('border-r border-gray-100 last:border-r-0 px-1.5 py-0.5 flex items-center transition-colors',
+                isAdmin ? 'cursor-pointer hover:bg-brand-50/60' : 'cursor-default',
+                slot?.host_id ? (slot.status === 'live' ? 'bg-green-50' : slot.status === 'done' ? 'bg-gray-50' : 'bg-brand-50/40') : '',
+                slot?.host_id && (slot.durasi || 0) > 1 ? (PLATFORM_SPAN[slot.platform || ''] || PLATFORM_SPAN['']).split(' ')[1] + ' ' + (PLATFORM_SPAN[slot.platform || ''] || PLATFORM_SPAN['']).split(' ')[2] : '',
+              )}
+              style={{ width: '150px', minHeight: '36px' }}>
+              {slot?.host_id ? (
+                <div className="w-full">
+                  <div className="flex items-center gap-1 min-w-0">
+                    {slot.platform && (
+                      <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', PLATFORM_DOT[slot.platform] || 'bg-gray-400')}/>
+                    )}
+                    <span className="text-[11px] font-semibold text-gray-900 truncate leading-tight">
+                      {host?.full_name || '?'}
+                    </span>
+                  </div>
+                  {slot.jam_mulai && slot.durasi ? (
+                    <p className="text-[9px] text-brand-500 font-mono leading-tight mt-0.5">
+                      {slot.jam_mulai}–{calcJamSelesai(slot.jam_mulai, slot.durasi)}
+                    </p>
+                  ) : slot.brand ? (
+                    <p className="text-[9px] text-gray-400 truncate leading-tight mt-0.5">{slot.brand}</p>
+                  ) : null}
+                </div>
+              ) : isAdmin ? (
+                <div className="w-full flex items-center justify-center h-full opacity-20 hover:opacity-60">
+                  <Plus size={11} className="text-gray-400"/>
+                </div>
+              ) : null}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
     <AppShell role={profile.role as any} userName={profile.full_name}>
       <div className="flex flex-col" style={{ height: '100vh' }}>
@@ -308,70 +398,36 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                 })}
               </div>
 
-              {/* Session rows */}
-              {Array.from({ length: 24 }, (_, i) => {
-                const session = i + 1
-                const rowHasData = rooms.some(r => !!getSlot(session, r.id)?.host_id || coveredBySlot.has(`${session}_${r.id}`))
+              {/* Session rows — grouped by time of day, collapsible */}
+              {TIME_GROUPS.map(group => {
+                const isCollapsed = collapsedGroups[group.key]
+                const count = slots.filter(s =>
+                  s.slot_date === activeDateStr && (group.sessions as readonly number[]).includes(s.session_no) && s.host_id).length
                 return (
-                  <div key={session} className={cn('flex border-b border-gray-100', rowHasData ? 'bg-white' : 'bg-gray-50/50')}
-                    style={{ minHeight: '36px' }}>
-                    <div className="w-20 flex-shrink-0 px-2 border-r border-gray-100 flex items-center gap-1">
-                      <span className="text-[9px] text-gray-300 font-mono w-3">{session}</span>
-                      <span className="text-[10px] font-mono text-gray-500">{SESSION_LABELS[session]}</span>
+                  <div key={group.key}>
+                    {/* Group header — click to expand/collapse */}
+                    <div onClick={() => toggleGroup(group.key)}
+                      className="flex border-b border-pink-200 cursor-pointer select-none">
+                      <div className={cn('w-20 flex-shrink-0 flex items-center justify-center border-r border-pink-100 border-l-4 transition-colors',
+                        isCollapsed ? 'bg-pink-50 border-l-pink-200' : 'bg-pink-100 border-l-pink-500')}>
+                        {isCollapsed
+                          ? <ChevronRight size={15} className="text-pink-400"/>
+                          : <ChevronDown size={15} className="text-pink-600"/>}
+                      </div>
+                      <div style={{ width: `${roomsWidth}px` }}
+                        className={cn('flex items-center gap-2 px-3 py-2 transition-colors',
+                          isCollapsed ? 'bg-pink-50' : 'bg-pink-100')}>
+                        <span className="text-xs font-bold text-pink-700 uppercase tracking-wide">{group.label}</span>
+                        <span className="text-[10px] text-pink-400 font-mono">{group.sub}</span>
+                        {count > 0 && (
+                          <span className="text-[9px] bg-pink-500 text-white px-1.5 py-0.5 rounded-full font-semibold">{count} sesi</span>
+                        )}
+                        <span className="ml-auto text-[10px] text-pink-400 font-medium">
+                          {isCollapsed ? 'Tampilkan' : 'Sembunyikan'}
+                        </span>
+                      </div>
                     </div>
-                    {rooms.map(room => {
-                      const coveringSlot = coveredBySlot.get(`${session}_${room.id}`)
-                      if (coveringSlot) {
-                        // Continuation cell — blocked by spanning slot above
-                        return (
-                          <div key={room.id}
-                            onClick={() => isAdmin && openEdit(coveringSlot.session_no, room.id)}
-                            className={cn('border-r border-gray-100 last:border-r-0 transition-colors',
-                              isAdmin ? 'cursor-pointer hover:opacity-70' : 'cursor-default',
-                              PLATFORM_SPAN[coveringSlot.platform || ''] || PLATFORM_SPAN['']
-                            )}
-                            style={{ width: '150px', minHeight: '36px' }}
-                          />
-                        )
-                      }
-
-                      const slot = getSlot(session, room.id)
-                      const host = getHost(slot?.host_id)
-                      return (
-                        <div key={room.id}
-                          onClick={() => openEdit(session, room.id)}
-                          className={cn('border-r border-gray-100 last:border-r-0 px-1.5 py-0.5 flex items-center transition-colors',
-                            isAdmin ? 'cursor-pointer hover:bg-brand-50/60' : 'cursor-default',
-                            slot?.host_id ? (slot.status === 'live' ? 'bg-green-50' : slot.status === 'done' ? 'bg-gray-50' : 'bg-brand-50/40') : '',
-                            slot?.host_id && (slot.durasi || 0) > 1 ? (PLATFORM_SPAN[slot.platform || ''] || PLATFORM_SPAN['']).split(' ')[1] + ' ' + (PLATFORM_SPAN[slot.platform || ''] || PLATFORM_SPAN['']).split(' ')[2] : '',
-                          )}
-                          style={{ width: '150px', minHeight: '36px' }}>
-                          {slot?.host_id ? (
-                            <div className="w-full">
-                              <div className="flex items-center gap-1 min-w-0">
-                                {slot.platform && (
-                                  <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', PLATFORM_DOT[slot.platform] || 'bg-gray-400')}/>
-                                )}
-                                <span className="text-[11px] font-semibold text-gray-900 truncate leading-tight">
-                                  {host?.full_name || '?'}
-                                </span>
-                              </div>
-                              {slot.jam_mulai && slot.durasi ? (
-                                <p className="text-[9px] text-brand-500 font-mono leading-tight mt-0.5">
-                                  {slot.jam_mulai}–{calcJamSelesai(slot.jam_mulai, slot.durasi)}
-                                </p>
-                              ) : slot.brand ? (
-                                <p className="text-[9px] text-gray-400 truncate leading-tight mt-0.5">{slot.brand}</p>
-                              ) : null}
-                            </div>
-                          ) : isAdmin ? (
-                            <div className="w-full flex items-center justify-center h-full opacity-20 hover:opacity-60">
-                              <Plus size={11} className="text-gray-400"/>
-                            </div>
-                          ) : null}
-                        </div>
-                      )
-                    })}
+                    {!isCollapsed && group.sessions.map(session => renderSessionRow(session))}
                   </div>
                 )
               })}
