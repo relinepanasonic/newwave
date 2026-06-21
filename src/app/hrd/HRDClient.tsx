@@ -355,7 +355,7 @@ function GajiTab() {
       <div className="grid grid-cols-3 gap-4">
         {[
           { label: 'Total Host', value: `${filtered.length}` },
-          { label: 'Total Jam', value: `${totalHours.toFixed(1)} jam` },
+          { label: 'Total Jam', value: `${Number(totalHours.toFixed(1))} jam` },
           { label: 'Total Gaji', value: formatCurrency(totalPay) },
         ].map(({ label, value }) => (
           <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">

@@ -106,9 +106,9 @@ export default function InvoicePanel({ profile }: { profile: any }) {
     setItems(prev => {
       const next = [...prev]
       next[idx] = { ...next[idx], [field]: value }
-      if (field === 'qty' || field === 'price' || field === 'is_free') {
+      if (field === 'qty' || field === 'price' || field === 'is_free' || field === 'jam_per_sesi') {
         const item = next[idx]
-        next[idx].amount = item.is_free ? 0 : Number(item.qty) * Number(item.price)
+        next[idx].amount = item.is_free ? 0 : Number(item.qty) * Number(item.jam_per_sesi) * Number(item.price)
       }
       return next
     })
@@ -160,11 +160,12 @@ export default function InvoicePanel({ profile }: { profile: any }) {
     if (!form.invoice_number || !form.brand) { setError('Nomor invoice dan brand wajib diisi'); return }
     setSaving(true); setError('')
     const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { pph_pct: _pph, ...formRest } = form
     const payload = {
-      ...form,
+      ...formRest,
       discount_pct: Number(form.discount_pct),
       ppn_pct: Number(form.ppn_pct),
-      pph_pct: Number(form.pph_pct),
       sub_total: subTotal,
       total_amount: totalAmount,
     }
@@ -310,7 +311,7 @@ export default function InvoicePanel({ profile }: { profile: any }) {
                       className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"/>
                   </div>
                   <div>
-                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Harga/Sesi</label>
+                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Harga/Jam</label>
                     <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-brand-400 bg-white">
                       <span className="px-1.5 py-2 bg-gray-50 text-[10px] text-gray-400 border-r border-gray-200 font-semibold">Rp</span>
                       <input type="number" min="0" value={item.price} disabled={item.is_free}
