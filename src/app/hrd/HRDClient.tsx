@@ -10,7 +10,6 @@ type Tab = 'hosts' | 'gaji'
 interface Host {
   id: string
   full_name: string
-  email?: string
   phone?: string
   alamat?: string
   nik_id?: string
@@ -47,7 +46,7 @@ function HostListTab() {
   useEffect(() => {
     const supabase = createClient()
     supabase.from('profiles')
-      .select('id, full_name, email, phone, alamat, nik_id, ktp_photo_url, gdrive_ktp_url, tipe_host, target_hours, is_active, created_at')
+      .select('id, full_name, phone, alamat, nik_id, ktp_photo_url, gdrive_ktp_url, tipe_host, target_hours, is_active, created_at')
       .eq('role', 'host')
       .order('full_name')
       .then(({ data }) => {
@@ -167,7 +166,7 @@ function HostListTab() {
                       <td className="px-4 py-3 text-xs text-gray-400">{idx + 1}</td>
                       <td className="px-4 py-3">
                         <p className="font-semibold text-gray-900">{host.full_name}</p>
-                        {host.email && <p className="text-[10px] text-gray-400">{host.email}</p>}
+                        {host.phone && <p className="text-[10px] text-gray-400">{host.phone}</p>}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
