@@ -15,7 +15,12 @@ export async function POST(req: Request) {
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
 
-  // Delete the profile first (so they're locked out even if auth delete fails)
+  // Null out host references so FK constraints don't block profile deletion
+  // (data is preserved — jadwal & laporan still exist, just without a host link)
+  await admin.from('schedule_slots').update({ host_id: null } as any).eq('host_id', host_id)
+  await admin.from('live_reports').update({ host_id: null } as any).eq('host_id', host_id)
+
+  // Delete the profile row
   const { error: profErr } = await admin.from('profiles').delete().eq('id', host_id)
   if (profErr) {
     return NextResponse.json({ error: profErr.message }, { status: 400 })

@@ -134,6 +134,9 @@ function HostListTab() {
     if (res.ok) {
       setHosts(prev => prev.filter(h => h.id !== deleteHost.id))
       setDeleteHost(null)
+    } else {
+      const body = await res.json().catch(() => ({}))
+      alert('Gagal hapus host: ' + (body.error || res.statusText))
     }
   }
 
