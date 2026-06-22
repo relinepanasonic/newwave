@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 
 // Permanently remove a host (e.g. fired): deletes profile row + auth user.
 export async function POST(req: Request) {
-  const { host_id } = await req.json()
+  const { host_id, clear_data = false } = await req.json()
 
   if (!host_id) {
     return NextResponse.json({ error: 'host_id wajib diisi' }, { status: 400 })
@@ -15,18 +15,29 @@ export async function POST(req: Request) {
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
 
-  // Null out host references so FK constraints don't block profile deletion
-  // (data is preserved — jadwal & laporan still exist, just without a host link)
-  await admin.from('schedule_slots').update({ host_id: null } as any).eq('host_id', host_id)
-  await admin.from('live_reports').update({ host_id: null } as any).eq('host_id', host_id)
+  // 1. Null created_by references (always nullable)
+  await admin.from('schedule_slots').update({ created_by: null } as any).eq('created_by', host_id)
+  await admin.from('brand_products').update({ created_by: null } as any).eq('created_by', host_id)
 
-  // Delete the profile row
+  // 2. check_ins.host_id is NOT NULL — must delete these rows regardless
+  await admin.from('check_ins').delete().eq('host_id', host_id)
+
+  // 3. schedule_slots + live_reports: delete or detach based on user choice
+  if (clear_data) {
+    await admin.from('schedule_slots').delete().eq('host_id', host_id)
+    await admin.from('live_reports').delete().eq('host_id', host_id)
+  } else {
+    await admin.from('schedule_slots').update({ host_id: null } as any).eq('host_id', host_id)
+    await admin.from('live_reports').update({ host_id: null } as any).eq('host_id', host_id)
+  }
+
+  // 4. Delete the profile row
   const { error: profErr } = await admin.from('profiles').delete().eq('id', host_id)
   if (profErr) {
     return NextResponse.json({ error: profErr.message }, { status: 400 })
   }
 
-  // Delete the auth user (non-fatal if already gone)
+  // 5. Delete the auth user (non-fatal if already gone)
   await admin.auth.admin.deleteUser(host_id)
 
   return NextResponse.json({ success: true })

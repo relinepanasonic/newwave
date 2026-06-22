@@ -51,6 +51,7 @@ function HostListTab() {
   // Delete (fired) confirmation
   const [deleteHost, setDeleteHost] = useState<Host | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [clearData, setClearData] = useState(false)
 
   useEffect(() => {
     const supabase = createClient()
@@ -128,12 +129,13 @@ function HostListTab() {
     const res = await fetch('/api/delete-host', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ host_id: deleteHost.id }),
+      body: JSON.stringify({ host_id: deleteHost.id, clear_data: clearData }),
     })
     setDeleting(false)
     if (res.ok) {
       setHosts(prev => prev.filter(h => h.id !== deleteHost.id))
       setDeleteHost(null)
+      setClearData(false)
     } else {
       const body = await res.json().catch(() => ({}))
       alert('Gagal hapus host: ' + (body.error || res.statusText))
@@ -361,7 +363,7 @@ function HostListTab() {
 
       {/* Delete (fired) confirmation modal */}
       {deleteHost && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !deleting && setDeleteHost(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !deleting && (setDeleteHost(null), setClearData(false))}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2.5">
               <div className="w-9 h-9 bg-red-50 rounded-xl flex items-center justify-center">
@@ -374,10 +376,27 @@ function HostListTab() {
             </div>
             <div className="p-5 space-y-3">
               <p className="text-xs text-gray-500">
-                Akun host ini akan dihapus permanen (fired). Data jadwal & laporan lama tetap tersimpan, tapi host tidak bisa login lagi. Tindakan ini tidak bisa dibatalkan.
+                Akun host ini akan dihapus permanen (fired). Tindakan ini tidak bisa dibatalkan.
               </p>
+              {/* Toggle: clear data or keep history */}
+              <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                clearData ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-gray-50'
+              }`}>
+                <input type="checkbox" checked={clearData} onChange={e => setClearData(e.target.checked)}
+                  className="mt-0.5 accent-red-500 w-4 h-4 flex-shrink-0"/>
+                <div>
+                  <p className={`text-xs font-semibold ${clearData ? 'text-red-700' : 'text-gray-700'}`}>
+                    Hapus jadwal &amp; laporan
+                  </p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">
+                    {clearData
+                      ? 'Semua jadwal dan laporan host ini akan ikut dihapus.'
+                      : 'Default: jadwal & laporan tetap tersimpan, hanya akun yang dihapus.'}
+                  </p>
+                </div>
+              </label>
               <div className="flex gap-2.5 pt-1">
-                <button onClick={() => setDeleteHost(null)} disabled={deleting}
+                <button onClick={() => { setDeleteHost(null); setClearData(false) }} disabled={deleting}
                   className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors">
                   Batal
                 </button>
