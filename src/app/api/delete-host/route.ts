@@ -17,9 +17,14 @@ export async function POST(req: Request) {
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
 
-  // Step 1: Null nullable created_by refs (safe to do any time)
+  // Step 1: Null nullable created_by / host refs (safe to do any time).
+  // These FKs default to RESTRICT, so any referencing row blocks the delete
+  // unless we clear it first — even though the columns are nullable.
   await admin.from('schedule_slots').update({ created_by: null } as any).eq('created_by', host_id)
   await admin.from('brand_products').update({ created_by: null } as any).eq('created_by', host_id)
+  await admin.from('invoices').update({ created_by: null } as any).eq('created_by', host_id)
+  await admin.from('onboarding_invites').update({ host_id: null } as any).eq('host_id', host_id)
+  await admin.from('onboarding_invites').update({ created_by: null } as any).eq('created_by', host_id)
 
   // Step 2: Delete check_ins — host_id is NOT NULL (no cascade), must delete rows
   await admin.from('check_ins').delete().eq('host_id', host_id)
