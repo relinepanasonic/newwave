@@ -1,7 +1,10 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
+import * as XLSX from 'xlsx'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Save, X, Pencil, Trash2, Package, Search } from 'lucide-react'
+import { Plus, Save, X, Pencil, Trash2, Package, Search, Upload } from 'lucide-react'
+
+type Platform = 'Shopee' | 'TikTok'
 
 interface BrandProduct {
   id: string
@@ -9,6 +12,7 @@ interface BrandProduct {
   name: string
   sku: string | null
   price: number
+  platform: string | null
   is_active: boolean
   created_at: string
 }
@@ -19,7 +23,12 @@ function fmtRp(n: number) {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n)
 }
 
-const EMPTY = { name: '', sku: '', price: 0 }
+const PLATFORM_BADGE: Record<string, string> = {
+  Shopee: 'bg-orange-100 text-orange-700',
+  TikTok: 'bg-gray-900 text-white',
+}
+
+const EMPTY = { name: '', sku: '', price: 0, platform: '' }
 
 export default function ProductEtalasePanel({ profile }: { profile: any }) {
   const [brands, setBrands] = useState<ClientProfile[]>([])
@@ -27,6 +36,7 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
   const [products, setProducts] = useState<BrandProduct[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [platformFilter, setPlatformFilter] = useState<'all' | Platform>('all')
 
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -34,6 +44,15 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
+  // Import-from-file modal
+  const [showImport, setShowImport] = useState(false)
+  const [importPlatform, setImportPlatform] = useState<Platform>('Shopee')
+  const [importFileName, setImportFileName] = useState('')
+  const [importNames, setImportNames] = useState<string[]>([])
+  const [importing, setImporting] = useState(false)
+  const [importError, setImportError] = useState('')
+  const [importDone, setImportDone] = useState<string | null>(null)
 
   // Load client brands once
   useEffect(() => {
@@ -65,7 +84,7 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
   }
   function openEdit(p: BrandProduct) {
     setEditingId(p.id)
-    setForm({ name: p.name, sku: p.sku || '', price: p.price })
+    setForm({ name: p.name, sku: p.sku || '', price: p.price, platform: p.platform || '' })
     setError(''); setShowForm(true)
   }
   function cancelForm() {
@@ -82,6 +101,7 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
       name: form.name.trim(),
       sku: form.sku.trim() || null,
       price: Number(form.price) || 0,
+      platform: form.platform || null,
     }
     if (editingId) {
       const { error: err } = await supabase.from('brand_products').update(payload).eq('id', editingId)
@@ -109,12 +129,82 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
     setConfirmDeleteId(null)
   }
 
+  // ── Import from Shopee CSV / TikTok XLSX ──────────────────────────────────
+  function openImport() {
+    setImportPlatform('Shopee'); setImportFileName(''); setImportNames([])
+    setImportError(''); setImportDone(null); setShowImport(true)
+  }
+
+  // Only the product-name column is scraped; everything else is ignored.
+  async function handleFile(file: File) {
+    setImportError(''); setImportDone(null); setImportNames([]); setImportFileName(file.name)
+    try {
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(new Uint8Array(buf), { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: '' })
+      if (!rows.length) { setImportError('File kosong atau tidak terbaca'); return }
+
+      const headers = Object.keys(rows[0])
+      const wanted = importPlatform === 'Shopee' ? 'produk' : 'product name'
+      let col = headers.find(h => h.trim().toLowerCase() === wanted)
+      if (!col) col = headers.find(h => h.trim().toLowerCase().includes(wanted))
+      if (!col) col = headers.find(h => /produk|product\s*name/i.test(h))
+      if (!col) {
+        setImportError(`Kolom nama produk tidak ditemukan. Kolom: ${headers.slice(0, 6).join(', ')}…`)
+        return
+      }
+
+      // Unique (case-insensitive) within the file
+      const seen = new Set<string>()
+      const names: string[] = []
+      for (const r of rows) {
+        const name = String(r[col!] ?? '').trim()
+        if (!name) continue
+        const key = name.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        names.push(name)
+      }
+      if (!names.length) { setImportError('Tidak ada nama produk di kolom tersebut'); return }
+      setImportNames(names)
+    } catch (e: any) {
+      setImportError('Gagal membaca file: ' + (e?.message || 'format tidak didukung'))
+    }
+  }
+
+  // Names already in the catalog for this brand (case-insensitive) are skipped
+  const existingNameSet = useMemo(
+    () => new Set(products.map(p => p.name.trim().toLowerCase())), [products])
+  const newImportNames = useMemo(
+    () => importNames.filter(n => !existingNameSet.has(n.toLowerCase())),
+    [importNames, existingNameSet])
+
+  async function runImport() {
+    if (!selectedBrand || newImportNames.length === 0) return
+    setImporting(true); setImportError('')
+    const rows = newImportNames.map(name => ({
+      brand: selectedBrand, name, platform: importPlatform,
+      is_active: true, created_by: profile.id,
+    }))
+    const { data, error: err } = await createClient()
+      .from('brand_products').insert(rows).select()
+    setImporting(false)
+    if (err) { setImportError(err.message); return }
+    setProducts(prev => [...(data as BrandProduct[]), ...prev])
+    const skipped = importNames.length - newImportNames.length
+    setImportDone(`${data?.length || 0} produk diimpor${skipped > 0 ? `, ${skipped} duplikat dilewati` : ''}.`)
+    setImportNames([]); setImportFileName('')
+  }
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return products
-    return products.filter(p =>
-      p.name.toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q))
-  }, [products, search])
+    return products.filter(p => {
+      if (platformFilter !== 'all' && p.platform !== platformFilter) return false
+      if (!q) return true
+      return p.name.toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q)
+    })
+  }, [products, search, platformFilter])
 
   const activeCount = products.filter(p => p.is_active).length
 
@@ -127,10 +217,16 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
             Katalog produk per brand — sumber untuk laporan live & Top 5 produk
           </p>
         </div>
-        <button onClick={openCreate} disabled={!selectedBrand}
-          className="flex items-center gap-2 bg-brand-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-brand-700 disabled:opacity-50 transition-colors shadow-sm">
-          <Plus size={15}/> Tambah Produk
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={openImport} disabled={!selectedBrand}
+            className="flex items-center gap-2 border border-gray-200 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 transition-colors">
+            <Upload size={15}/> Import
+          </button>
+          <button onClick={openCreate} disabled={!selectedBrand}
+            className="flex items-center gap-2 bg-brand-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-brand-700 disabled:opacity-50 transition-colors shadow-sm">
+            <Plus size={15}/> Tambah Produk
+          </button>
+        </div>
       </div>
 
       {/* Brand selector + search */}
@@ -144,6 +240,16 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
           <Search size={14} className="text-gray-300"/>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cari produk..."
             className="flex-1 text-sm focus:outline-none"/>
+        </div>
+        <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl">
+          {(['all', 'Shopee', 'TikTok'] as const).map(p => (
+            <button key={p} onClick={() => setPlatformFilter(p)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                platformFilter === p ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}>
+              {p === 'all' ? 'Semua' : p}
+            </button>
+          ))}
         </div>
         {selectedBrand && (
           <span className="text-xs text-gray-400">{activeCount} aktif · {products.length} total</span>
@@ -167,6 +273,15 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
               <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                 placeholder="Serum Vitamin C 30ml"
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Platform</label>
+              <select value={form.platform} onChange={e => setForm(f => ({ ...f, platform: e.target.value }))}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+                <option value="">—</option>
+                <option value="Shopee">Shopee</option>
+                <option value="TikTok">TikTok</option>
+              </select>
             </div>
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">SKU / Kode</label>
@@ -221,6 +336,7 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
                 <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
                   <th className="px-4 py-3 text-left font-semibold w-8">No</th>
                   <th className="px-4 py-3 text-left font-semibold min-w-[200px]">Produk</th>
+                  <th className="px-4 py-3 text-left font-semibold min-w-[90px]">Platform</th>
                   <th className="px-4 py-3 text-left font-semibold min-w-[110px]">SKU</th>
                   <th className="px-4 py-3 text-right font-semibold min-w-[120px]">Harga</th>
                   <th className="px-4 py-3 text-center font-semibold min-w-[80px]">Status</th>
@@ -234,6 +350,13 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
                     <tr key={p.id} className={`hover:bg-gray-50/60 transition-colors ${!p.is_active ? 'opacity-50' : ''}`}>
                       <td className="px-4 py-3 text-xs text-gray-400">{idx + 1}</td>
                       <td className="px-4 py-3 font-semibold text-gray-900">{p.name}</td>
+                      <td className="px-4 py-3">
+                        {p.platform ? (
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${PLATFORM_BADGE[p.platform] || 'bg-gray-100 text-gray-500'}`}>
+                            {p.platform}
+                          </span>
+                        ) : <span className="text-xs text-gray-300">—</span>}
+                      </td>
                       <td className="px-4 py-3 text-xs font-mono text-gray-500">{p.sku || <span className="text-gray-300">—</span>}</td>
                       <td className="px-4 py-3 text-right text-gray-700">{p.price > 0 ? fmtRp(p.price) : <span className="text-gray-300">—</span>}</td>
                       <td className="px-4 py-3 text-center">
@@ -271,6 +394,106 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Import modal */}
+      {showImport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !importing && setShowImport(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 bg-brand-50 rounded-xl flex items-center justify-center">
+                  <Upload size={16} className="text-brand-600"/>
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 text-sm">Import Produk</h3>
+                  <p className="text-[11px] text-gray-400">{selectedBrand} — hanya nama produk yang diambil</p>
+                </div>
+              </div>
+              <button onClick={() => setShowImport(false)} className="p-1.5 rounded-lg hover:bg-gray-100">
+                <X size={16} className="text-gray-400"/>
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              {/* Platform picker */}
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Platform</label>
+                <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+                  {(['Shopee', 'TikTok'] as Platform[]).map(p => (
+                    <button key={p}
+                      onClick={() => { setImportPlatform(p); setImportNames([]); setImportFileName(''); setImportError(''); setImportDone(null) }}
+                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                        importPlatform === p ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                      }`}>
+                      {p}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1.5">
+                  {importPlatform === 'Shopee'
+                    ? 'File CSV Shopee — kolom "Produk"'
+                    : 'File XLSX TikTok — kolom "Product name"'}
+                </p>
+              </div>
+
+              {/* File input */}
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">File</label>
+                <label className="flex items-center gap-2 border border-dashed border-gray-300 rounded-xl px-3 py-3 text-sm text-gray-500 cursor-pointer hover:border-brand-400 hover:bg-brand-50/30 transition-colors">
+                  <Upload size={14} className="text-gray-400"/>
+                  <span className="truncate">{importFileName || 'Pilih file CSV / XLSX...'}</span>
+                  <input type="file" accept=".csv,.xlsx,.xls" className="hidden"
+                    onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }}/>
+                </label>
+              </div>
+
+              {importError && (
+                <div className="flex items-start gap-2.5 bg-red-50 border border-red-100 rounded-xl px-4 py-2.5">
+                  <X size={14} className="text-red-500 flex-shrink-0 mt-0.5"/>
+                  <p className="text-xs text-red-600">{importError}</p>
+                </div>
+              )}
+              {importDone && (
+                <div className="flex items-center gap-2.5 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2.5">
+                  <Package size={14} className="text-emerald-500 flex-shrink-0"/>
+                  <p className="text-xs text-emerald-700">{importDone}</p>
+                </div>
+              )}
+
+              {importNames.length > 0 && (
+                <div className="bg-gray-50 rounded-xl border border-gray-100 p-3">
+                  <div className="flex items-center justify-between text-xs mb-2">
+                    <span className="text-gray-500">Ditemukan <b className="text-gray-800">{importNames.length}</b> produk</span>
+                    <span className="text-brand-600 font-semibold">{newImportNames.length} baru</span>
+                  </div>
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {importNames.slice(0, 30).map((n, i) => {
+                      const dup = existingNameSet.has(n.toLowerCase())
+                      return (
+                        <p key={i} className={`text-[11px] truncate ${dup ? 'text-gray-300 line-through' : 'text-gray-600'}`}>{n}</p>
+                      )
+                    })}
+                    {importNames.length > 30 && <p className="text-[10px] text-gray-400">+{importNames.length - 30} lainnya…</p>}
+                  </div>
+                  {importNames.length - newImportNames.length > 0 && (
+                    <p className="text-[10px] text-gray-400 mt-2">{importNames.length - newImportNames.length} duplikat (sudah ada) akan dilewati</p>
+                  )}
+                </div>
+              )}
+
+              <div className="flex gap-2.5 pt-1">
+                <button onClick={() => setShowImport(false)} disabled={importing}
+                  className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50">
+                  Tutup
+                </button>
+                <button onClick={runImport} disabled={importing || newImportNames.length === 0}
+                  className="flex-1 bg-brand-600 text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-brand-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                  <Upload size={14}/> {importing ? 'Mengimpor...' : `Import ${newImportNames.length} Produk`}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -11,11 +11,15 @@ create table if not exists public.brand_products (
   name        text not null,
   sku         text,
   price       numeric(12,0) default 0,
+  platform    text,                 -- 'Shopee' | 'TikTok' | null
   image_url   text,
   is_active   boolean default true,
   created_by  uuid references public.profiles(id) on delete set null,
   created_at  timestamptz default now()
 );
+
+-- If the table already existed, add the platform column:
+alter table public.brand_products add column if not exists platform text;
 
 create index if not exists brand_products_brand_idx on public.brand_products (brand);
 
