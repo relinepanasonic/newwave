@@ -23,6 +23,10 @@ function fmtNum(n: number) {
 function fmtShortDate(s: string) {
   return new Date(s + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
 }
+// Trim trailing .0 → "155" not "155.0", but keep "12.5"
+function trimH(n: number) {
+  return Number(n.toFixed(1)).toString()
+}
 function getMonthOptions() {
   const months = []
   for (let i = 0; i < 6; i++) {
@@ -201,7 +205,7 @@ export default function HostDashboard({ profile }: { profile: any }) {
             {[
               { label: 'Total Live', value: totalLive, sub: 'sesi bulan ini', ib: 'bg-blue-50', ic: 'text-blue-500', icon: Bell },
               { label: 'Live Sukses', value: liveSucceed, sub: `${successPct}% laporan`, ib: 'bg-emerald-50', ic: 'text-emerald-500', icon: Target },
-              { label: 'Target Jam', value: `${periodHours.toFixed(1)}j`, sub: `dari ${targetHours} jam`, ib: 'bg-brand-50', ic: 'text-brand-500', icon: Target },
+              { label: 'Target Jam', value: `${trimH(periodHours)}j`, sub: `dari ${targetHours} jam`, ib: 'bg-brand-50', ic: 'text-brand-500', icon: Target },
               { label: 'Total GMV', value: fmtGMV(totalGmv), sub: 'bulan ini', ib: 'bg-purple-50', ic: 'text-purple-500', icon: Bell },
             ].map(({ label, value, sub, ib, ic, icon: Icon }) => (
               <div key={label} className="bg-white rounded-2xl border border-gray-100 p-3.5 hover:shadow-sm transition-shadow">
@@ -218,10 +222,10 @@ export default function HostDashboard({ profile }: { profile: any }) {
           </div>
         </div>
 
-        {/* Traffic chart — PROMINENT (full width, main focal point) */}
+        {/* GMV chart — PROMINENT (full width, top focal point) */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-          <h2 className="font-bold text-gray-900 text-sm">Traffic per Hari</h2>
-          <p className="text-xs text-gray-400 mb-3">Impresi · Penonton · Komentar</p>
+          <h2 className="font-bold text-gray-900 text-sm">GMV per Hari</h2>
+          <p className="text-xs text-gray-400 mb-3">Pendapatan dari laporan live</p>
           {emptyChart ? (
             <div className="h-[130px] flex items-center justify-center text-sm text-gray-300">Belum ada laporan bulan ini</div>
           ) : (
@@ -229,23 +233,42 @@ export default function HostDashboard({ profile }: { profile: any }) {
               <LineChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
                 <XAxis dataKey="date" tickFormatter={fmtShortDate} tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false}/>
-                <YAxis tickFormatter={(v: any) => fmtNum(Number(v))} tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} width={36}/>
-                <Tooltip labelFormatter={(l: any) => fmtShortDate(String(l))} contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}/>
-                <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 10 }}/>
-                <Line type="monotone" dataKey="impression" name="Impresi" stroke="#3b82f6" strokeWidth={2} dot={{ r: 2 }}/>
-                <Line type="monotone" dataKey="viewer" name="Penonton" stroke="#10b981" strokeWidth={2} dot={{ r: 2 }}/>
-                <Line type="monotone" dataKey="comment" name="Komentar" stroke="#f59e0b" strokeWidth={2} dot={{ r: 2 }}/>
+                <YAxis tickFormatter={(v: any) => fmtGMV(Number(v)).replace('Rp', '')} tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} width={40}/>
+                <Tooltip formatter={(v: any) => [`Rp${Number(v).toLocaleString('id-ID')}`, 'GMV']}
+                  labelFormatter={(l: any) => fmtShortDate(String(l))} contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}/>
+                <Line type="monotone" dataKey="gmv" name="GMV" stroke="#7c3aed" strokeWidth={2.5} dot={{ r: 2 }} activeDot={{ r: 4 }}/>
               </LineChart>
             </ResponsiveContainer>
           )}
         </div>
 
-        {/* Gauge + GMV (smaller, below traffic) */}
+        {/* Traffic + success gauge (smaller, below GMV) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <h2 className="font-bold text-gray-900 text-sm">Traffic per Hari</h2>
+            <p className="text-xs text-gray-400 mb-2">Impresi · Penonton · Komentar</p>
+            {emptyChart ? (
+              <div className="h-[110px] flex items-center justify-center text-xs text-gray-300">Belum ada data</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={130}>
+                <LineChart data={chartData} margin={{ top: 5, right: 5, left: -10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                  <XAxis dataKey="date" tickFormatter={fmtShortDate} tick={{ fontSize: 9, fill: '#9ca3af' }} tickLine={false}/>
+                  <YAxis tickFormatter={(v: any) => fmtNum(Number(v))} tick={{ fontSize: 9, fill: '#9ca3af' }} tickLine={false} axisLine={false} width={32}/>
+                  <Tooltip labelFormatter={(l: any) => fmtShortDate(String(l))} contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}/>
+                  <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 9 }}/>
+                  <Line type="monotone" dataKey="impression" name="Impresi" stroke="#3b82f6" strokeWidth={2} dot={false}/>
+                  <Line type="monotone" dataKey="viewer" name="Penonton" stroke="#10b981" strokeWidth={2} dot={false}/>
+                  <Line type="monotone" dataKey="comment" name="Komentar" stroke="#f59e0b" strokeWidth={2} dot={false}/>
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
             <h2 className="font-bold text-gray-900 text-sm">Tingkat Sukses</h2>
             <div className="relative">
-              <ResponsiveContainer width="100%" height={110}>
+              <ResponsiveContainer width="100%" height={130}>
                 <PieChart>
                   <Pie data={gaugeData} cx="50%" cy="100%" startAngle={180} endAngle={0}
                     innerRadius="55%" outerRadius="85%" dataKey="value" strokeWidth={0}
@@ -260,25 +283,6 @@ export default function HostDashboard({ profile }: { profile: any }) {
               </div>
             </div>
           </div>
-
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-            <h2 className="font-bold text-gray-900 text-sm">GMV per Hari</h2>
-            <p className="text-xs text-gray-400 mb-2">Pendapatan dari laporan live</p>
-            {emptyChart ? (
-              <div className="h-[90px] flex items-center justify-center text-xs text-gray-300">Belum ada data</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={110}>
-                <LineChart data={chartData} margin={{ top: 5, right: 5, left: -10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
-                  <XAxis dataKey="date" tickFormatter={fmtShortDate} tick={{ fontSize: 9, fill: '#9ca3af' }} tickLine={false}/>
-                  <YAxis tickFormatter={(v: any) => fmtGMV(Number(v)).replace('Rp', '')} tick={{ fontSize: 9, fill: '#9ca3af' }} tickLine={false} axisLine={false} width={36}/>
-                  <Tooltip formatter={(v: any) => [`Rp${Number(v).toLocaleString('id-ID')}`, 'GMV']}
-                    labelFormatter={(l: any) => fmtShortDate(String(l))} contentStyle={{ fontSize: 11, borderRadius: 8 }}/>
-                  <Line type="monotone" dataKey="gmv" stroke="#7c3aed" strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }}/>
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </div>
         </div>
 
         {/* Target progress bar */}
@@ -288,15 +292,15 @@ export default function HostDashboard({ profile }: { profile: any }) {
               <Target size={14} className="text-brand-600"/>
               <span className="font-bold text-gray-900 text-sm">Target Jam Live</span>
             </div>
-            <span className="text-sm font-bold text-brand-700">{periodHours.toFixed(1)} / {targetHours} jam</span>
+            <span className="text-sm font-bold text-brand-700">{trimH(periodHours)} / {targetHours} jam</span>
           </div>
           <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
             <div className="h-full bg-gradient-to-r from-brand-500 to-brand-600 rounded-full transition-all duration-700"
               style={{ width: `${progress}%` }}/>
           </div>
           <div className="flex justify-between text-[10px] text-gray-400 mt-1">
-            <span>{progress.toFixed(1)}% tercapai</span>
-            <span>{Math.max(targetHours - periodHours, 0).toFixed(1)} jam lagi · {payPeriod.label}</span>
+            <span>{trimH(progress)}% tercapai</span>
+            <span>{trimH(Math.max(targetHours - periodHours, 0))} jam lagi · {payPeriod.label}</span>
           </div>
         </div>
 

@@ -8,7 +8,15 @@ import { ChevronDown, ChevronUp } from 'lucide-react'
 type Tab = 'clients' | 'invoice'
 
 interface ClientProfile { id: string; full_name: string; client_brand: string }
-interface ClientMeter { brand: string; clientName: string; slots: number; reports: number }
+interface ClientMeter {
+  brand: string; clientName: string
+  capacityHours: number   // total slot hours purchased (from invoices)
+  planHours: number       // total scheduled live hours
+  successHours: number    // scheduled hours that already have a live report
+}
+
+// Trim trailing .0 → "150" not "150.0", keep "12.5"
+function trimH(n: number) { return Number(n.toFixed(1)).toString() }
 
 function getMonthOptions() {
   return Array.from({ length: 6 }, (_, i) => {
@@ -32,6 +40,8 @@ function ClientListTab() {
   const monthOptions = getMonthOptions()
   const selectedMonth = monthOptions[monthIdx]
 
+  // Capacity (slot purchased) and usage are cumulative balances → fetched all-time,
+  // independent of the month dropdown (which only scopes the jadwal table below).
   useEffect(() => {
     const supabase = createClient()
     setLoading(true)
@@ -40,39 +50,52 @@ function ClientListTab() {
         .eq('role', 'client').not('client_brand', 'is', null)
         .then(({ data }) => (data || []) as ClientProfile[]),
       supabase.from('schedule_slots')
-        .select('id, brand, slot_date, session_no, profiles:host_id(full_name)')
+        .select('id, brand, slot_date, session_no, durasi, profiles:host_id(full_name)')
         .not('host_id', 'is', null)
-        .gte('slot_date', selectedMonth.start).lte('slot_date', selectedMonth.end)
         .order('slot_date')
         .then(({ data }) => data || []),
-      supabase.from('live_reports').select('id, brand')
-        .gte('report_date', selectedMonth.start).lte('report_date', selectedMonth.end)
+      supabase.from('live_reports').select('id, slot_id, brand')
         .then(({ data }) => data || []),
-    ]).then(([clients, slots, reports]) => {
-      const slotsByBrand: Record<string, number> = {}
+      supabase.from('invoices').select('brand, invoice_items(jam_per_sesi, qty)')
+        .then(({ data }) => data || []),
+    ]).then(([clients, slots, reports, invoices]) => {
+      // Slot capacity (hours) purchased per brand = Σ(jam_per_sesi × qty) over invoice items
+      const capacityByBrand: Record<string, number> = {}
+      ;(invoices as any[]).forEach((inv: any) => {
+        if (!inv.brand) return
+        const hrs = (inv.invoice_items || []).reduce(
+          (s: number, it: any) => s + (Number(it.jam_per_sesi) || 0) * (Number(it.qty) || 0), 0)
+        capacityByBrand[inv.brand] = (capacityByBrand[inv.brand] || 0) + hrs
+      })
+
+      // Which slots already have a live report (success)
+      const reportedSlotIds = new Set(
+        (reports as any[]).map((r: any) => r.slot_id).filter(Boolean))
+
+      const planByBrand: Record<string, number> = {}
+      const successByBrand: Record<string, number> = {}
       const scheduleMap: Record<string, any[]> = {}
-      slots.forEach((s: any) => {
+      ;(slots as any[]).forEach((s: any) => {
         if (!s.brand) return
-        slotsByBrand[s.brand] = (slotsByBrand[s.brand] || 0) + 1
+        const dur = Number(s.durasi) || 1
+        planByBrand[s.brand] = (planByBrand[s.brand] || 0) + dur
+        if (reportedSlotIds.has(s.id))
+          successByBrand[s.brand] = (successByBrand[s.brand] || 0) + dur
         if (!scheduleMap[s.brand]) scheduleMap[s.brand] = []
         scheduleMap[s.brand].push(s)
       })
       setScheduleByBrand(scheduleMap)
 
-      const reportsByBrand: Record<string, number> = {}
-      reports.forEach((r: any) => {
-        if (r.brand) reportsByBrand[r.brand] = (reportsByBrand[r.brand] || 0) + 1
-      })
-
       setMeters(clients.map(c => ({
         brand: c.client_brand,
         clientName: c.full_name,
-        slots: slotsByBrand[c.client_brand] || 0,
-        reports: reportsByBrand[c.client_brand] || 0,
+        capacityHours: capacityByBrand[c.client_brand] || 0,
+        planHours: planByBrand[c.client_brand] || 0,
+        successHours: successByBrand[c.client_brand] || 0,
       })))
       setLoading(false)
     })
-  }, [selectedMonth.start, selectedMonth.end])
+  }, [])
 
   return (
     <div className="space-y-5">
@@ -98,9 +121,15 @@ function ClientListTab() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {meters.map(m => {
-            const pct = m.slots > 0 ? Math.round((m.reports / m.slots) * 100) : 0
+            const hasSlot = m.capacityHours > 0
+            const planPct = hasSlot ? Math.round((m.planHours / m.capacityHours) * 100) : 0
+            const successPct = hasSlot ? Math.round((m.successHours / m.capacityHours) * 100) : 0
+            const exceeds = m.planHours > m.capacityHours
             const isExpanded = expandedBrand === m.brand
-            const slots = scheduleByBrand[m.brand] || []
+            const allSlots = scheduleByBrand[m.brand] || []
+            // jadwal table is scoped to the selected month
+            const slots = allSlots.filter((s: any) =>
+              s.slot_date >= selectedMonth.start && s.slot_date <= selectedMonth.end)
             return (
               <div key={m.brand} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="p-4">
@@ -110,21 +139,35 @@ function ClientListTab() {
                       <p className="text-xs text-gray-400 truncate">{m.clientName}</p>
                     </div>
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 ml-2 ${
-                      pct >= 80 ? 'bg-emerald-100 text-emerald-700'
-                        : pct >= 50 ? 'bg-amber-100 text-amber-700'
-                        : 'bg-gray-100 text-gray-500'
+                      exceeds ? 'bg-red-100 text-red-700'
+                        : planPct >= 80 ? 'bg-amber-100 text-amber-700'
+                        : 'bg-emerald-100 text-emerald-700'
                     }`}>
-                      {pct}%
+                      {hasSlot ? `${planPct}%` : '—'}
                     </span>
                   </div>
                   <div className="space-y-1.5 mb-3">
-                    <div className="flex justify-between text-xs text-gray-500">
-                      <span>Live Sukses</span>
-                      <span className="font-semibold text-gray-800">{m.reports} / {m.slots} sesi</span>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">Usage</span>
+                      <span className="font-semibold text-gray-800">
+                        {hasSlot ? `${trimH(m.planHours)} / ${trimH(m.capacityHours)} jam` : 'Belum ada slot'}
+                      </span>
                     </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-brand-500 rounded-full transition-all duration-500"
-                        style={{ width: m.slots > 0 ? `${Math.min(pct, 100)}%` : '0%' }}/>
+                    {/* Stacked bar: orange = total plan (low opacity), red = live sukses */}
+                    <div className="relative h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="absolute inset-y-0 left-0 bg-orange-400/30 rounded-full transition-all duration-500"
+                        style={{ width: hasSlot ? `${Math.min(planPct, 100)}%` : '0%' }}/>
+                      <div className="absolute inset-y-0 left-0 bg-red-500 rounded-full transition-all duration-500"
+                        style={{ width: hasSlot ? `${Math.min(successPct, 100)}%` : '0%' }}/>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-gray-400">
+                      <span className="flex items-center gap-2.5">
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"/>Sukses {trimH(m.successHours)}j</span>
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400/50"/>Plan {trimH(m.planHours)}j</span>
+                      </span>
+                      {exceeds && (
+                        <span className="text-red-600 font-bold">Lewat {trimH(m.planHours - m.capacityHours)}j!</span>
+                      )}
                     </div>
                   </div>
                   {slots.length > 0 && (

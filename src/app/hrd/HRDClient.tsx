@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
-import { Download, ExternalLink, Save, X, Edit2, Ban, CheckCircle, FileText } from 'lucide-react'
+import { Download, ExternalLink, Save, X, Edit2, CheckCircle, FileText, Plane, Trash2 } from 'lucide-react'
 import { formatCurrency, getPayPeriod } from '@/lib/utils'
 
 type Tab = 'hosts' | 'gaji'
@@ -43,6 +43,15 @@ function HostListTab() {
   const [saving, setSaving] = useState(false)
   const [blockingId, setBlockingId] = useState<string | null>(null)
 
+  // Cuti (on-leave) modal
+  const [cutiHost, setCutiHost] = useState<Host | null>(null)
+  const [cutiReason, setCutiReason] = useState('')
+  const [cutiSaving, setCutiSaving] = useState(false)
+
+  // Delete (fired) confirmation
+  const [deleteHost, setDeleteHost] = useState<Host | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
   useEffect(() => {
     const supabase = createClient()
     supabase.from('profiles')
@@ -77,15 +86,54 @@ function HostListTab() {
     }
   }
 
-  async function toggleBlock(host: Host) {
-    const newActive = !host.is_active
+  // Reactivate a host who is on leave
+  async function reactivate(host: Host) {
     setBlockingId(host.id)
     const { error } = await createClient().from('profiles')
-      .update({ is_active: newActive })
+      .update({ is_active: true })
       .eq('id', host.id)
     setBlockingId(null)
     if (!error) {
-      setHosts(prev => prev.map(h => h.id === host.id ? { ...h, is_active: newActive } : h))
+      setHosts(prev => prev.map(h => h.id === host.id ? { ...h, is_active: true } : h))
+    }
+  }
+
+  // Set a host on leave (Cuti). is_active=false is the reliable access flag;
+  // the leave reason is stored best-effort (requires optional leave_reason column).
+  async function confirmCuti() {
+    if (!cutiHost) return
+    setCutiSaving(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('profiles')
+      .update({ is_active: false })
+      .eq('id', cutiHost.id)
+    // Best-effort: persist reason if the column exists (ignored otherwise)
+    if (cutiReason.trim()) {
+      await supabase.from('profiles')
+        .update({ leave_reason: cutiReason.trim() } as any)
+        .eq('id', cutiHost.id)
+        .then(() => {}, () => {})
+    }
+    setCutiSaving(false)
+    if (!error) {
+      setHosts(prev => prev.map(h => h.id === cutiHost.id ? { ...h, is_active: false } : h))
+      setCutiHost(null); setCutiReason('')
+    }
+  }
+
+  // Permanently delete a host (fired) via server route (needs service role)
+  async function confirmDelete() {
+    if (!deleteHost) return
+    setDeleting(true)
+    const res = await fetch('/api/delete-host', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ host_id: deleteHost.id }),
+    })
+    setDeleting(false)
+    if (res.ok) {
+      setHosts(prev => prev.filter(h => h.id !== deleteHost.id))
+      setDeleteHost(null)
     }
   }
 
@@ -172,7 +220,7 @@ function HostListTab() {
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
                           isBlocked ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-700'
                         }`}>
-                          {isBlocked ? 'Nonaktif' : 'Aktif'}
+                          {isBlocked ? 'Cuti' : 'Aktif'}
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -237,16 +285,27 @@ function HostListTab() {
                                 className="p-1.5 bg-gray-100 text-gray-500 rounded-lg hover:bg-brand-100 hover:text-brand-700 transition-colors">
                                 <Edit2 size={13}/>
                               </button>
+                              {isBlocked ? (
+                                <button
+                                  onClick={() => reactivate(host)}
+                                  disabled={blockingId === host.id}
+                                  title="Aktifkan kembali"
+                                  className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors disabled:opacity-50">
+                                  <CheckCircle size={13}/>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => { setCutiHost(host); setCutiReason('') }}
+                                  title="Cuti / On Leave"
+                                  className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-amber-100 hover:text-amber-600 transition-colors">
+                                  <Plane size={13}/>
+                                </button>
+                              )}
                               <button
-                                onClick={() => toggleBlock(host)}
-                                disabled={blockingId === host.id}
-                                title={isBlocked ? 'Aktifkan kembali' : 'Blokir akses'}
-                                className={`p-1.5 rounded-lg transition-colors disabled:opacity-50 ${
-                                  isBlocked
-                                    ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200'
-                                    : 'bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-600'
-                                }`}>
-                                {isBlocked ? <CheckCircle size={13}/> : <Ban size={13}/>}
+                                onClick={() => setDeleteHost(host)}
+                                title="Hapus host (fired)"
+                                className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-600 transition-colors">
+                                <Trash2 size={13}/>
                               </button>
                             </>
                           )}
@@ -257,6 +316,74 @@ function HostListTab() {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Cuti (on-leave) modal */}
+      {cutiHost && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !cutiSaving && setCutiHost(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2.5">
+              <div className="w-9 h-9 bg-amber-50 rounded-xl flex items-center justify-center">
+                <Plane size={16} className="text-amber-500"/>
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 text-sm">Cuti / On Leave</h3>
+                <p className="text-[11px] text-gray-400">{cutiHost.full_name}</p>
+              </div>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-gray-500">Host yang sedang cuti tidak bisa login sampai diaktifkan kembali.</p>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Alasan / Keterangan (opsional)</label>
+                <textarea value={cutiReason} onChange={e => setCutiReason(e.target.value)}
+                  rows={2} placeholder="Cuti melahirkan, sakit, dll."
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"/>
+              </div>
+              <div className="flex gap-2.5 pt-1">
+                <button onClick={() => setCutiHost(null)} disabled={cutiSaving}
+                  className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors">
+                  Batal
+                </button>
+                <button onClick={confirmCuti} disabled={cutiSaving}
+                  className="flex-1 bg-amber-500 text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-amber-600 disabled:opacity-60 transition-colors">
+                  {cutiSaving ? 'Menyimpan...' : 'Set Cuti'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete (fired) confirmation modal */}
+      {deleteHost && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !deleting && setDeleteHost(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2.5">
+              <div className="w-9 h-9 bg-red-50 rounded-xl flex items-center justify-center">
+                <Trash2 size={16} className="text-red-500"/>
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 text-sm">Hapus Host</h3>
+                <p className="text-[11px] text-gray-400">{deleteHost.full_name}</p>
+              </div>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-gray-500">
+                Akun host ini akan dihapus permanen (fired). Data jadwal & laporan lama tetap tersimpan, tapi host tidak bisa login lagi. Tindakan ini tidak bisa dibatalkan.
+              </p>
+              <div className="flex gap-2.5 pt-1">
+                <button onClick={() => setDeleteHost(null)} disabled={deleting}
+                  className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors">
+                  Batal
+                </button>
+                <button onClick={confirmDelete} disabled={deleting}
+                  className="flex-1 bg-red-500 text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-red-600 disabled:opacity-60 transition-colors">
+                  {deleting ? 'Menghapus...' : 'Hapus Permanen'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
