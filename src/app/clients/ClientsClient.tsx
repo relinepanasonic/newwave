@@ -3,9 +3,10 @@ import { useState, useEffect } from 'react'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import InvoicePanel from '@/app/invoice/InvoicePanel'
+import ProductEtalasePanel from './ProductEtalasePanel'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 
-type Tab = 'clients' | 'invoice'
+type Tab = 'clients' | 'invoice' | 'products'
 
 interface ClientProfile { id: string; full_name: string; client_brand: string }
 interface ClientMeter {
@@ -227,17 +228,19 @@ export default function ClientsClient({ profile }: { profile: any }) {
         </div>
 
         <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-5 w-fit">
-          {(['clients', 'invoice'] as Tab[]).map(t => (
+          {(['clients', 'invoice', 'products'] as Tab[]).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
                 tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}>
-              {t === 'clients' ? 'Client List' : 'Invoice'}
+              {t === 'clients' ? 'Client List' : t === 'invoice' ? 'Invoice' : 'Product Etalase'}
             </button>
           ))}
         </div>
 
-        {tab === 'clients' ? <ClientListTab/> : <InvoicePanel profile={profile}/>}
+        {tab === 'clients' ? <ClientListTab/>
+          : tab === 'invoice' ? <InvoicePanel profile={profile}/>
+          : <ProductEtalasePanel profile={profile}/>}
       </div>
     </AppShell>
   )
