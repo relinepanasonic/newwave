@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, cn } from '@/lib/utils'
-import { Plus, X, Save, Pencil, Link2, Copy, Check, Clock, GripVertical } from 'lucide-react'
+import { Plus, X, Save, Pencil, Link2, Copy, Check, Clock, GripVertical, Trash2 } from 'lucide-react'
 
 const TIPE_HOST = ['Regular', 'Silver', 'Gold', 'Platinum', 'Rubi']
 const ROOM_GROUPS = ['Jakarta Puan', 'Luar Puan']
@@ -90,6 +90,14 @@ export default function HostsClient({ profile }: { profile: any }) {
     navigator.clipboard.writeText(link)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  async function deleteInvite(inv: Invite) {
+    if (!confirm(`Hapus link onboarding untuk "${inv.name}"? Link tidak akan bisa dipakai lagi.`)) return
+    const supabase = createClient()
+    const { error } = await supabase.from('onboarding_invites').delete().eq('id', inv.id)
+    if (error) { alert('Gagal menghapus: ' + error.message); return }
+    setInvites(prev => prev.filter(i => i.id !== inv.id))
   }
 
   function resetInviteModal() {
@@ -250,6 +258,10 @@ export default function HostsClient({ profile }: { profile: any }) {
                           <button onClick={() => copyLink(link)}
                             className="flex items-center gap-1.5 text-xs bg-white border border-amber-300 text-amber-700 px-3 py-1.5 rounded-lg hover:bg-amber-100 font-medium">
                             <Copy size={11}/> Salin Link
+                          </button>
+                          <button onClick={() => deleteInvite(inv)} title="Hapus link"
+                            className="flex items-center justify-center text-xs bg-white border border-red-200 text-red-500 p-1.5 rounded-lg hover:bg-red-50">
+                            <Trash2 size={13}/>
                           </button>
                         </div>
                       </div>
