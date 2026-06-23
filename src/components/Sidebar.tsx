@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, CalendarDays, Users,
-  BarChart2, ClipboardList, X, Shield, FileText, Briefcase,
+  BarChart2, ClipboardList, X, Shield, FileText, Briefcase, Sparkles,
 } from 'lucide-react'
 import type { Lang } from '@/lib/i18n'
 import { tr } from '@/lib/i18n'
@@ -30,6 +30,7 @@ const NAV_SUPERADMIN = [
 const NAV_HOST = [
   { key: 'dashboard',   icon: LayoutDashboard, href: '/dashboard' },
   { key: 'myschedule',  icon: CalendarDays,    href: '/my-schedule' },
+  { key: 'pralive',     icon: Sparkles,        href: '/pra-live' },
   { key: 'livereport',  icon: BarChart2,       href: '/live-report' },
 ]
 
@@ -60,14 +61,8 @@ export default function Sidebar({ role, lang = 'id', userName, onClose }: Props)
     <aside className="h-full w-[220px] bg-white border-r border-gray-100 flex flex-col">
       {/* Logo */}
       <div className="px-4 py-4 border-b border-gray-100 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-gradient-to-br from-brand-500 to-brand-700 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
-            <span className="text-white text-xs font-bold tracking-tight">NW</span>
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs font-bold text-gray-900 leading-tight">New Wave</p>
-            <p className="text-[10px] text-gray-400 leading-tight">Live Specialist</p>
-          </div>
+        <div className="flex items-center min-w-0">
+          <img src="/logo.png" alt="New Wave Live Specialist" className="h-10 w-auto object-contain"/>
         </div>
         {onClose && (
           <button

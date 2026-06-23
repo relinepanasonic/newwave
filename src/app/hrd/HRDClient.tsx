@@ -2,10 +2,15 @@
 import { useState, useEffect, useMemo } from 'react'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
-import { Download, ExternalLink, Save, X, Edit2, CheckCircle, FileText, Plane, Trash2 } from 'lucide-react'
+import { Download, ExternalLink, Save, X, Edit2, CheckCircle, FileText, Plane, Trash2, Plus, Wallet } from 'lucide-react'
 import { formatCurrency, getPayPeriod } from '@/lib/utils'
 
-type Tab = 'hosts' | 'gaji'
+type Tab = 'hosts' | 'gaji' | 'kasbon'
+
+interface Kasbon {
+  id: string; host_id: string; amount: number; reason?: string
+  status: string; created_at: string; paid_at?: string
+}
 
 interface Host {
   id: string
@@ -416,16 +421,25 @@ function HostListTab() {
 // ── Gaji Tab ──────────────────────────────────────────────────────────────────
 function GajiTab() {
   const [summary, setSummary] = useState<PayRow[]>([])
+  const [kasbonByHost, setKasbonByHost] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const currentPeriod = getPayPeriod()
   const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod.start.toISOString().split('T')[0].slice(0, 7))
 
   useEffect(() => {
-    createClient().from('payroll_summary').select('*')
-      .then(({ data }) => {
-        setSummary(data || [])
-        setLoading(false)
+    const supabase = createClient()
+    Promise.all([
+      supabase.from('payroll_summary').select('*'),
+      supabase.from('kasbon').select('host_id, amount').eq('status', 'unpaid'),
+    ]).then(([payRes, kasbonRes]) => {
+      setSummary(payRes.data || [])
+      const map: Record<string, number> = {}
+      ;(kasbonRes.data || []).forEach((k: any) => {
+        map[k.host_id] = (map[k.host_id] || 0) + Number(k.amount)
       })
+      setKasbonByHost(map)
+      setLoading(false)
+    })
   }, [])
 
   const periods = useMemo(() => {
@@ -437,6 +451,8 @@ function GajiTab() {
   const filtered = summary.filter((r: PayRow) => r.period_start.slice(0, 7) === selectedPeriod)
   const totalPay = filtered.reduce((s, r) => s + Number(r.total_salary), 0)
   const totalHours = filtered.reduce((s, r) => s + Number(r.total_hours), 0)
+  const totalKasbon = filtered.reduce((s, r) => s + (kasbonByHost[r.host_id] || 0), 0)
+  const totalNet = totalPay - totalKasbon
 
   async function exportExcel() {
     const { utils, writeFile } = await import('xlsx')
@@ -446,6 +462,8 @@ function GajiTab() {
       'Total Jam': Number(r.total_hours).toFixed(2),
       'Sesi': r.session_count,
       'Total Gaji': Number(r.total_salary),
+      'Kasbon': kasbonByHost[r.host_id] || 0,
+      'Gaji Bersih': Number(r.total_salary) - (kasbonByHost[r.host_id] || 0),
       'Periode': periodLabel(r.period_start),
     })))
     const wb = utils.book_new()
@@ -464,6 +482,7 @@ function GajiTab() {
     doc.text(`Nama: ${host.full_name}`, 14, 42)
     doc.text(`Periode: ${periodLabel(host.period_start)}`, 14, 50)
     doc.text(`Tarif/Jam: ${formatCurrency(host.hourly_rate)}`, 14, 58)
+    const kasbon = kasbonByHost[host.host_id] || 0
     autoTable(doc, {
       startY: 68,
       head: [['Keterangan', 'Nilai']],
@@ -471,7 +490,9 @@ function GajiTab() {
         ['Total Sesi', String(host.session_count)],
         ['Total Jam Kerja', `${Number(host.total_hours).toFixed(2)} jam`],
         ['Tarif per Jam', formatCurrency(host.hourly_rate)],
-        ['Total Gaji', formatCurrency(Number(host.total_salary))],
+        ['Total Gaji (Bruto)', formatCurrency(Number(host.total_salary))],
+        ['Potongan Kasbon', `- ${formatCurrency(kasbon)}`],
+        ['Gaji Bersih (Netto)', formatCurrency(Number(host.total_salary) - kasbon)],
       ],
       theme: 'grid',
       headStyles: { fillColor: [109, 40, 217] },
@@ -501,11 +522,12 @@ function GajiTab() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Total Host', value: `${filtered.length}` },
           { label: 'Total Jam', value: `${Number(totalHours.toFixed(1))} jam` },
           { label: 'Total Gaji', value: formatCurrency(totalPay) },
+          { label: 'Total Kasbon', value: formatCurrency(totalKasbon) },
         ].map(({ label, value }) => (
           <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
             <p className="text-xs text-gray-500 font-medium mb-1">{label}</p>
@@ -526,21 +548,199 @@ function GajiTab() {
                 <th className="px-4 py-3 text-right font-semibold">Jam Kerja</th>
                 <th className="px-4 py-3 text-right font-semibold">Tarif/Jam</th>
                 <th className="px-4 py-3 text-right font-semibold">Total Gaji</th>
+                <th className="px-4 py-3 text-right font-semibold">Kasbon</th>
+                <th className="px-4 py-3 text-right font-semibold">Gaji Bersih</th>
                 <th className="px-4 py-3 text-center font-semibold">Payslip</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filtered.map(row => (
+              {filtered.map(row => {
+                const kasbon = kasbonByHost[row.host_id] || 0
+                const net = Number(row.total_salary) - kasbon
+                return (
                 <tr key={row.host_id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 font-semibold text-gray-900">{row.full_name}</td>
                   <td className="px-4 py-3 text-right text-gray-600">{row.session_count}</td>
                   <td className="px-4 py-3 text-right text-gray-600">{Number(row.total_hours).toFixed(2)}</td>
                   <td className="px-4 py-3 text-right text-gray-600">{formatCurrency(row.hourly_rate)}</td>
-                  <td className="px-4 py-3 text-right font-bold text-gray-900">{formatCurrency(Number(row.total_salary))}</td>
+                  <td className="px-4 py-3 text-right text-gray-600">{formatCurrency(Number(row.total_salary))}</td>
+                  <td className="px-4 py-3 text-right text-red-500">{kasbon > 0 ? `- ${formatCurrency(kasbon)}` : '—'}</td>
+                  <td className="px-4 py-3 text-right font-bold text-gray-900">{formatCurrency(net)}</td>
                   <td className="px-4 py-3 text-center">
                     <button onClick={() => exportPDF(row)}
                       className="inline-flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-800 font-medium border border-brand-200 rounded-lg px-2.5 py-1 hover:bg-brand-50 transition-colors">
                       <FileText size={12}/> PDF
+                    </button>
+                  </td>
+                </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Kasbon Tab ────────────────────────────────────────────────────────────────
+function KasbonTab() {
+  const [hosts, setHosts] = useState<{ id: string; full_name: string }[]>([])
+  const [kasbons, setKasbons] = useState<Kasbon[]>([])
+  const [loading, setLoading] = useState(true)
+  const [adding, setAdding] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({ host_id: '', amount: 0, reason: '' })
+  const [filter, setFilter] = useState<'all' | 'unpaid' | 'paid'>('all')
+
+  function load() {
+    const supabase = createClient()
+    Promise.all([
+      supabase.from('profiles').select('id, full_name').eq('role', 'host').order('full_name'),
+      supabase.from('kasbon').select('*').order('created_at', { ascending: false }),
+    ]).then(([h, k]) => {
+      setHosts(h.data || [])
+      setKasbons((k.data as Kasbon[]) || [])
+      setLoading(false)
+    })
+  }
+  useEffect(load, [])
+
+  async function addKasbon() {
+    if (!form.host_id || form.amount <= 0) return
+    setSaving(true)
+    const { data, error } = await createClient().from('kasbon').insert({
+      host_id: form.host_id, amount: Number(form.amount), reason: form.reason || null, status: 'unpaid',
+    }).select().single()
+    setSaving(false)
+    if (!error && data) {
+      setKasbons(prev => [data as Kasbon, ...prev])
+      setForm({ host_id: '', amount: 0, reason: '' }); setAdding(false)
+    } else if (error) {
+      alert('Gagal simpan kasbon: ' + error.message)
+    }
+  }
+
+  async function togglePaid(k: Kasbon) {
+    const next = k.status === 'paid' ? 'unpaid' : 'paid'
+    const { error } = await createClient().from('kasbon')
+      .update({ status: next, paid_at: next === 'paid' ? new Date().toISOString() : null })
+      .eq('id', k.id)
+    if (!error) setKasbons(prev => prev.map(x => x.id === k.id ? { ...x, status: next } : x))
+  }
+
+  async function remove(id: string) {
+    if (!confirm('Hapus kasbon ini?')) return
+    await createClient().from('kasbon').delete().eq('id', id)
+    setKasbons(prev => prev.filter(x => x.id !== id))
+  }
+
+  const nameOf = (id: string) => hosts.find(h => h.id === id)?.full_name || '—'
+  const filtered = kasbons.filter(k => filter === 'all' ? true : k.status === filter)
+  const totalUnpaid = kasbons.filter(k => k.status === 'unpaid').reduce((s, k) => s + Number(k.amount), 0)
+
+  if (loading) return <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">Memuat kasbon...</div>
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: 'Total Kasbon', value: `${kasbons.length}` },
+          { label: 'Belum Lunas', value: `${kasbons.filter(k => k.status === 'unpaid').length}` },
+          { label: 'Sisa Hutang', value: formatCurrency(totalUnpaid) },
+        ].map(({ label, value }) => (
+          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
+            <p className="text-xs text-gray-500 font-medium mb-1">{label}</p>
+            <p className="text-lg font-bold text-gray-900">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
+          {(['all', 'unpaid', 'paid'] as const).map(f => (
+            <button key={f} onClick={() => setFilter(f)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${filter === f ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
+              {f === 'all' ? 'Semua' : f === 'unpaid' ? 'Belum Lunas' : 'Lunas'}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => setAdding(a => !a)}
+          className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors">
+          <Plus size={14}/> Tambah Kasbon
+        </button>
+      </div>
+
+      {adding && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Host</label>
+              <select value={form.host_id} onChange={e => setForm(f => ({ ...f, host_id: e.target.value }))}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+                <option value="">— Pilih host —</option>
+                {hosts.map(h => <option key={h.id} value={h.id}>{h.full_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Jumlah (Rp)</label>
+              <input type="number" min="0" value={form.amount || ''} onChange={e => setForm(f => ({ ...f, amount: parseInt(e.target.value) || 0 }))}
+                placeholder="500000"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Keterangan</label>
+              <input value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
+                placeholder="Kasbon transport, dll"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={addKasbon} disabled={saving || !form.host_id || form.amount <= 0}
+              className="bg-brand-600 text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">
+              {saving ? 'Menyimpan...' : 'Simpan Kasbon'}
+            </button>
+            <button onClick={() => { setAdding(false); setForm({ host_id: '', amount: 0, reason: '' }) }}
+              className="px-4 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50">Batal</button>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        {filtered.length === 0 ? (
+          <div className="p-10 text-center text-sm text-gray-400">Belum ada kasbon</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
+                <th className="px-4 py-3 text-left font-semibold">Host</th>
+                <th className="px-4 py-3 text-left font-semibold">Keterangan</th>
+                <th className="px-4 py-3 text-left font-semibold">Tanggal</th>
+                <th className="px-4 py-3 text-right font-semibold">Jumlah</th>
+                <th className="px-4 py-3 text-center font-semibold">Status</th>
+                <th className="px-4 py-3 text-center font-semibold">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {filtered.map(k => (
+                <tr key={k.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3 font-semibold text-gray-900">{nameOf(k.host_id)}</td>
+                  <td className="px-4 py-3 text-gray-500">{k.reason || '—'}</td>
+                  <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
+                    {new Date(k.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </td>
+                  <td className="px-4 py-3 text-right font-bold text-gray-900">{formatCurrency(Number(k.amount))}</td>
+                  <td className="px-4 py-3 text-center">
+                    <button onClick={() => togglePaid(k)}
+                      className={`text-xs font-bold px-2.5 py-1 rounded-full transition-colors ${
+                        k.status === 'paid' ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                      }`}>
+                      {k.status === 'paid' ? 'Lunas' : 'Belum Lunas'}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <button onClick={() => remove(k.id)} className="text-gray-300 hover:text-red-500 transition-colors">
+                      <Trash2 size={14}/>
                     </button>
                   </td>
                 </tr>
@@ -549,6 +749,9 @@ function GajiTab() {
           </table>
         )}
       </div>
+      <p className="text-xs text-gray-400 flex items-center gap-1.5">
+        <Wallet size={12}/> Sisa hutang (belum lunas) otomatis dipotong di tab Gaji.
+      </p>
     </div>
   )
 }
@@ -568,17 +771,17 @@ export default function HRDClient({ profile }: { profile: any }) {
         </div>
 
         <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-5 w-fit">
-          {(['hosts', 'gaji'] as Tab[]).map(t => (
+          {(['hosts', 'gaji', 'kasbon'] as Tab[]).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
                 tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}>
-              {t === 'hosts' ? 'Data Host' : 'Gaji'}
+              {t === 'hosts' ? 'Data Host' : t === 'gaji' ? 'Gaji' : 'Kasbon'}
             </button>
           ))}
         </div>
 
-        {tab === 'hosts' ? <HostListTab/> : <GajiTab/>}
+        {tab === 'hosts' ? <HostListTab/> : tab === 'gaji' ? <GajiTab/> : <KasbonTab/>}
       </div>
     </AppShell>
   )

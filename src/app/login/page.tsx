@@ -38,10 +38,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm mx-4">
         {/* Logo / brand */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 bg-brand-600 rounded-2xl shadow-lg mb-4">
-            <span className="text-white text-2xl font-bold">NW</span>
-          </div>
-          <h1 className="text-xl font-bold text-gray-900">New Wave Live Specialist</h1>
+          <img src="/logo.png" alt="New Wave Live Specialist" className="h-24 w-auto object-contain mx-auto mb-4"/>
           <p className="text-sm text-gray-500 mt-1">
             {lang === 'id' ? 'Masuk ke akun Anda' : 'Sign in to your account'}
           </p>

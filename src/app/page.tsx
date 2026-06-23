@@ -15,9 +15,7 @@ export default function RootPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
-        <span className="text-white font-bold text-xs">NW</span>
-      </div>
+      <img src="/logo.png" alt="New Wave Live Specialist" className="h-20 w-auto object-contain animate-pulse"/>
     </div>
   )
 }
