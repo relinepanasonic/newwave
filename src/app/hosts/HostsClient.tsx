@@ -260,8 +260,8 @@ export default function HostsClient({ profile }: { profile: any }) {
                             <Copy size={11}/> Salin Link
                           </button>
                           <button onClick={() => deleteInvite(inv)} title="Hapus link"
-                            className="flex items-center justify-center text-xs bg-white border border-red-200 text-red-500 p-1.5 rounded-lg hover:bg-red-50">
-                            <Trash2 size={13}/>
+                            className="flex items-center gap-1 text-xs bg-red-50 border border-red-300 text-red-600 px-2.5 py-1.5 rounded-lg hover:bg-red-100 font-medium">
+                            <Trash2 size={12}/> Hapus
                           </button>
                         </div>
                       </div>
