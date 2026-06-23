@@ -282,6 +282,36 @@ export default function LiveReportClient({ profile }: { profile: any }) {
     return urlData.publicUrl
   }
 
+  // Mirror the screenshot into the host's Google Drive folder, named
+  // "host.datelive.brandname.platform.ext". Best-effort — never blocks submit.
+  async function pushScreenshotToDrive() {
+    if (!screenshotFile || !profile.full_name) return
+    try {
+      const ext = screenshotFile.name.split('.').pop() || 'jpg'
+      const clean = (s: string) => (s || '').replace(/[.\\/]+/g, ' ').replace(/\s+/g, ' ').trim()
+      const filename =
+        `${clean(profile.full_name)}.${todayStr}.${clean(form.brand) || 'NoBrand'}.${clean(form.platform) || 'NoPlatform'}.${ext}`
+      const base64: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as string)
+        reader.onerror = reject
+        reader.readAsDataURL(screenshotFile)
+      })
+      await fetch('/api/drive/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          host_name: profile.full_name,
+          filename,
+          mime: screenshotFile.type || 'image/jpeg',
+          base64,
+        }),
+      })
+    } catch {
+      // Non-fatal — Supabase copy already saved
+    }
+  }
+
   // Validation
   const canSubmit = form.brand.trim() !== '' && form.platform !== '' && screenshotFile !== null && (form.gmv > 0 || form.impression > 0)
   const missingFields = [
@@ -301,6 +331,8 @@ export default function LiveReportClient({ profile }: { profile: any }) {
     if (screenshotFile) {
       screenshotUrl = await uploadScreenshot()
       if (!screenshotUrl && screenshotFile) { setSaving(false); return }
+      // Also mirror to Google Drive (best-effort, won't block on failure)
+      await pushScreenshotToDrive()
     }
 
     const supabase = createClient()

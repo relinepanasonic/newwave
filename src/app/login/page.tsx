@@ -1,15 +1,17 @@
 'use client'
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-export default function LoginPage() {
+function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [lang, setLang] = useState<'id' | 'en'>('id')
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const isBlocked = searchParams.get('blocked') === '1'
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -43,6 +45,19 @@ export default function LoginPage() {
             {lang === 'id' ? 'Masuk ke akun Anda' : 'Sign in to your account'}
           </p>
         </div>
+
+        {isBlocked && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 mb-4 text-center">
+            <p className="text-sm font-semibold text-amber-800">
+              {lang === 'id' ? 'Akun Anda tidak aktif.' : 'Your account is inactive.'}
+            </p>
+            <p className="text-xs text-amber-700 mt-1">
+              {lang === 'id'
+                ? 'Untuk masuk ke aplikasi, hubungi Tim New Wave Agency.'
+                : 'To enter the app, contact Team New Wave Agency.'}
+            </p>
+          </div>
+        )}
 
         <form onSubmit={handleLogin} className="bg-white rounded-2xl shadow-lg p-6 space-y-4 border border-gray-100">
           <div>
@@ -92,5 +107,13 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   )
 }

@@ -20,6 +20,7 @@ interface Host {
   nik_id?: string
   ktp_photo_url?: string
   gdrive_ktp_url?: string
+  gdrive_folder_url?: string
   tipe_host?: string
   target_hours?: number
   is_active?: boolean
@@ -61,7 +62,7 @@ function HostListTab() {
   useEffect(() => {
     const supabase = createClient()
     supabase.from('profiles')
-      .select('id, full_name, phone, alamat, nik_id, ktp_photo_url, gdrive_ktp_url, tipe_host, target_hours, is_active, created_at')
+      .select('id, full_name, phone, alamat, nik_id, ktp_photo_url, gdrive_ktp_url, gdrive_folder_url, tipe_host, target_hours, is_active, created_at')
       .eq('role', 'host')
       .order('full_name')
       .then(({ data }) => {
@@ -266,6 +267,11 @@ function HostListTab() {
                             onChange={e => setEditValues(v => ({ ...v, gdrive_ktp_url: e.target.value }))}
                             placeholder="https://drive.google.com/..."
                             className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 min-w-[200px]"/>
+                        ) : host.gdrive_folder_url ? (
+                          <a href={host.gdrive_folder_url} target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline max-w-[160px] truncate">
+                            <ExternalLink size={11}/> Folder Host
+                          </a>
                         ) : host.gdrive_ktp_url ? (
                           <a href={host.gdrive_ktp_url} target="_blank" rel="noopener noreferrer"
                             className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline max-w-[160px] truncate">

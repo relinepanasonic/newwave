@@ -28,6 +28,11 @@ export default function AuthGuard({ children, requiredRole }: Props) {
       const { data: prof } = await supabase
         .from('profiles').select('*').eq('id', session.user.id).single()
       if (!prof) { router.replace('/login'); return }
+      if (prof.is_active === false) {
+        await supabase.auth.signOut()
+        router.replace('/login?blocked=1')
+        return
+      }
       if (requiredRole && !requiredRole.includes(prof.role)) {
         router.replace('/dashboard'); return
       }
