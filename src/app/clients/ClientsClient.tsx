@@ -12,6 +12,12 @@ import TimeInput from '@/components/TimeInput'
 type Tab = 'clients' | 'invoice' | 'products' | 'blackout'
 
 interface ClientProfile { id: string; full_name: string; client_brand: string }
+interface PackageCapacity {
+  tipe: string    // e.g. "Regular", "Silver"
+  slots: number
+  hours: number
+  jam_per_sesi: number
+}
 interface ClientMeter {
   brand: string; clientName: string
   capacityHours: number   // total slot hours purchased (from invoices)
@@ -20,6 +26,7 @@ interface ClientMeter {
   planSlots: number       // total scheduled sessions
   successHours: number    // scheduled hours that already have a live report
   successSlots: number    // scheduled sessions with a live report
+  packages: PackageCapacity[]  // per-package breakdown from invoice items
 }
 
 // Trim trailing .0 → "150" not "150.0", keep "12.5"
@@ -68,12 +75,14 @@ function ClientListTab() {
       supabase.from('live_reports').select('id, slot_id, brand, notes, memo_checked, slot_date')
         .not('notes', 'is', null).order('slot_date', { ascending: false })
         .then(({ data }) => data || []),
-      supabase.from('invoices').select('brand, invoice_items(jam_per_sesi, qty)')
+      supabase.from('invoices').select('brand, invoice_items(tipe_live, jam_per_sesi, qty)')
         .then(({ data }) => data || []),
     ]).then(([clients, slots, reports, invoices]) => {
-      // Capacity per brand from invoice items
+      // Capacity per brand from invoice items — also track per package type
       const capacityByBrand: Record<string, number> = {}
       const capacitySlotsByBrand: Record<string, number> = {}
+      // packages: brand → tipe → { slots, hours, jam_per_sesi }
+      const pkgByBrand: Record<string, Record<string, { slots: number; hours: number; jam_per_sesi: number }>> = {}
       ;(invoices as any[]).forEach((inv: any) => {
         if (!inv.brand) return
         const hrs = (inv.invoice_items || []).reduce(
@@ -82,6 +91,17 @@ function ClientListTab() {
           (s: number, it: any) => s + (Number(it.qty) || 0), 0)
         capacityByBrand[inv.brand] = (capacityByBrand[inv.brand] || 0) + hrs
         capacitySlotsByBrand[inv.brand] = (capacitySlotsByBrand[inv.brand] || 0) + slotsCount
+        // Per-package breakdown
+        if (!pkgByBrand[inv.brand]) pkgByBrand[inv.brand] = {}
+        ;(inv.invoice_items || []).forEach((it: any) => {
+          const tipe = it.tipe_live || 'Regular'
+          const jps = Number(it.jam_per_sesi) || 0
+          const qty = Number(it.qty) || 0
+          if (!pkgByBrand[inv.brand][tipe]) pkgByBrand[inv.brand][tipe] = { slots: 0, hours: 0, jam_per_sesi: jps }
+          pkgByBrand[inv.brand][tipe].slots += qty
+          pkgByBrand[inv.brand][tipe].hours += jps * qty
+          if (jps > 0) pkgByBrand[inv.brand][tipe].jam_per_sesi = jps  // keep last non-zero value
+        })
       })
 
       // Which slots already have a live report (success)
@@ -116,16 +136,23 @@ function ClientListTab() {
       })
       setScheduleByBrand(scheduleMap)
 
-      setMeters(clients.map(c => ({
-        brand: c.client_brand,
-        clientName: c.full_name,
-        capacityHours: capacityByBrand[c.client_brand] || 0,
-        capacitySlots: capacitySlotsByBrand[c.client_brand] || 0,
-        planHours: planByBrand[c.client_brand] || 0,
-        planSlots: planSlotsByBrand[c.client_brand] || 0,
-        successHours: successByBrand[c.client_brand] || 0,
-        successSlots: successSlotsByBrand[c.client_brand] || 0,
-      })))
+      setMeters(clients.map(c => {
+        const brandPkgs = pkgByBrand[c.client_brand] || {}
+        const packages: PackageCapacity[] = Object.entries(brandPkgs)
+          .map(([tipe, d]) => ({ tipe, ...d }))
+          .sort((a, b) => a.tipe.localeCompare(b.tipe))
+        return {
+          brand: c.client_brand,
+          clientName: c.full_name,
+          capacityHours: capacityByBrand[c.client_brand] || 0,
+          capacitySlots: capacitySlotsByBrand[c.client_brand] || 0,
+          planHours: planByBrand[c.client_brand] || 0,
+          planSlots: planSlotsByBrand[c.client_brand] || 0,
+          successHours: successByBrand[c.client_brand] || 0,
+          successSlots: successSlotsByBrand[c.client_brand] || 0,
+          packages,
+        }
+      }))
       setLoading(false)
     })
   }, [])
@@ -221,6 +248,22 @@ function ClientListTab() {
                       <p className="text-[10px] text-red-600 font-bold">⚠️ Lewat {m.planSlots - m.capacitySlots} slot!</p>
                     )}
                   </div>
+                  {/* Per-package capacity breakdown */}
+                  {m.packages.length > 0 && (
+                    <div className="mt-2.5 space-y-1">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Paket</p>
+                      {m.packages.map(pkg => (
+                        <div key={pkg.tipe} className="flex items-center justify-between text-[11px]">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-brand-400 flex-shrink-0"/>
+                            <span className="font-semibold text-gray-700">{pkg.tipe}</span>
+                            <span className="text-gray-400">· {pkg.jam_per_sesi}j/sesi</span>
+                          </div>
+                          <span className="font-bold text-gray-800">{pkg.slots} slot · {trimH(pkg.hours)}j</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {/* Memo Evaluation Checklist */}
                   {(memosByBrand[m.brand] || []).length > 0 && (
                     <div className="mt-3 pt-3 border-t border-gray-100">
