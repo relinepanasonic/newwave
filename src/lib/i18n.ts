@@ -4,6 +4,7 @@ export const t: Record<string, Record<Lang, string>> = {
   // Nav
   dashboard:     { id: 'Dashboard',       en: 'Dashboard' },
   recapschedule: { id: 'Recap Schedule', en: 'Schedule Recap' },
+  livedetails:   { id: 'Live Details',   en: 'Live Details' },
   schedule:      { id: 'Jadwal',          en: 'Schedule' },
   hosts:         { id: 'Host',            en: 'Hosts' },
   onboarding:    { id: 'Onboarding',      en: 'Onboarding' },

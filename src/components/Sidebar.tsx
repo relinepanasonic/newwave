@@ -21,7 +21,7 @@ interface Props {
 const NAV_SUPERADMIN = [
   { key: 'dashboard',     icon: LayoutDashboard, href: '/dashboard' },
   { key: 'schedule',      icon: CalendarDays,    href: '/schedule' },
-  { key: 'recapschedule', icon: ClipboardList,   href: '/recap-schedule' },
+  { key: 'livedetails',   icon: ClipboardList,   href: '/recap-schedule' },
   { key: 'clients',       icon: Briefcase,       href: '/clients' },
   { key: 'hrd',           icon: Shield,          href: '/hrd' },
   { key: 'onboarding',    icon: Users,           href: '/hosts' },

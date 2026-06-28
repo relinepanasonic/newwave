@@ -1,11 +1,11 @@
 'use client'
 import AuthGuard from '@/components/AuthGuard'
-import RecapClient from './RecapClient'
+import LiveDetailsClient from './LiveDetailsClient'
 
-export default function RecapSchedulePage() {
+export default function LiveDetailsPage() {
   return (
     <AuthGuard requiredRole={['superadmin']}>
-      {(profile) => <RecapClient profile={profile} />}
+      {(profile) => <LiveDetailsClient profile={profile} />}
     </AuthGuard>
   )
 }

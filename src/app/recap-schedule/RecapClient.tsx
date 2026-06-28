@@ -1,11 +1,8 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { getPayPeriod, toLocalDateStr, SESSION_LABELS, PLATFORM_COLORS } from '@/lib/utils'
 import { CalendarDays, Clock, Users, Filter } from 'lucide-react'
-import { tr } from '@/lib/i18n'
-import { useLang } from '@/lib/lang-context'
 
 const DAYS_ID = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
 
@@ -30,8 +27,7 @@ function getPeriodOptions() {
   return opts
 }
 
-export default function RecapClient({ profile }: { profile: any }) {
-  const { lang } = useLang()
+export default function RecapTab({ profile: _profile }: { profile: any }) {
   const [slots, setSlots] = useState<Slot[]>([])
   const [hosts, setHosts] = useState<Host[]>([])
   const [reports, setReports] = useState<any[]>([])
@@ -85,14 +81,7 @@ export default function RecapClient({ profile }: { profile: any }) {
   const totalWithReport = slots.filter(s => reportBySlotId[s.id]).length
 
   return (
-    <AppShell role="superadmin" userName={profile.full_name}>
-      <div className="p-6 max-w-5xl mx-auto">
-
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">{tr('recapschedule', lang)}</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{tr('recapDesc', lang)}</p>
-        </div>
+      <div className="max-w-5xl mx-auto">
 
         {/* Filters */}
         <div className="flex items-center gap-3 mb-5 flex-wrap">
@@ -208,6 +197,5 @@ export default function RecapClient({ profile }: { profile: any }) {
           </div>
         )}
       </div>
-    </AppShell>
   )
 }

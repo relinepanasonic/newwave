@@ -160,7 +160,7 @@ interface Report {
 
 interface Slot {
   id: string; session_no: number; brand: string; platform: string
-  status: string; jam_mulai?: string; look_approval_at?: string
+  status: string; jam_mulai?: string; look_approval_at?: string; look_approval_url?: string
   rooms: { name: string }
 }
 
@@ -193,6 +193,7 @@ export default function LiveReportClient({ profile }: { profile: any }) {
   const [liveStartedAt, setLiveStartedAt] = useState<string | null>(null)
   const [startingLive, setStartingLive] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const lookCamRef = useRef<HTMLInputElement>(null)  // camera input for Look Approval photo
 
   const payPeriod = getPayPeriod()
   const todayStr = toLocalDateStr(new Date())
@@ -251,13 +252,34 @@ export default function LiveReportClient({ profile }: { profile: any }) {
   const selectedSlot = todaySlots.find(s => s.id === form.slot_id)
 
   // ── Look Approval ─────────────────────────────────────────────────────────
-  async function recordLookApproval() {
+  // Tapping "Rekam Look Approval" opens the camera; once a photo is taken we
+  // upload it and stamp both the time and the photo URL on the slot.
+  function startLookApproval() {
     if (!form.slot_id) return
+    lookCamRef.current?.click()
+  }
+
+  async function handleLookPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !form.slot_id) return
     setRecordingApproval(true)
+    const supabase = createClient()
     const now = new Date().toISOString()
-    const { error } = await createClient().from('schedule_slots').update({ look_approval_at: now }).eq('id', form.slot_id)
+
+    // Upload the captured look photo
+    let url: string | null = null
+    const ext = file.name.split('.').pop() || 'jpg'
+    const path = `look-approval/${profile.id}/${form.slot_id}-${Date.now()}.${ext}`
+    const { data, error: upErr } = await supabase.storage.from('live-reports').upload(path, file, { contentType: file.type })
+    if (!upErr && data) url = supabase.storage.from('live-reports').getPublicUrl(data.path).data.publicUrl
+
+    const { error } = await supabase.from('schedule_slots')
+      .update({ look_approval_at: now, look_approval_url: url }).eq('id', form.slot_id)
     setRecordingApproval(false)
-    if (!error) setTodaySlots(prev => prev.map(s => s.id === form.slot_id ? { ...s, look_approval_at: now } : s))
+    if (e.target) e.target.value = ''
+    if (!error) {
+      setTodaySlots(prev => prev.map(s => s.id === form.slot_id ? { ...s, look_approval_at: now, look_approval_url: url || undefined } : s))
+    }
   }
 
   function getLookApprovalStatus(): 'none' | 'done' | 'late' | 'no_slot' {
@@ -454,14 +476,19 @@ export default function LiveReportClient({ profile }: { profile: any }) {
               ) : approvalStatus === 'none' ? (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
                   <p className="text-xs font-bold text-amber-800 mb-1">⚠️ Belum melakukan Look Approval</p>
-                  <p className="text-[11px] text-amber-600 mb-2">Rekam Look Approval sebelum mulai live</p>
-                  <button type="button" onClick={recordLookApproval} disabled={recordingApproval}
-                    className="bg-amber-600 text-white rounded-lg px-4 py-2 text-xs font-semibold hover:bg-amber-700 disabled:opacity-50">
-                    {recordingApproval ? 'Menyimpan...' : '✓ Rekam Look Approval'}
+                  <p className="text-[11px] text-amber-600 mb-2">Ambil foto look kamu sebelum mulai live</p>
+                  <button type="button" onClick={startLookApproval} disabled={recordingApproval}
+                    className="bg-amber-600 text-white rounded-lg px-4 py-2 text-xs font-semibold hover:bg-amber-700 disabled:opacity-50 flex items-center gap-2">
+                    <Camera size={13}/>{recordingApproval ? 'Mengupload...' : 'Rekam Look Approval (Foto)'}
                   </button>
                 </div>
               ) : approvalStatus === 'late' ? (
                 <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-start gap-3">
+                  {selectedSlot?.look_approval_url && (
+                    <button type="button" onClick={() => window.open(selectedSlot.look_approval_url, '_blank')} className="flex-shrink-0">
+                      <img src={selectedSlot.look_approval_url} alt="Look" className="w-14 h-14 rounded-lg object-cover border-2 border-red-200"/>
+                    </button>
+                  )}
                   <span className="text-base leading-none mt-0.5">🔴</span>
                   <div>
                     <p className="text-xs font-bold text-red-800">Late Approval — {approvalTs}</p>
@@ -470,13 +497,21 @@ export default function LiveReportClient({ profile }: { profile: any }) {
                 </div>
               ) : (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-center gap-3">
-                  <span className="text-base leading-none">✅</span>
+                  {selectedSlot?.look_approval_url ? (
+                    <button type="button" onClick={() => window.open(selectedSlot.look_approval_url, '_blank')} className="flex-shrink-0">
+                      <img src={selectedSlot.look_approval_url} alt="Look" className="w-14 h-14 rounded-lg object-cover border-2 border-emerald-200"/>
+                    </button>
+                  ) : (
+                    <span className="text-base leading-none">✅</span>
+                  )}
                   <div>
                     <p className="text-xs font-bold text-emerald-800">Look Approval — {approvalTs}</p>
                     <p className="text-[11px] text-emerald-600 mt-0.5">Tepat waktu</p>
                   </div>
                 </div>
               )}
+              {/* Hidden camera input — opens the back camera on mobile */}
+              <input ref={lookCamRef} type="file" accept="image/*" capture="environment" onChange={handleLookPhoto} className="hidden"/>
             </div>
 
             {/* Start Live button */}
