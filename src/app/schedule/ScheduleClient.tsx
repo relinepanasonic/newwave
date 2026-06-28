@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { SESSION_LABELS, PLATFORM_COLORS, getWeekDates, toLocalDateStr, cn } from '@/lib/utils'
@@ -132,8 +132,11 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
     return { morning: cur !== 'morning', afternoon: cur !== 'afternoon', night: cur !== 'night' }
   })
   const [blackouts, setBlackouts] = useState<Blackout[]>([])
-  // Drag-and-drop (kanban) state
+  // Drag-and-drop (kanban) state. We keep the id in a ref too so drag handlers
+  // read it synchronously (React state updates are async and lose the first
+  // dragover events, which makes the native drop silently fail).
   const [draggingId, setDraggingId] = useState<string | null>(null)
+  const draggingIdRef = useRef<string | null>(null)
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
   const [moveError, setMoveError] = useState('')
   const isAdmin = profile.role === 'superadmin'
@@ -354,7 +357,8 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
 
   function handleDropOnCell(session: number, roomId: string) {
     setDragOverKey(null)
-    const id = draggingId
+    const id = draggingIdRef.current
+    draggingIdRef.current = null
     setDraggingId(null)
     if (id) moveSlot(id, session, roomId)
   }
@@ -435,6 +439,9 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
 
   const dayLabels = lang === 'id' ? DAYS_ID : DAYS_EN
   const groups = Array.from(new Set(rooms.map(r => r.group_name)))
+  // Body cells MUST iterate rooms in the same grouped order as the column
+  // headers, otherwise the cell under a header points at a different room.
+  const orderedRooms = groups.flatMap(g => rooms.filter(r => r.group_name === g))
   const dayCounts = weekDates.map(d => {
     const ds = toLocalDateStr(d)
     return slots.filter(s => s.slot_date === ds && s.host_id).length
@@ -447,7 +454,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
   const roomsWidth = rooms.length * 150
 
   function renderSessionRow(session: number) {
-    const rowHasData = rooms.some(r => !!getSlot(session, r.id)?.host_id || coveredBySlot.has(`${session}_${r.id}`))
+    const rowHasData = orderedRooms.some(r => !!getSlot(session, r.id)?.host_id || coveredBySlot.has(`${session}_${r.id}`))
     return (
       <div key={session} className={cn('flex border-b border-gray-100', rowHasData ? 'bg-white' : 'bg-gray-50/50')}
         style={{ minHeight: '36px' }}>
@@ -455,7 +462,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
           <span className="text-[9px] text-gray-300 font-mono w-3">{session}</span>
           <span className="text-[10px] font-mono text-gray-500">{SESSION_LABELS[session]}</span>
         </div>
-        {rooms.map(room => {
+        {orderedRooms.map(room => {
           const covering = coveredBySlot.get(`${session}_${room.id}`)
           if (covering) {
             const { slot: coveringSlot, fromPrevDay } = covering
@@ -493,12 +500,26 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
           return (
             <div key={room.id}
               draggable={draggable}
-              onDragStart={draggable ? (e => { e.dataTransfer.effectAllowed = 'move'; if (slot?.id) setDraggingId(slot.id) }) : undefined}
-              onDragEnd={() => { setDraggingId(null); setDragOverKey(null) }}
-              onDragOver={e => { if (draggingId && draggingId !== slot?.id) { e.preventDefault(); setDragOverKey(cellKey) } }}
+              onDragStart={draggable ? (e => {
+                e.dataTransfer.effectAllowed = 'move'
+                if (slot?.id) {
+                  e.dataTransfer.setData('text/plain', slot.id)  // required by some browsers to start the drag
+                  draggingIdRef.current = slot.id                // synchronous — handlers read this immediately
+                  setDraggingId(slot.id)                         // state only drives the visual fade
+                }
+              }) : undefined}
+              onDragEnd={() => { draggingIdRef.current = null; setDraggingId(null); setDragOverKey(null) }}
+              onDragOver={e => {
+                // Allow a drop here whenever a drag is in progress and this isn't the origin cell.
+                if (draggingIdRef.current && draggingIdRef.current !== slot?.id) {
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  if (dragOverKey !== cellKey) setDragOverKey(cellKey)
+                }
+              }}
               onDragLeave={() => setDragOverKey(k => k === cellKey ? null : k)}
               onDrop={e => { e.preventDefault(); handleDropOnCell(session, room.id) }}
-              onClick={() => { if (!draggingId) openEdit(session, room.id) }}
+              onClick={() => { if (!draggingIdRef.current && !draggingId) openEdit(session, room.id) }}
               className={cn('border-r border-gray-100 last:border-r-0 px-1.5 py-0.5 flex items-center transition-colors',
                 isAdmin ? 'cursor-pointer hover:bg-brand-50/60' : 'cursor-default',
                 draggable ? 'active:cursor-grabbing' : '',
