@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, CalendarDays, Users,
-  BarChart2, ClipboardList, X, Shield, FileText, Briefcase, Sparkles,
+  BarChart2, ClipboardList, X, Shield, FileText, Briefcase,
 } from 'lucide-react'
 import type { Lang } from '@/lib/i18n'
 import { tr } from '@/lib/i18n'
@@ -30,7 +30,6 @@ const NAV_SUPERADMIN = [
 const NAV_HOST = [
   { key: 'dashboard',   icon: LayoutDashboard, href: '/dashboard' },
   { key: 'myschedule',  icon: CalendarDays,    href: '/my-schedule' },
-  { key: 'pralive',     icon: Sparkles,        href: '/pra-live' },
   { key: 'livereport',  icon: BarChart2,       href: '/live-report' },
 ]
 

@@ -1,22 +1,41 @@
 'use client'
 import { useState } from 'react'
 import AppShell from '@/components/AppShell'
-import { SESSION_LABELS, PLATFORM_COLORS, getPayPeriod } from '@/lib/utils'
-import { tr, type Lang } from '@/lib/i18n'
+import { PLATFORM_COLORS, getPayPeriod } from '@/lib/utils'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 import { CalendarDays, Clock } from 'lucide-react'
 
 interface CheckIn { total_hours: number | null }
 interface Slot {
   id: string; slot_date: string; session_no: number
   brand?: string; platform?: string; konsep?: string; status: string
+  background?: string; kostum?: string; gimmick?: string
+  jam_mulai?: string; durasi?: number
   rooms: { name: string }
   check_ins: CheckIn[]
 }
 
 const DAYS_ID = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
 
+// Real time range: "17:00 – 21:00" using jam_mulai + durasi; falls back to session label.
+function slotTimeLabel(slot: Slot): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  let startMin: number
+  if (slot.jam_mulai) {
+    const [h, m] = slot.jam_mulai.split(':').map(Number)
+    startMin = h * 60 + (m || 0)
+  } else {
+    startMin = (slot.session_no - 1) * 60
+  }
+  const durMin = (slot.durasi && slot.durasi > 0 ? slot.durasi : 1) * 60
+  const endMin = startMin + durMin
+  const fmt = (mins: number) => `${pad(Math.floor((mins % 1440) / 60))}:${pad(mins % 60)}`
+  return `${fmt(startMin)} – ${fmt(endMin)}`
+}
+
 export default function MyScheduleClient({ profile, slots }: { profile: any; slots: Slot[] }) {
-  const [lang] = useState<Lang>('id')
+  const { lang } = useLang()
   const payPeriod = getPayPeriod()
 
   const totalHours = slots.reduce((s, slot) => {
@@ -76,27 +95,35 @@ export default function MyScheduleClient({ profile, slots }: { profile: any; slo
                 {dayHours > 0 && <span className="text-xs text-gray-400">{dayHours.toFixed(1)} jam</span>}
               </div>
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm divide-y divide-gray-50">
-                {daySlots.map(slot => (
-                  <div key={slot.id} className="flex items-center gap-4 px-4 py-3">
-                    <span className="font-mono text-xs text-gray-500 w-16 flex-shrink-0">{SESSION_LABELS[slot.session_no]}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-gray-900 text-sm">{slot.rooms?.name}</p>
-                      {slot.brand && <p className="text-xs text-gray-500">{slot.brand} {slot.konsep && `· ${slot.konsep}`}</p>}
+                {daySlots.map(slot => {
+                  const details = [slot.konsep, slot.background, slot.kostum, slot.gimmick].filter(Boolean)
+                  return (
+                    <div key={slot.id} className="flex items-start gap-3 px-4 py-3">
+                      <span className="font-mono text-[11px] text-gray-500 w-24 flex-shrink-0 pt-0.5">{slotTimeLabel(slot)}</span>
+                      <div className="flex-1 min-w-0">
+                        {/* Brand is the title */}
+                        <p className="font-bold text-gray-900 text-sm">{slot.brand || '—'}</p>
+                        {/* Room as subtitle */}
+                        <p className="text-xs text-gray-500">{slot.rooms?.name}</p>
+                        {details.length > 0 && (
+                          <p className="text-[11px] text-gray-400 mt-0.5">{details.join(' · ')}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {slot.platform && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PLATFORM_COLORS[slot.platform] || PLATFORM_COLORS.Other}`}>
+                            {slot.platform}
+                          </span>
+                        )}
+                        {slot.check_ins?.[0]?.total_hours && (
+                          <span className="text-xs text-emerald-600 font-medium">
+                            ✓ {slot.check_ins[0].total_hours}h
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {slot.platform && (
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PLATFORM_COLORS[slot.platform] || PLATFORM_COLORS.Other}`}>
-                          {slot.platform}
-                        </span>
-                      )}
-                      {slot.check_ins?.[0]?.total_hours && (
-                        <span className="text-xs text-emerald-600 font-medium">
-                          ✓ {slot.check_ins[0].total_hours}h
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )

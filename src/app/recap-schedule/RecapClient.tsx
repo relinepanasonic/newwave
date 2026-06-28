@@ -4,12 +4,16 @@ import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { getPayPeriod, toLocalDateStr, SESSION_LABELS, PLATFORM_COLORS } from '@/lib/utils'
 import { CalendarDays, Clock, Users, Filter } from 'lucide-react'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 
 const DAYS_ID = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
 
 interface Slot {
   id: string; slot_date: string; session_no: number; status: string
-  brand?: string; platform?: string; konsep?: string; host_id?: string
+  brand?: string; platform?: string; konsep?: string
+  background?: string; kostum?: string; gimmick?: string
+  jam_mulai?: string; durasi?: number; host_id?: string
   rooms: { name: string }
   profiles: { full_name: string; id: string } | null
 }
@@ -27,6 +31,7 @@ function getPeriodOptions() {
 }
 
 export default function RecapClient({ profile }: { profile: any }) {
+  const { lang } = useLang()
   const [slots, setSlots] = useState<Slot[]>([])
   const [hosts, setHosts] = useState<Host[]>([])
   const [reports, setReports] = useState<any[]>([])
@@ -42,7 +47,7 @@ export default function RecapClient({ profile }: { profile: any }) {
     const supabase = createClient()
 
     let slotsQuery = supabase.from('schedule_slots')
-      .select('id, slot_date, session_no, status, brand, platform, konsep, host_id, rooms:room_id(name), profiles:host_id(full_name, id)')
+      .select('id, slot_date, session_no, status, brand, platform, konsep, background, kostum, gimmick, jam_mulai, durasi, host_id, rooms:room_id(name), profiles:host_id(full_name, id)')
       .gte('slot_date', selectedPeriod.start)
       .lte('slot_date', selectedPeriod.end)
       .not('host_id', 'is', null)
@@ -85,8 +90,8 @@ export default function RecapClient({ profile }: { profile: any }) {
 
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Recap Schedule</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Rekap jadwal live semua host per periode</p>
+          <h1 className="text-2xl font-bold text-gray-900">{tr('recapschedule', lang)}</h1>
+          <p className="text-sm text-gray-500 mt-0.5">{tr('recapDesc', lang)}</p>
         </div>
 
         {/* Filters */}
@@ -151,33 +156,38 @@ export default function RecapClient({ profile }: { profile: any }) {
                       {daySlots.map(slot => {
                         const report = reportBySlotId[slot.id]
                         return (
-                          <div key={slot.id} className="flex items-center gap-4 px-4 py-3">
+                          <div key={slot.id} className="flex items-start gap-3 px-4 py-3">
                             {/* Time */}
-                            <span className="font-mono text-xs text-gray-500 w-14 flex-shrink-0">
-                              {SESSION_LABELS[slot.session_no]}
+                            <span className="font-mono text-xs text-gray-500 w-14 flex-shrink-0 pt-0.5">
+                              {slot.jam_mulai ? slot.jam_mulai.slice(0,5) : SESSION_LABELS[slot.session_no]}
                             </span>
-                            {/* Host name (shown when no filter) */}
+                            {/* Host name */}
                             {!selectedHost && (
-                              <span className="text-sm font-bold text-brand-700 w-24 flex-shrink-0 truncate">
+                              <span className="text-sm font-bold text-brand-700 w-20 flex-shrink-0 truncate pt-0.5">
                                 {slot.profiles?.full_name || '?'}
                               </span>
                             )}
-                            {/* Room + brand */}
+                            {/* Brand · Platform · Room · Details */}
                             <div className="flex-1 min-w-0">
-                              <p className="font-semibold text-gray-900 text-sm">{slot.rooms?.name}</p>
-                              <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                                {slot.brand && <span className="text-xs text-gray-500">{slot.brand}</span>}
-                                {slot.konsep && <span className="text-xs text-gray-400 italic">{slot.konsep}</span>}
-                              </div>
+                              {slot.brand && (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-sm font-bold text-gray-900">{slot.brand}</span>
+                                  {slot.platform && (
+                                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${PLATFORM_COLORS[slot.platform] || PLATFORM_COLORS.Other}`}>
+                                      {slot.platform}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              <p className="text-xs text-gray-500 mt-0.5">{slot.rooms?.name}</p>
+                              {(slot.konsep || slot.background || slot.kostum || slot.gimmick) && (
+                                <p className="text-[11px] text-gray-400 mt-0.5">
+                                  {[slot.konsep, slot.background, slot.kostum, slot.gimmick].filter(Boolean).join(' · ')}
+                                </p>
+                              )}
                             </div>
-                            {/* Platform */}
-                            {slot.platform && (
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${PLATFORM_COLORS[slot.platform] || PLATFORM_COLORS.Other}`}>
-                                {slot.platform}
-                              </span>
-                            )}
                             {/* Report badge */}
-                            <div className="flex items-center gap-2 flex-shrink-0">
+                            <div className="flex items-center gap-2 flex-shrink-0 pt-0.5">
                               {report ? (
                                 <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold">
                                   Laporan ✓

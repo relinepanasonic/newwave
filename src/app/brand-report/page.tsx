@@ -5,12 +5,13 @@ import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { SESSION_LABELS, PLATFORM_COLORS, toLocalDateStr, getWeekDates } from '@/lib/utils'
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react'
-import { tr, type Lang } from '@/lib/i18n'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 
 const DAYS_ID = ['Senin','Selasa','Rabu','Kamis','Jumat','Sabtu','Minggu']
 
 function BrandReportContent({ profile }: { profile: any }) {
-  const [lang] = useState<Lang>('id')
+  const { lang } = useLang()
   const [baseDate, setBaseDate] = useState(new Date())
   const [weekDates, setWeekDates] = useState<Date[]>(getWeekDates(new Date()))
   const [slots, setSlots] = useState<any[]>([])

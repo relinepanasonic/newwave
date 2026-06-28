@@ -17,7 +17,14 @@
       "Bash(git remote *)",
       "Bash(git branch *)",
       "Bash(git push *)",
-      "Bash(nslookup app.newwave.id 8.8.8.8)"
+      "Bash(nslookup app.newwave.id 8.8.8.8)",
+      "Bash(file public/logo.*)",
+      "Bash(git reset *)",
+      "Bash(git mv *)",
+      "PowerShell(Get-Command vercel -ErrorAction SilentlyContinue)",
+      "PowerShell(Test-Path \"$env:APPDATA\\\\vercel\\\\auth.json\"; if \\(Test-Path \"$env:APPDATA\\\\vercel\\\\auth.json\"\\) { Get-Content \"$env:APPDATA\\\\vercel\\\\auth.json\" | ConvertFrom-Json | Select-Object -Property token })",
+      "Bash(git fetch *)",
+      "Bash(grep -iE \"client_secret|\\\\.json$|credential\")"
     ]
   }
 }

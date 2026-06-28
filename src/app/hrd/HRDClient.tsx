@@ -4,6 +4,8 @@ import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { Download, ExternalLink, Save, X, Edit2, CheckCircle, FileText, Plane, Trash2, Plus, Wallet } from 'lucide-react'
 import { formatCurrency, getPayPeriod } from '@/lib/utils'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 
 type Tab = 'hosts' | 'gaji' | 'kasbon'
 
@@ -15,6 +17,7 @@ interface Kasbon {
 interface Host {
   id: string
   full_name: string
+  username?: string
   phone?: string
   alamat?: string
   nik_id?: string
@@ -62,7 +65,7 @@ function HostListTab() {
   useEffect(() => {
     const supabase = createClient()
     supabase.from('profiles')
-      .select('id, full_name, phone, alamat, nik_id, ktp_photo_url, gdrive_ktp_url, gdrive_folder_url, tipe_host, target_hours, is_active, created_at')
+      .select('id, full_name, username, phone, alamat, nik_id, ktp_photo_url, gdrive_ktp_url, gdrive_folder_url, tipe_host, target_hours, is_active, created_at')
       .eq('role', 'host')
       .order('full_name')
       .then(({ data }) => {
@@ -73,7 +76,7 @@ function HostListTab() {
 
   function startEdit(host: Host) {
     setEditingId(host.id)
-    setEditValues({ gdrive_ktp_url: host.gdrive_ktp_url || '', phone: host.phone || '' })
+    setEditValues({ gdrive_ktp_url: host.gdrive_ktp_url || '', phone: host.phone || '', username: host.username || '' })
   }
 
   function cancelEdit() {
@@ -84,7 +87,7 @@ function HostListTab() {
   async function saveEdit(hostId: string) {
     setSaving(true)
     const { error } = await createClient().from('profiles')
-      .update({ gdrive_ktp_url: editValues.gdrive_ktp_url || null, phone: editValues.phone || null })
+      .update({ gdrive_ktp_url: editValues.gdrive_ktp_url || null, phone: editValues.phone || null, username: editValues.username || null })
       .eq('id', hostId)
     setSaving(false)
     if (!error) {
@@ -208,6 +211,7 @@ function HostListTab() {
                 <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
                   <th className="px-4 py-3 text-left font-semibold w-8">No</th>
                   <th className="px-4 py-3 text-left font-semibold min-w-[140px]">Nama</th>
+                  <th className="px-4 py-3 text-left font-semibold min-w-[90px]">Panggilan</th>
                   <th className="px-4 py-3 text-left font-semibold min-w-[70px]">Status</th>
                   <th className="px-4 py-3 text-left font-semibold min-w-[100px]">Tipe</th>
                   <th className="px-4 py-3 text-left font-semibold min-w-[110px]">No HP</th>
@@ -226,6 +230,16 @@ function HostListTab() {
                       <td className="px-4 py-3">
                         <p className="font-semibold text-gray-900">{host.full_name}</p>
                         {host.phone && <p className="text-[10px] text-gray-400">{host.phone}</p>}
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        {editingId === host.id ? (
+                          <input value={editValues.username || ''}
+                            onChange={e => setEditValues(v => ({ ...v, username: e.target.value }))}
+                            placeholder="e.g. Anggi"
+                            className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400"/>
+                        ) : host.username ? (
+                          <span className="bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full font-semibold">{host.username}</span>
+                        ) : <span className="text-gray-300">—</span>}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
@@ -764,6 +778,7 @@ function KasbonTab() {
 
 // ── Main HRD Page ─────────────────────────────────────────────────────────────
 export default function HRDClient({ profile }: { profile: any }) {
+  const { lang } = useLang()
   const [tab, setTab] = useState<Tab>('hosts')
 
   return (
@@ -771,8 +786,8 @@ export default function HRDClient({ profile }: { profile: any }) {
       <div className="p-4 md:p-6 max-w-7xl mx-auto">
         <div className="flex items-start justify-between flex-wrap gap-3 mb-5">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">HRD</h1>
-            <p className="text-sm text-gray-500 mt-0.5">Manajemen host & penggajian</p>
+            <h1 className="text-xl font-bold text-gray-900">{tr('hrd', lang)}</h1>
+            <p className="text-sm text-gray-500 mt-0.5">{tr('hrdDesc', lang)}</p>
           </div>
         </div>
 

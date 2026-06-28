@@ -4,7 +4,8 @@ import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import { Plus, X, Save, GripVertical } from 'lucide-react'
-import { tr, type Lang } from '@/lib/i18n'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 
 interface Room { id: string; name: string; group_name: string; sort_order: number; is_active: boolean }
 interface Props { profile: { full_name: string; role: string }; rooms: Room[] }
@@ -12,7 +13,7 @@ interface Props { profile: { full_name: string; role: string }; rooms: Room[] }
 const GROUPS = ['Jakarta Puan', 'Luar Puan']
 
 export default function RoomsClient({ profile, rooms: initial }: Props) {
-  const [lang] = useState<Lang>('id')
+  const { lang } = useLang()
   const [rooms, setRooms] = useState<Room[]>(initial)
   const [modal, setModal] = useState<Room | 'new' | null>(null)
   const [form, setForm] = useState({ name: '', group_name: 'Jakarta Puan' })

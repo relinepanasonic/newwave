@@ -2,7 +2,8 @@
 import { useState } from 'react'
 import AppShell from '@/components/AppShell'
 import { SESSION_LABELS, PLATFORM_COLORS, STATUS_COLORS } from '@/lib/utils'
-import { tr, type Lang } from '@/lib/i18n'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 
 interface Slot {
   id: string; slot_date: string; session_no: number
@@ -19,7 +20,7 @@ interface Props {
 const DAYS_ID = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu']
 
 export default function ClientScheduleClient({ profile, slots, weekStart }: Props) {
-  const [lang] = useState<Lang>('id')
+  const { lang } = useLang()
   const ws = new Date(weekStart)
   const weekDates = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(ws); d.setDate(ws.getDate() + i); return d

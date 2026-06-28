@@ -3,7 +3,8 @@ import { useState } from 'react'
 import AppShell from '@/components/AppShell'
 import { Users, CalendarDays, Activity, Clock } from 'lucide-react'
 import { getPayPeriod, PLATFORM_COLORS, STATUS_COLORS, SESSION_LABELS } from '@/lib/utils'
-import { tr, type Lang } from '@/lib/i18n'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 
 interface Props {
   profile: { full_name: string; role: string }
@@ -13,7 +14,7 @@ interface Props {
 }
 
 export default function DashboardClient({ profile, slotsToday, slotsThisMonth, activeHosts }: Props) {
-  const [lang, setLang] = useState<Lang>('id')
+  const { lang } = useLang()
   const payPeriod = getPayPeriod()
   const today = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 

@@ -49,7 +49,7 @@ const EMPTY_ITEM: InvoiceItem = {
 
 const FORM_DEFAULT = {
   invoice_number: '', invoice_date: new Date().toISOString().slice(0, 10),
-  brand: '', invoice_to: '', discount_pct: 0, ppn_pct: 11, pph_pct: 2,
+  brand: '', invoice_to: '', discount_pct: 0, ppn_pct: 0, pph_pct: 0,
   bank_name: 'Bank BCA', bank_account_name: 'PT Pintu Langit Inovasi Global',
   bank_account_number: '4295775788', notes: '',
 }
@@ -60,10 +60,13 @@ const STATUS_CONFIG: Record<string, { label: string; badge: string; border: stri
   cancelled: { label: 'Dibatalkan', badge: 'bg-gray-100 text-gray-500', border: 'border-l-gray-300' },
 }
 
+interface NwPackage { id: string; name: string; description: string | null; tipe_live: string; jam_per_sesi: number; price_per_jam: number; is_active: boolean }
+
 export default function InvoicePanel({ profile }: { profile: any }) {
   const isSuperadmin = profile.role === 'superadmin'
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [clients, setClients] = useState<ClientProfile[]>([])
+  const [nwPackages, setNwPackages] = useState<NwPackage[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
@@ -88,11 +91,15 @@ export default function InvoicePanel({ profile }: { profile: any }) {
           .then(({ data }) => (data || []) as ClientProfile[])
       : Promise.resolve([] as ClientProfile[])
 
-    Promise.all([invoiceQ, clientQ] as const).then(([invData, clientData]) => {
+    const pkgQ = supabase.from('nw_packages').select('*').eq('is_active', true).order('sort_order').order('name')
+      .then(({ data }) => (data || []) as NwPackage[])
+
+    Promise.all([invoiceQ, clientQ, pkgQ] as const).then(([invData, clientData, pkgData]) => {
       let filtered = invData as Invoice[]
       if (!isSuperadmin && clientBrand) filtered = filtered.filter((inv: Invoice) => inv.brand === clientBrand)
       setInvoices(filtered)
       if (clientData) setClients(clientData as ClientProfile[])
+      setNwPackages(pkgData)
       setLoading(false)
     })
   }, [isSuperadmin, clientBrand])
@@ -268,6 +275,31 @@ export default function InvoicePanel({ profile }: { profile: any }) {
           <div className="space-y-3">
             {items.map((item, idx) => (
               <div key={idx} className="bg-gray-50/70 rounded-xl border border-gray-100 p-3 space-y-2.5">
+                {/* Load from NW Package shortcut */}
+                {nwPackages.length > 0 && (
+                  <div>
+                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Load Paket NW</label>
+                    <select defaultValue=""
+                      onChange={e => {
+                        const pkg = nwPackages.find(p => p.id === e.target.value)
+                        if (!pkg) return
+                        setItems(prev => {
+                          const next = [...prev]
+                          next[idx] = { ...next[idx], name: pkg.name, tipe_live: pkg.tipe_live, jam_per_sesi: pkg.jam_per_sesi, price: pkg.price_per_jam,
+                            description: pkg.description || '', amount: next[idx].is_free ? 0 : next[idx].qty * pkg.jam_per_sesi * pkg.price_per_jam }
+                          return next
+                        })
+                        e.target.value = ''
+                      }}
+                      className="w-full border border-brand-200 bg-brand-50 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400">
+                      <option value="">— Pilih paket untuk auto-isi —</option>
+                      {nwPackages.map(p => (
+                        <option key={p.id} value={p.id}>{p.name} · {p.tipe_live} · {p.jam_per_sesi}j · {fmtRp(p.price_per_jam)}/j</option>
+                      ))}
+                      <option value="__blank__">✏️  Isi Manual (Blank)</option>
+                    </select>
+                  </div>
+                )}
                 <div className="flex items-start gap-2">
                   <div className="flex-1 grid grid-cols-2 gap-2">
                     <div>
@@ -337,18 +369,39 @@ export default function InvoicePanel({ profile }: { profile: any }) {
 
         <div className="bg-gray-50 rounded-xl border border-gray-100 p-4">
           <div className="grid grid-cols-3 gap-3 mb-4">
-            {[
-              { label: 'Diskon (%)', key: 'discount_pct' as const },
-              { label: 'PPN (%)', key: 'ppn_pct' as const },
-              { label: 'PPH (%)', key: 'pph_pct' as const },
-            ].map(({ label, key }) => (
-              <div key={key}>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{label}</label>
-                <input type="number" min="0" max="100" value={form[key]}
-                  onChange={e => setForm(f => ({ ...f, [key]: parseFloat(e.target.value) || 0 }))}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"/>
-              </div>
-            ))}
+            {/* Diskon — plain input */}
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Diskon (%)</label>
+              <input type="number" min="0" max="100" value={form.discount_pct}
+                onChange={e => setForm(f => ({ ...f, discount_pct: parseFloat(e.target.value) || 0 }))}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"/>
+            </div>
+            {/* PPN — checkbox + input */}
+            <div>
+              <label className="flex items-center gap-1.5 cursor-pointer mb-1.5">
+                <input type="checkbox" checked={form.ppn_pct > 0}
+                  onChange={e => setForm(f => ({ ...f, ppn_pct: e.target.checked ? 11 : 0 }))}
+                  className="rounded accent-brand-600"/>
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">PPN (%)</span>
+              </label>
+              <input type="number" min="0" max="100" value={form.ppn_pct}
+                onChange={e => setForm(f => ({ ...f, ppn_pct: parseFloat(e.target.value) || 0 }))}
+                disabled={form.ppn_pct === 0}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white disabled:bg-gray-100 disabled:text-gray-300"/>
+            </div>
+            {/* PPH — checkbox + input */}
+            <div>
+              <label className="flex items-center gap-1.5 cursor-pointer mb-1.5">
+                <input type="checkbox" checked={form.pph_pct > 0}
+                  onChange={e => setForm(f => ({ ...f, pph_pct: e.target.checked ? 2 : 0 }))}
+                  className="rounded accent-brand-600"/>
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">PPH (%)</span>
+              </label>
+              <input type="number" min="0" max="100" value={form.pph_pct}
+                onChange={e => setForm(f => ({ ...f, pph_pct: parseFloat(e.target.value) || 0 }))}
+                disabled={form.pph_pct === 0}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white disabled:bg-gray-100 disabled:text-gray-300"/>
+            </div>
           </div>
           <div className="space-y-1.5 text-sm">
             <div className="flex justify-between text-gray-500"><span>Sub Total</span><span className="font-medium text-gray-700">{fmtRp(subTotal)}</span></div>

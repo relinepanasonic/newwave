@@ -1,8 +1,167 @@
 'use client'
-import { useState, useEffect, useRef, Suspense } from 'react'
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Camera, CheckCircle2, Eye, EyeOff, AlertCircle } from 'lucide-react'
+import { Camera, CheckCircle2, Eye, EyeOff, AlertCircle, X, RefreshCw } from 'lucide-react'
+
+// ── KTP Camera with frame overlay ────────────────────────────────────────────
+function KTPCamera({ onCapture }: { onCapture: (base64: string) => void }) {
+  const [mode, setMode] = useState<'idle' | 'live' | 'preview'>('idle')
+  const [preview, setPreview] = useState<string | null>(null)
+  const [camError, setCamError] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const fallbackRef = useRef<HTMLInputElement>(null)
+
+  const stopStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+  }, [])
+
+  async function openCamera() {
+    setCamError(false)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 } },
+      })
+      streamRef.current = stream
+      setMode('live')
+      // attach after state update so video element is rendered
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          videoRef.current.play().catch(() => {})
+        }
+      }, 50)
+    } catch {
+      // getUserMedia not available (desktop/older browser) — fall back to file input
+      setCamError(true)
+      fallbackRef.current?.click()
+    }
+  }
+
+  function capturePhoto() {
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    if (!video || !canvas) return
+    canvas.width = video.videoWidth || 1280
+    canvas.height = video.videoHeight || 960
+    canvas.getContext('2d')?.drawImage(video, 0, 0)
+    const b64 = canvas.toDataURL('image/jpeg', 0.88)
+    setPreview(b64)
+    setMode('preview')
+    stopStream()
+  }
+
+  function retake() {
+    setPreview(null)
+    setMode('idle')
+  }
+
+  function confirmPhoto() {
+    if (preview) { onCapture(preview); setMode('idle') }
+  }
+
+  function handleFallback(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      const b64 = ev.target?.result as string
+      setPreview(b64)
+      setMode('preview')
+    }
+    reader.readAsDataURL(file)
+  }
+
+  useEffect(() => () => stopStream(), [stopStream])
+
+  // ── Idle state ─────────────────────────────────────────────────────────────
+  if (mode === 'idle') return (
+    <>
+      <button type="button" onClick={openCamera}
+        className="w-full bg-brand-50 border-2 border-dashed border-brand-300 rounded-2xl py-8 flex flex-col items-center gap-3 hover:bg-brand-100 transition-colors active:bg-brand-200">
+        <div className="w-14 h-14 bg-brand-600 rounded-2xl flex items-center justify-center">
+          <Camera size={24} className="text-white"/>
+        </div>
+        <div className="text-center">
+          <p className="font-semibold text-brand-700 text-sm">Buka Kamera</p>
+          <p className="text-xs text-brand-500 mt-0.5">Foto KTP kamu sekarang</p>
+        </div>
+      </button>
+      <input ref={fallbackRef} type="file" accept="image/*" capture="environment"
+        onChange={handleFallback} className="hidden"/>
+    </>
+  )
+
+  // ── Live camera with KTP frame overlay ─────────────────────────────────────
+  if (mode === 'live') return (
+    <div className="relative w-full rounded-2xl overflow-hidden bg-black" style={{ aspectRatio: '3/4' }}>
+      <video ref={videoRef} playsInline muted
+        className="absolute inset-0 w-full h-full object-cover"/>
+      <canvas ref={canvasRef} className="hidden"/>
+
+      {/* dark overlay with transparent KTP cutout */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+        {/* top shade */}
+        <div className="w-full bg-black/55" style={{ height: '18%' }}/>
+        {/* middle row: side shade | clear KTP window | side shade */}
+        <div className="flex w-full" style={{ height: '42%' }}>
+          <div className="bg-black/55" style={{ width: '5%' }}/>
+          <div className="relative flex-1 border-2 border-white/30 rounded-sm">
+            {/* red corner brackets */}
+            {[['top-0 left-0','border-t-2 border-l-2'],['top-0 right-0','border-t-2 border-r-2'],
+              ['bottom-0 left-0','border-b-2 border-l-2'],['bottom-0 right-0','border-b-2 border-r-2']
+            ].map(([pos, cls], i) => (
+              <span key={i} className={`absolute ${pos} w-6 h-6 border-red-500 ${cls}`}/>
+            ))}
+          </div>
+          <div className="bg-black/55" style={{ width: '5%' }}/>
+        </div>
+        {/* bottom shade with instruction */}
+        <div className="w-full flex-1 bg-black/55 flex flex-col items-center justify-start pt-2 px-4">
+          <p className="text-white text-xs text-center leading-tight">
+            Pastikan seluruh KTP berada dalam bingkai,{'\n'}informasi terlihat jelas, dan tidak buram.
+          </p>
+        </div>
+      </div>
+
+      {/* close button */}
+      <button type="button" onClick={() => { stopStream(); setMode('idle') }}
+        className="absolute top-3 right-3 w-9 h-9 bg-black/50 rounded-full flex items-center justify-center text-white">
+        <X size={18}/>
+      </button>
+
+      {/* capture button */}
+      <button type="button" onClick={capturePhoto}
+        className="absolute bottom-5 left-1/2 -translate-x-1/2 w-16 h-16 rounded-full border-4 border-white bg-white/20 flex items-center justify-center active:bg-white/40">
+        <div className="w-11 h-11 bg-white rounded-full"/>
+      </button>
+    </div>
+  )
+
+  // ── Preview after capture ───────────────────────────────────────────────────
+  return (
+    <div className="space-y-3">
+      <canvas ref={canvasRef} className="hidden"/>
+      <div className="relative">
+        <img src={preview!} alt="KTP" className="w-full rounded-xl border border-gray-200 object-cover max-h-52"/>
+      </div>
+      <p className="text-xs text-gray-500 text-center">Foto KTP sudah diambil. Sudah jelas?</p>
+      <div className="flex gap-2">
+        <button type="button" onClick={retake}
+          className="flex-1 flex items-center justify-center gap-1.5 border border-gray-200 rounded-xl py-2.5 text-sm text-gray-600 hover:bg-gray-50">
+          <RefreshCw size={14}/> Foto Ulang
+        </button>
+        <button type="button" onClick={confirmPhoto}
+          className="flex-1 bg-emerald-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-emerald-700">
+          ✓ Gunakan Foto Ini
+        </button>
+      </div>
+    </div>
+  )
+}
 
 interface Invite {
   id: string; token: string; name: string; tipe_host: string
@@ -18,7 +177,7 @@ function OnboardForm() {
   const [loadingInvite, setLoadingInvite] = useState(true)
 
   const [form, setForm] = useState({
-    full_name: '', alamat: '', nik_id: '', email: '', password: '', confirm_password: '',
+    full_name: '', username: '', alamat: '', nik_id: '', email: '', password: '', confirm_password: '',
   })
   const [ktpBase64, setKtpBase64] = useState<string | null>(null)
   const [ktpPreview, setKtpPreview] = useState<string | null>(null)
@@ -26,8 +185,6 @@ function OnboardForm() {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const [success, setSuccess] = useState(false)
-  const ktpRef = useRef<HTMLInputElement>(null)
-
   // Load invite
   useEffect(() => {
     if (!token) { setInviteError('Link tidak valid — token tidak ditemukan.'); setLoadingInvite(false); return }
@@ -40,19 +197,6 @@ function OnboardForm() {
         setForm(f => ({ ...f, full_name: data.name }))
       })
   }, [token])
-
-  function handleKtp(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.size > 10 * 1024 * 1024) { setSubmitError('Ukuran foto max 10MB'); return }
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const b64 = ev.target?.result as string
-      setKtpBase64(b64)
-      setKtpPreview(b64)
-    }
-    reader.readAsDataURL(file)
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -70,6 +214,7 @@ function OnboardForm() {
       body: JSON.stringify({
         token,
         full_name: form.full_name,
+        username: form.username || null,
         alamat: form.alamat,
         nik_id: form.nik_id,
         email: form.email,
@@ -183,6 +328,15 @@ function OnboardForm() {
               </div>
               <div>
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">
+                  Nama Panggilan (Username) <span className="text-red-500">*</span>
+                </label>
+                <input value={form.username} onChange={e => setForm(f => ({...f, username: e.target.value}))}
+                  required placeholder="e.g. Anggi, Naya, Koko"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                <p className="text-[10px] text-gray-400 mt-1">Nama pendek yang dipakai sehari-hari di jadwal</p>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">
                   Alamat Lengkap <span className="text-red-500">*</span>
                 </label>
                 <textarea value={form.alamat} onChange={e => setForm(f => ({...f, alamat: e.target.value}))}
@@ -202,39 +356,28 @@ function OnboardForm() {
             </div>
           </div>
 
-          {/* Section 2: Foto KTP - Camera only */}
+          {/* Section 2: Foto KTP */}
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
             <h2 className="font-bold text-gray-900 text-sm mb-1">
               📷 Foto KTP <span className="text-red-500">*</span>
             </h2>
             <p className="text-xs text-gray-400 mb-4">
-              Wajib foto langsung menggunakan kamera HP — bukan upload file
+              Wajib foto langsung menggunakan kamera HP — posisikan KTP dalam bingkai
             </p>
-
             {ktpPreview ? (
-              <div className="relative">
-                <img src={ktpPreview} alt="KTP" className="w-full rounded-xl border border-gray-200 object-cover max-h-48"/>
-                <button type="button" onClick={() => { setKtpBase64(null); setKtpPreview(null); if (ktpRef.current) ktpRef.current.value = '' }}
-                  className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1">
-                  ✕
-                </button>
-                <p className="text-xs text-emerald-600 text-center mt-2 font-medium">✓ Foto KTP berhasil diambil</p>
+              <div className="space-y-2">
+                <div className="relative">
+                  <img src={ktpPreview} alt="KTP" className="w-full rounded-xl border border-gray-200 object-cover max-h-48"/>
+                  <button type="button" onClick={() => { setKtpBase64(null); setKtpPreview(null) }}
+                    className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1">
+                    ✕
+                  </button>
+                </div>
+                <p className="text-xs text-emerald-600 text-center font-medium">✓ Foto KTP berhasil diambil</p>
               </div>
             ) : (
-              <button type="button" onClick={() => ktpRef.current?.click()}
-                className="w-full bg-brand-50 border-2 border-dashed border-brand-300 rounded-2xl py-8 flex flex-col items-center gap-3 hover:bg-brand-100 transition-colors active:bg-brand-200">
-                <div className="w-14 h-14 bg-brand-600 rounded-2xl flex items-center justify-center">
-                  <Camera size={24} className="text-white"/>
-                </div>
-                <div className="text-center">
-                  <p className="font-semibold text-brand-700 text-sm">Buka Kamera</p>
-                  <p className="text-xs text-brand-500 mt-0.5">Foto KTP kamu sekarang</p>
-                </div>
-              </button>
+              <KTPCamera onCapture={(b64) => { setKtpBase64(b64); setKtpPreview(b64) }}/>
             )}
-            {/* capture="environment" forces rear camera on mobile */}
-            <input ref={ktpRef} type="file" accept="image/*" capture="environment"
-              onChange={handleKtp} className="hidden"/>
           </div>
 
           {/* Section 3: Akun Login */}

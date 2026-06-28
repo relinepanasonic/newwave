@@ -69,6 +69,24 @@ export const t: Record<string, Record<Lang, string>> = {
   done:          { id: 'Selesai',        en: 'Done' },
   cancelled:     { id: 'Dibatalkan',     en: 'Cancelled' },
 
+  // Page descriptions
+  hrdDesc:         { id: 'Manajemen host & penggajian',              en: 'Host management & payroll' },
+  hostsDesc:       { id: 'Kelola Host, Client & Ruangan',            en: 'Manage Hosts, Clients & Rooms' },
+  praLiveDesc:     { id: 'Upload foto look sebelum mulai live',      en: 'Upload your look photo before going live' },
+  liveReportDesc:  { id: 'Submit laporan setiap selesai live',       en: 'Submit your report after each live session' },
+  recapDesc:       { id: 'Rekap jadwal live semua host per periode', en: 'Live schedule summary for all hosts' },
+  clientsDesc:     { id: 'Manajemen client, jadwal live & invoice',  en: 'Manage clients, live schedule & invoices' },
+  blackoutTitle:   { id: 'Jam Diblokir',                            en: 'Blocked Hours' },
+  blackoutDesc:    { id: 'Waktu di mana client tidak bisa live',     en: 'Time windows when clients cannot go live' },
+  scheduleDesc:    { id: 'Jadwal live mingguan',                     en: 'Weekly live schedule' },
+  payrollDesc:     { id: 'Penggajian & slip gaji host',              en: 'Host salary & payslips' },
+  roomsDesc:       { id: 'Kelola ruangan live',                      en: 'Manage live rooms' },
+  checkinDesc:     { id: 'Absen masuk & keluar kerja',               en: 'Clock in & out for your shift' },
+  myScheduleDesc:  { id: 'Jadwal live kamu',                         en: 'Your live schedule' },
+  clientScheduleDesc: { id: 'Jadwal live brand kamu',                en: 'Your brand live schedule' },
+  brandReportDesc: { id: 'Statistik & laporan live',                 en: 'Live statistics & reports' },
+  invoiceDesc:     { id: 'Kelola invoice client',                    en: 'Manage client invoices' },
+
   // Auth
   login:         { id: 'Masuk',          en: 'Login' },
   email:         { id: 'Email',          en: 'Email' },

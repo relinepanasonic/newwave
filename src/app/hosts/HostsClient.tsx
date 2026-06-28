@@ -4,6 +4,8 @@ import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, cn } from '@/lib/utils'
 import { Plus, X, Save, Pencil, Link2, Copy, Check, Clock, GripVertical, Trash2 } from 'lucide-react'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 
 const TIPE_HOST = ['Regular', 'Silver', 'Gold', 'Platinum', 'Rubi']
 const ROOM_GROUPS = ['Jakarta Puan', 'Luar Puan']
@@ -18,12 +20,14 @@ interface Invite {
   created_at: string; used_at?: string; host_id?: string
 }
 interface Room { id: string; name: string; group_name: string; sort_order: number; is_active: boolean }
+interface NwPackage { id: string; name: string; description: string | null; tipe_live: string; jam_per_sesi: number; price_per_jam: number; sort_order: number; is_active: boolean }
 
 export default function HostsClient({ profile }: { profile: any }) {
+  const { lang } = useLang()
   const [hosts, setHosts] = useState<Profile[]>([])
   const [invites, setInvites] = useState<Invite[]>([])
   const [rooms, setRooms] = useState<Room[]>([])
-  const [tab, setTab] = useState<'host' | 'client' | 'room'>('host')
+  const [tab, setTab] = useState<'host' | 'client' | 'room' | 'packages'>('host')
   const [loading, setLoading] = useState(true)
 
   // Invite form
@@ -51,6 +55,45 @@ export default function HostsClient({ profile }: { profile: any }) {
   const [roomForm, setRoomForm] = useState({ name: '', group_name: 'Jakarta Puan' })
   const [roomSaving, setRoomSaving] = useState(false)
 
+  // NW Packages
+  const [packages, setPackages] = useState<NwPackage[]>([])
+  const [pkgModal, setPkgModal] = useState<'new' | NwPackage | null>(null)
+  const [pkgForm, setPkgForm] = useState({ name: '', description: '', tipe_live: 'Regular', jam_per_sesi: 4, price_per_jam: 0 })
+  const [pkgSaving, setPkgSaving] = useState(false)
+  const [pkgError, setPkgError] = useState('')
+
+  async function fetchPackages() {
+    const supabase = createClient()
+    const { data } = await supabase.from('nw_packages').select('*').order('sort_order').order('name')
+    setPackages(data || [])
+  }
+
+  async function savePkg() {
+    if (!pkgForm.name.trim()) { setPkgError('Nama paket wajib diisi'); return }
+    setPkgSaving(true); setPkgError('')
+    const supabase = createClient()
+    if (pkgModal === 'new') {
+      await supabase.from('nw_packages').insert({
+        name: pkgForm.name.trim(), description: pkgForm.description || null,
+        tipe_live: pkgForm.tipe_live, jam_per_sesi: pkgForm.jam_per_sesi,
+        price_per_jam: pkgForm.price_per_jam,
+      })
+    } else if (pkgModal && typeof pkgModal === 'object') {
+      await supabase.from('nw_packages').update({
+        name: pkgForm.name.trim(), description: pkgForm.description || null,
+        tipe_live: pkgForm.tipe_live, jam_per_sesi: pkgForm.jam_per_sesi,
+        price_per_jam: pkgForm.price_per_jam,
+      }).eq('id', pkgModal.id)
+    }
+    await fetchPackages(); setPkgSaving(false); setPkgModal(null)
+  }
+
+  async function togglePkgActive(pkg: NwPackage) {
+    const supabase = createClient()
+    await supabase.from('nw_packages').update({ is_active: !pkg.is_active }).eq('id', pkg.id)
+    await fetchPackages()
+  }
+
   useEffect(() => {
     const supabase = createClient()
     Promise.all([
@@ -63,6 +106,7 @@ export default function HostsClient({ profile }: { profile: any }) {
       setRooms(roomsRes.data || [])
       setLoading(false)
     })
+    fetchPackages()
   }, [])
 
   // ── Invite ──────────────────────────────────────────────────
@@ -195,6 +239,7 @@ export default function HostsClient({ profile }: { profile: any }) {
     { key: 'host', label: `Host (${filteredHosts.length})` },
     { key: 'client', label: `Client (${filteredClients.length})` },
     { key: 'room', label: `Ruangan (${rooms.length})` },
+    { key: 'packages', label: 'Paket NW' },
   ] as const
 
   return (
@@ -202,8 +247,8 @@ export default function HostsClient({ profile }: { profile: any }) {
       <div className="p-6 max-w-5xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Onboarding</h1>
-            <p className="text-sm text-gray-500 mt-0.5">Kelola Host, Client & Ruangan</p>
+            <h1 className="text-2xl font-bold text-gray-900">{tr('onboarding', lang)}</h1>
+            <p className="text-sm text-gray-500 mt-0.5">{tr('hostsDesc', lang)}</p>
           </div>
           {tab === 'host' && (
             <button onClick={() => setShowInviteModal(true)}
@@ -221,6 +266,12 @@ export default function HostsClient({ profile }: { profile: any }) {
             <button onClick={() => { setRoomForm({ name: '', group_name: 'Jakarta Puan' }); setRoomModal('new') }}
               className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl">
               <Plus size={14}/> Tambah Ruangan
+            </button>
+          )}
+          {tab === 'packages' && (
+            <button onClick={() => { setPkgForm({ name: '', description: '', tipe_live: 'Regular', jam_per_sesi: 4, price_per_jam: 0 }); setPkgModal('new') }}
+              className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl">
+              <Plus size={14}/> Tambah Paket
             </button>
           )}
         </div>
@@ -385,7 +436,96 @@ export default function HostsClient({ profile }: { profile: any }) {
             ))}
           </div>
         )}
+
+        {/* ── PACKAGES TAB ── */}
+        {tab === 'packages' && (
+          <div className="space-y-3">
+            {packages.length === 0 && (
+              <div className="text-center py-12 text-gray-400 text-sm">Belum ada paket. Klik "Tambah Paket" untuk membuat paket layanan NW.</div>
+            )}
+            {packages.map(pkg => (
+              <div key={pkg.id} className={cn('flex items-start gap-4 bg-white rounded-2xl border p-4 shadow-sm', !pkg.is_active && 'opacity-50')}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="font-semibold text-gray-900 text-sm">{pkg.name}</p>
+                    <span className="text-[10px] bg-brand-100 text-brand-700 rounded-full px-2 py-0.5 font-medium">{pkg.tipe_live}</span>
+                    {!pkg.is_active && <span className="text-[10px] bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">Nonaktif</span>}
+                  </div>
+                  {pkg.description && <p className="text-xs text-gray-500 mb-1">{pkg.description}</p>}
+                  <div className="flex items-center gap-3 text-[11px] text-gray-400">
+                    <span>{pkg.jam_per_sesi} jam/sesi</span>
+                    <span>·</span>
+                    <span className="font-medium text-gray-600">{formatCurrency(pkg.price_per_jam)}/jam</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={() => togglePkgActive(pkg)}
+                    className={cn('text-[11px] font-medium px-3 py-1.5 rounded-lg border transition-colors',
+                      pkg.is_active ? 'border-red-200 text-red-600 hover:bg-red-50' : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50')}>
+                    {pkg.is_active ? 'Nonaktifkan' : 'Aktifkan'}
+                  </button>
+                  <button onClick={() => { setPkgForm({ name: pkg.name, description: pkg.description || '', tipe_live: pkg.tipe_live, jam_per_sesi: pkg.jam_per_sesi, price_per_jam: pkg.price_per_jam }); setPkgModal(pkg) }}
+                    className="text-xs text-brand-600 border border-brand-200 rounded-lg px-2.5 py-1.5 hover:bg-brand-50">
+                    <Pencil size={12}/>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* ── NW Package Modal ── */}
+      {pkgModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setPkgModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-bold text-gray-900">{pkgModal === 'new' ? 'Tambah Paket NW' : 'Edit Paket NW'}</h3>
+              <button onClick={() => setPkgModal(null)}><X size={16} className="text-gray-400"/></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Nama Paket*</label>
+                <input value={pkgForm.name} onChange={e => setPkgForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. Paket Reguler 4 Jam"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Tipe Live</label>
+                <select value={pkgForm.tipe_live} onChange={e => setPkgForm(f => ({ ...f, tipe_live: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400">
+                  {['Regular','Silver','Gold','Platinum','Rubi','UGC','Pre Content','Background Design','Other'].map(t => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Jam / Sesi</label>
+                  <input type="number" min="1" max="24" step="0.5" value={pkgForm.jam_per_sesi}
+                    onChange={e => setPkgForm(f => ({ ...f, jam_per_sesi: parseFloat(e.target.value) || 1 }))}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Harga / Jam</label>
+                  <input type="number" min="0" step="1000" value={pkgForm.price_per_jam}
+                    onChange={e => setPkgForm(f => ({ ...f, price_per_jam: parseFloat(e.target.value) || 0 }))}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Deskripsi</label>
+                <textarea value={pkgForm.description} onChange={e => setPkgForm(f => ({ ...f, description: e.target.value }))}
+                  rows={2} placeholder="Opsional — deskripsi singkat paket"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+              </div>
+              {pkgError && <p className="text-xs text-red-600">{pkgError}</p>}
+              <button onClick={savePkg} disabled={pkgSaving}
+                className="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-xl text-sm disabled:opacity-50 flex items-center justify-center gap-2">
+                <Save size={14}/> {pkgSaving ? 'Menyimpan...' : 'Simpan Paket'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Invite Modal ── */}
       {showInviteModal && (

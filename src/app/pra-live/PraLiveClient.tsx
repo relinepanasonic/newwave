@@ -5,6 +5,8 @@ import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { toLocalDateStr, SESSION_LABELS } from '@/lib/utils'
 import { Camera, Upload, X, CheckCircle2, Sparkles, PlayCircle, Clock } from 'lucide-react'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 
 interface Slot {
   id: string; session_no: number; brand: string; platform: string
@@ -15,6 +17,7 @@ interface Approval {
 }
 
 export default function PraLiveClient({ profile }: { profile: any }) {
+  const { lang } = useLang()
   const router = useRouter()
   const [todaySlots, setTodaySlots] = useState<Slot[]>([])
   const [approvals, setApprovals] = useState<Approval[]>([])
@@ -97,11 +100,10 @@ export default function PraLiveClient({ profile }: { profile: any }) {
       <div className="p-5 max-w-3xl mx-auto space-y-6">
         <div>
           <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            <Sparkles size={20} className="text-brand-600"/> Pra-Live — Look Approval
+            <Sparkles size={20} className="text-brand-600"/>
+            {lang === 'id' ? 'Pra-Live — Look Approval' : 'Pre-Live — Look Approval'}
           </h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Upload foto makeup/look kamu untuk tiap sesi sebelum mulai live.
-          </p>
+          <p className="text-sm text-gray-500 mt-0.5">{tr('praLiveDesc', lang)}</p>
         </div>
 
         {/* hidden file input shared by all cards */}

@@ -4,7 +4,8 @@ import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { SESSION_LABELS, PLATFORM_COLORS, cn } from '@/lib/utils'
 import { LogIn, LogOut, Clock, CheckCircle } from 'lucide-react'
-import { tr, type Lang } from '@/lib/i18n'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 
 interface CheckIn { id: string; clock_in: string | null; clock_out: string | null; total_hours: number | null }
 interface Slot {
@@ -25,7 +26,7 @@ function formatTime(ts: string | null) {
 }
 
 export default function CheckinClient({ profile, slots, today }: Props) {
-  const [lang] = useState<Lang>('id')
+  const { lang } = useLang()
   const [loadingId, setLoadingId] = useState<string | null>(null)
   const [localSlots, setLocalSlots] = useState<Slot[]>(slots)
 

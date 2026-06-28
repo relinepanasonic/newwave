@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import { Menu, Globe, LogOut } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import type { Lang } from '@/lib/i18n'
+import { LangProvider, useLang } from '@/lib/lang-context'
 
 interface Props {
   role: 'superadmin' | 'host' | 'client'
@@ -13,8 +13,8 @@ interface Props {
   children: React.ReactNode
 }
 
-export default function AppShell({ role, userName, children }: Props) {
-  const [lang, setLang] = useState<Lang>('id')
+function AppShellInner({ role, userName, children }: Props) {
+  const { lang, setLang } = useLang()
   const [open, setOpen] = useState(false)
   const router = useRouter()
 
@@ -27,34 +27,22 @@ export default function AppShell({ role, userName, children }: Props) {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      {/* Mobile backdrop */}
       {open && (
         <div className="fixed inset-0 bg-black/40 z-40 lg:hidden" onClick={() => setOpen(false)} />
       )}
 
-      {/* Sidebar — fixed drawer, hidden off-screen on mobile */}
       <div className={cn(
         'fixed left-0 top-0 h-full z-50 transition-transform duration-200 ease-in-out',
         open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
       )}>
-        <Sidebar
-          role={role}
-          lang={lang}
-          userName={userName}
-          onClose={() => setOpen(false)}
-        />
+        <Sidebar role={role} lang={lang} userName={userName} onClose={() => setOpen(false)} />
       </div>
 
-      {/* Main content */}
       <main className="flex-1 lg:ml-[220px] min-h-screen overflow-x-hidden">
-        {/* Top bar — always visible */}
         <div className="sticky top-0 z-30 bg-white border-b border-gray-100 px-4 py-3 flex items-center shadow-sm">
-          {/* Left: hamburger (mobile) + logo (mobile) */}
           <div className="flex items-center gap-3 lg:hidden">
-            <button
-              onClick={() => setOpen(true)}
-              className="p-2 rounded-xl hover:bg-gray-100 active:bg-gray-200 transition-colors"
-            >
+            <button onClick={() => setOpen(true)}
+              className="p-2 rounded-xl hover:bg-gray-100 active:bg-gray-200 transition-colors">
               <Menu size={20} className="text-gray-700" />
             </button>
             <div className="flex items-center gap-2">
@@ -65,30 +53,31 @@ export default function AppShell({ role, userName, children }: Props) {
             </div>
           </div>
 
-          {/* Right: lang toggle + logout */}
           <div className="ml-auto flex items-center gap-1">
-            <button
-              onClick={() => setLang(l => l === 'id' ? 'en' : 'id')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs text-gray-500 hover:bg-gray-100 transition-colors font-medium"
-            >
+            <button onClick={() => setLang(lang === 'id' ? 'en' : 'id')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs text-gray-500 hover:bg-gray-100 transition-colors font-medium">
               <Globe size={14} className="text-gray-400" />
               <span className="hidden sm:inline">{lang === 'id' ? 'English' : 'Indonesia'}</span>
               <span className="sm:hidden">{lang === 'id' ? 'EN' : 'ID'}</span>
             </button>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors font-medium"
-            >
+            <button onClick={handleLogout}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors font-medium">
               <LogOut size={14} />
-              <span className="hidden sm:inline">Keluar</span>
+              <span className="hidden sm:inline">{lang === 'id' ? 'Keluar' : 'Logout'}</span>
             </button>
           </div>
         </div>
 
-        <div data-lang={lang}>
-          {children}
-        </div>
+        <div data-lang={lang}>{children}</div>
       </main>
     </div>
+  )
+}
+
+export default function AppShell(props: Props) {
+  return (
+    <LangProvider>
+      <AppShellInner {...props} />
+    </LangProvider>
   )
 }

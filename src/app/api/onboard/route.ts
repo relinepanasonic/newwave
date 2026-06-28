@@ -5,7 +5,7 @@ import { isDriveConfigured, uploadHostFile } from '@/lib/gdrive'
 export const runtime = 'nodejs'
 
 export async function POST(req: Request) {
-  const { token, full_name, alamat, nik_id, email, password, ktp_base64 } = await req.json()
+  const { token, full_name, username, alamat, nik_id, email, password, ktp_base64 } = await req.json()
 
   if (!token || !full_name || !email || !password) {
     return NextResponse.json({ error: 'Data tidak lengkap' }, { status: 400 })
@@ -89,6 +89,7 @@ export async function POST(req: Request) {
   const { error: profileErr } = await admin.from('profiles').upsert({
     id: userId,
     full_name,
+    username: username || null,
     role: 'host',
     alamat: alamat || null,
     nik_id: nik_id || null,

@@ -10,7 +10,7 @@ export default function ScheduleLoader({ profile }: { profile: any }) {
     const supabase = createClient()
     Promise.all([
       supabase.from('rooms').select('*').eq('is_active', true).order('sort_order'),
-      supabase.from('profiles').select('id, full_name').eq('role', 'host').eq('is_active', true).order('full_name'),
+      supabase.from('profiles').select('id, full_name, username').eq('role', 'host').eq('is_active', true).order('full_name'),
       supabase.from('profiles').select('client_brand').eq('role', 'client').not('client_brand', 'is', null),
     ]).then(([rooms, hosts, clients]) => {
       const brands = (clients.data || [])

@@ -3,7 +3,8 @@ import { useState, useMemo } from 'react'
 import AppShell from '@/components/AppShell'
 import { formatCurrency, getPayPeriod } from '@/lib/utils'
 import { Download, FileText } from 'lucide-react'
-import { tr, type Lang } from '@/lib/i18n'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 
 interface PayRow {
   host_id: string; full_name: string; hourly_rate: number
@@ -25,7 +26,7 @@ function periodLabel(start: string): string {
 }
 
 export default function PayrollClient({ profile, summary, hosts }: Props) {
-  const [lang] = useState<Lang>('id')
+  const { lang } = useLang()
   const currentPeriod = getPayPeriod()
   const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod.start.toISOString().split('T')[0].slice(0, 7))
 

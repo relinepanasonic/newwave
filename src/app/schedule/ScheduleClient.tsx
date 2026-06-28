@@ -4,7 +4,9 @@ import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { SESSION_LABELS, PLATFORM_COLORS, getWeekDates, toLocalDateStr, cn } from '@/lib/utils'
 import { ChevronLeft, ChevronRight, ChevronDown, X, Save, Plus, Trash2, Copy } from 'lucide-react'
-import { tr, type Lang } from '@/lib/i18n'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
+import TimeInput from '@/components/TimeInput'
 
 const DAYS_ID = ['Senin','Selasa','Rabu','Kamis','Jumat','Sabtu','Minggu']
 const DAYS_EN = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
@@ -24,12 +26,49 @@ function currentTimeGroup(): string {
 }
 
 interface Room { id: string; name: string; group_name: string; sort_order: number }
-interface Host { id: string; full_name: string }
+interface Host { id: string; full_name: string; username?: string }
 interface Slot {
   id?: string; slot_date: string; session_no: number; room_id: string
   host_id?: string; brand?: string; platform?: string; konsep?: string
   background?: string; kostum?: string; gimmick?: string; status?: string
   jam_mulai?: string; durasi?: number
+}
+
+interface Blackout {
+  id: string; brand: string; platform: string | null
+  day_of_week: number[] | null; start_time: string; end_time: string; reason: string | null
+}
+
+function timeToMin(t: string) {
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+
+// Core blackout checker — works with any start/end in minutes
+function checkBlackoutConflict(
+  blackouts: Blackout[], brand: string, platform: string,
+  slotStartMin: number, slotEndMin: number, dateStr: string
+): Blackout | null {
+  if (!brand) return null
+  const dow = new Date(dateStr + 'T00:00:00').getDay()
+  for (const b of blackouts) {
+    if (b.brand !== brand) continue
+    if (b.platform && b.platform !== platform) continue
+    if (b.day_of_week && !b.day_of_week.includes(dow)) continue
+    const bStart = timeToMin(b.start_time)
+    const bEnd = timeToMin(b.end_time)
+    if (slotStartMin < bEnd && slotEndMin > bStart) return b
+  }
+  return null
+}
+
+// Derive time range: prefer jamMulai+durasi, fall back to session number (session N = (N-1):00–N:00)
+function slotTimeRange(session: number, jamMulai: string, durasi: number): { startMin: number; endMin: number } {
+  if (jamMulai && durasi) {
+    const s = timeToMin(jamMulai)
+    return { startMin: s, endMin: Math.min(s + Math.round(durasi * 60), 1440) }
+  }
+  return { startMin: (session - 1) * 60, endMin: session * 60 }
 }
 
 interface Props {
@@ -73,7 +112,7 @@ function calcJamSelesai(jamMulai: string, durasi: number): string {
 }
 
 export default function ScheduleClient({ profile, rooms, hosts, brands }: Props) {
-  const [lang] = useState<Lang>('id')
+  const { lang } = useLang()
   const [baseDate, setBaseDate] = useState(new Date())
   const [weekDates, setWeekDates] = useState<Date[]>(getWeekDates(new Date()))
   const [activeDay, setActiveDay] = useState(0)
@@ -92,6 +131,11 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
     const cur = currentTimeGroup()
     return { morning: cur !== 'morning', afternoon: cur !== 'afternoon', night: cur !== 'night' }
   })
+  const [blackouts, setBlackouts] = useState<Blackout[]>([])
+  // Drag-and-drop (kanban) state
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null)
+  const [moveError, setMoveError] = useState('')
   const isAdmin = profile.role === 'superadmin'
 
   function toggleGroup(key: string) {
@@ -110,10 +154,16 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
     if (!weekDates.length) return
     setLoading(true)
     const supabase = createClient()
-    const from = toLocalDateStr(weekDates[0])
+    // Fetch one day before the week to catch midnight-crossing slots from the previous day
+    const weekStart = new Date(weekDates[0]); weekStart.setDate(weekStart.getDate() - 1)
+    const from = toLocalDateStr(weekStart)
     const to = toLocalDateStr(weekDates[6])
-    const { data } = await supabase.from('schedule_slots').select('*').gte('slot_date', from).lte('slot_date', to)
-    if (data) setSlots(data)
+    const [{ data: slotsData }, { data: boData }] = await Promise.all([
+      supabase.from('schedule_slots').select('*').gte('slot_date', from).lte('slot_date', to),
+      supabase.from('client_blackouts').select('*'),
+    ])
+    if (slotsData) setSlots(slotsData)
+    if (boData) setBlackouts(boData)
     setLoading(false)
   }, [weekDates])
 
@@ -148,7 +198,79 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
 
   async function saveSlot() {
     if (!editSlot) return
-    setSaving(true); setSaveError('')
+    setSaveError('')
+
+    // Room overlap check — no two bookings may overlap in time in the SAME room on the same day.
+    // This is the primary guard against double-booking a room (regardless of host/brand).
+    {
+      const { startMin, endMin } = slotTimeRange(editSlot.session, form.jamMulai, form.durasi)
+      const roomConflict = slots.find(s => {
+        if (s.slot_date !== editSlot.date) return false
+        if (s.room_id !== editSlot.roomId) return false
+        if (!s.host_id && !s.brand) return false // ignore empty placeholder rows
+        if (editSlot.existing?.id && s.id === editSlot.existing.id) return false
+        const { startMin: sS, endMin: sE } = slotTimeRange(s.session_no, s.jam_mulai || '', s.durasi || 0)
+        return startMin < sE && endMin > sS
+      })
+      if (roomConflict) {
+        const cHost = getHost(roomConflict.host_id)?.username || getHost(roomConflict.host_id)?.full_name || roomConflict.brand || 'sesi lain'
+        const cStart = roomConflict.jam_mulai ? roomConflict.jam_mulai.slice(0, 5) : SESSION_LABELS[roomConflict.session_no]
+        setSaveError(`⛔ Ruangan ini sudah dipakai (${cHost}) pada ${cStart}. Waktu tidak boleh bentrok.`)
+        return
+      }
+    }
+
+    // Duplicate host check — same host can't have overlapping sessions on the same day
+    if (form.hostId) {
+      const { startMin, endMin } = slotTimeRange(editSlot.session, form.jamMulai, form.durasi)
+      const hostConflict = slots.find(s => {
+        if (s.slot_date !== editSlot.date) return false
+        if (s.host_id !== form.hostId) return false
+        if (editSlot.existing?.id && s.id === editSlot.existing.id) return false
+        const { startMin: sS, endMin: sE } = slotTimeRange(s.session_no, s.jam_mulai || '', s.durasi || 0)
+        return startMin < sE && endMin > sS
+      })
+      if (hostConflict) {
+        const hostName = getHost(form.hostId)?.full_name || ''
+        setSaveError(`⚠️ ${hostName} sudah dijadwalkan di sesi ${SESSION_LABELS[hostConflict.session_no]} pada tanggal ini`)
+        return
+      }
+    }
+
+    // Duplicate brand+platform check — same brand AND same platform can't overlap on same day
+    // (different platforms of the same brand are fine)
+    if (form.brand && form.platform) {
+      const { startMin, endMin } = slotTimeRange(editSlot.session, form.jamMulai, form.durasi)
+      const bpConflict = slots.find(s => {
+        if (s.slot_date !== editSlot.date) return false
+        if (s.brand !== form.brand || s.platform !== form.platform) return false
+        if (editSlot.existing?.id && s.id === editSlot.existing.id) return false
+        const { startMin: sS, endMin: sE } = slotTimeRange(s.session_no, s.jam_mulai || '', s.durasi || 0)
+        return startMin < sE && endMin > sS
+      })
+      if (bpConflict) {
+        setSaveError(`⚠️ ${form.brand} (${form.platform}) sudah ada di sesi ${SESSION_LABELS[bpConflict.session_no]} pada tanggal ini`)
+        return
+      }
+    }
+
+    // Blackout check — runs whenever brand is set (uses session time if jamMulai not filled)
+    if (form.brand) {
+      const { startMin, endMin } = slotTimeRange(editSlot.session, form.jamMulai, form.durasi)
+      const conflict = checkBlackoutConflict(blackouts, form.brand, form.platform, startMin, endMin, editSlot.date)
+      if (conflict) {
+        const fmtT = (t: string) => t.slice(0, 5)
+        setSaveError(
+          `⛔ ${form.brand} tidak bisa live` +
+          (conflict.platform ? ` di ${conflict.platform}` : '') +
+          ` jam ${fmtT(conflict.start_time)}–${fmtT(conflict.end_time)}` +
+          (conflict.reason ? ` (${conflict.reason})` : '')
+        )
+        return
+      }
+    }
+
+    setSaving(true)
     const supabase = createClient()
 
     const payload = {
@@ -188,6 +310,55 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
     setSaving(false); setEditSlot(null); fetchSlots()
   }
 
+  // Kanban move — drag a slot card onto another (session, room) cell on the active day.
+  async function moveSlot(slotId: string, targetSession: number, targetRoomId: string) {
+    setMoveError('')
+    const slot = slots.find(s => s.id === slotId)
+    if (!slot) return
+    // No-op if dropped on its own origin
+    if (slot.session_no === targetSession && slot.room_id === targetRoomId) return
+
+    const durasi = slot.durasi || 0
+    // Snap to the target session's hour; keep explicit jam_mulai semantics only if it had one
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const newJam = slot.jam_mulai ? `${pad(targetSession - 1)}:00` : null
+    const { startMin, endMin } = slotTimeRange(targetSession, newJam || '', durasi)
+
+    // Room overlap check at destination
+    const conflict = slots.find(s => {
+      if (s.id === slotId) return false
+      if (s.slot_date !== slot.slot_date) return false
+      if (s.room_id !== targetRoomId) return false
+      if (!s.host_id && !s.brand) return false
+      const { startMin: sS, endMin: sE } = slotTimeRange(s.session_no, s.jam_mulai || '', s.durasi || 0)
+      return startMin < sE && endMin > sS
+    })
+    if (conflict) {
+      const cName = getHost(conflict.host_id)?.username || getHost(conflict.host_id)?.full_name || conflict.brand || 'sesi lain'
+      setMoveError(`⛔ Tidak bisa pindah — bentrok dengan ${cName} di ruangan tujuan`)
+      setTimeout(() => setMoveError(''), 4000)
+      return
+    }
+
+    const supabase = createClient()
+    const { error } = await supabase.from('schedule_slots')
+      .update({ session_no: targetSession, room_id: targetRoomId, jam_mulai: newJam })
+      .eq('id', slotId)
+    if (error) {
+      setMoveError('Gagal memindahkan: ' + error.message)
+      setTimeout(() => setMoveError(''), 4000)
+      return
+    }
+    fetchSlots()
+  }
+
+  function handleDropOnCell(session: number, roomId: string) {
+    setDragOverKey(null)
+    const id = draggingId
+    setDraggingId(null)
+    if (id) moveSlot(id, session, roomId)
+  }
+
   async function duplicateWeek() {
     setDuplicating(true)
     const supabase = createClient()
@@ -223,18 +394,44 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
     }
   }
 
-  // Build map of sessions that are "blocked" by a spanning slot (durasi > 1)
+  // Build map of sessions blocked by spanning slots — includes midnight crossings from previous day.
+  // Value carries `fromPrevDay` so the grid can label cells that are blocked by yesterday's live.
   const coveredBySlot = useMemo(() => {
-    const map = new Map<string, Slot>()
+    const map = new Map<string, { slot: Slot; fromPrevDay: boolean }>()
+
+    // Real (uncapped) end minute of a slot — uses jam_mulai when set, else session number.
+    const realEndMin = (s: Slot) => {
+      const startMin = s.jam_mulai ? timeToMin(s.jam_mulai) : (s.session_no - 1) * 60
+      const durMin = (s.durasi || 1) * 60
+      return startMin + durMin
+    }
+
+    // Same-day continuation cells (sessions 2..24 of today)
     slots.filter(s => s.slot_date === activeDateStr && (s.durasi || 0) > 1).forEach(slot => {
-      const span = Math.ceil(slot.durasi!)
-      for (let i = 1; i < span; i++) {
-        const blocked = slot.session_no + i
-        if (blocked <= 24) map.set(`${blocked}_${slot.room_id}`, slot)
+      const endMin = realEndMin(slot)
+      // Block every later session whose start falls before this slot's end (capped at midnight)
+      for (let sess = slot.session_no + 1; sess <= 24; sess++) {
+        if ((sess - 1) * 60 < endMin) map.set(`${sess}_${slot.room_id}`, { slot, fromPrevDay: false })
+        else break
       }
     })
+
+    // Previous-day slots that cross midnight into today
+    if (activeDate) {
+      const prev = new Date(activeDate); prev.setDate(prev.getDate() - 1)
+      const prevStr = toLocalDateStr(prev)
+      slots.filter(s => s.slot_date === prevStr && (s.durasi || 0) >= 1).forEach(slot => {
+        const overflowMin = realEndMin(slot) - 1440  // minutes past midnight into today
+        if (overflowMin <= 0) return
+        const sessionsCrossed = Math.ceil(overflowMin / 60)  // today's sessions 1..N
+        for (let todaySess = 1; todaySess <= Math.min(sessionsCrossed, 24); todaySess++) {
+          map.set(`${todaySess}_${slot.room_id}`, { slot, fromPrevDay: true })
+        }
+      })
+    }
+
     return map
-  }, [slots, activeDateStr])
+  }, [slots, activeDateStr, activeDate])
 
   const dayLabels = lang === 'id' ? DAYS_ID : DAYS_EN
   const groups = Array.from(new Set(rooms.map(r => r.group_name)))
@@ -259,28 +456,54 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
           <span className="text-[10px] font-mono text-gray-500">{SESSION_LABELS[session]}</span>
         </div>
         {rooms.map(room => {
-          const coveringSlot = coveredBySlot.get(`${session}_${room.id}`)
-          if (coveringSlot) {
-            // Continuation cell — blocked by spanning slot above
+          const covering = coveredBySlot.get(`${session}_${room.id}`)
+          if (covering) {
+            const { slot: coveringSlot, fromPrevDay } = covering
+            const coveringHost = getHost(coveringSlot.host_id)
+            // Continuation cell — blocked by a spanning slot (today's earlier session, or yesterday crossing midnight)
             return (
               <div key={room.id}
-                onClick={() => isAdmin && openEdit(coveringSlot.session_no, room.id)}
-                className={cn('border-r border-gray-100 last:border-r-0 transition-colors',
-                  isAdmin ? 'cursor-pointer hover:opacity-70' : 'cursor-default',
+                onClick={() => isAdmin && !fromPrevDay && openEdit(coveringSlot.session_no, room.id)}
+                className={cn('border-r border-gray-100 last:border-r-0 px-1.5 flex items-center transition-colors',
+                  isAdmin && !fromPrevDay ? 'cursor-pointer hover:opacity-70' : 'cursor-default',
                   PLATFORM_SPAN[coveringSlot.platform || ''] || PLATFORM_SPAN['']
                 )}
                 style={{ width: '150px', minHeight: '36px' }}
-              />
+              >
+                {fromPrevDay && (
+                  <div className="min-w-0 leading-tight">
+                    <p className="text-[9px] font-semibold text-gray-500 truncate">
+                      ↳ {coveringHost?.username || coveringHost?.full_name || 'Live'} (kemarin)
+                    </p>
+                    <p className="text-[8px] text-gray-400 truncate">
+                      {coveringSlot.brand}{coveringSlot.jam_mulai ? ` · mulai ${coveringSlot.jam_mulai}` : ''}
+                    </p>
+                  </div>
+                )}
+              </div>
             )
           }
 
           const slot = getSlot(session, room.id)
           const host = getHost(slot?.host_id)
+          const cellKey = `${session}_${room.id}`
+          const isDragOver = dragOverKey === cellKey
+          const isDragging = !!slot?.id && draggingId === slot.id
+          const draggable = isAdmin && !!slot?.host_id
           return (
             <div key={room.id}
-              onClick={() => openEdit(session, room.id)}
+              draggable={draggable}
+              onDragStart={draggable ? (e => { e.dataTransfer.effectAllowed = 'move'; if (slot?.id) setDraggingId(slot.id) }) : undefined}
+              onDragEnd={() => { setDraggingId(null); setDragOverKey(null) }}
+              onDragOver={e => { if (draggingId && draggingId !== slot?.id) { e.preventDefault(); setDragOverKey(cellKey) } }}
+              onDragLeave={() => setDragOverKey(k => k === cellKey ? null : k)}
+              onDrop={e => { e.preventDefault(); handleDropOnCell(session, room.id) }}
+              onClick={() => { if (!draggingId) openEdit(session, room.id) }}
               className={cn('border-r border-gray-100 last:border-r-0 px-1.5 py-0.5 flex items-center transition-colors',
                 isAdmin ? 'cursor-pointer hover:bg-brand-50/60' : 'cursor-default',
+                draggable ? 'active:cursor-grabbing' : '',
+                isDragging ? 'opacity-30' : '',
+                isDragOver ? 'ring-2 ring-inset ring-brand-500 bg-brand-50' : '',
                 slot?.host_id ? (slot.status === 'live' ? 'bg-green-50' : slot.status === 'done' ? 'bg-gray-50' : 'bg-brand-50/40') : '',
                 slot?.host_id && (slot.durasi || 0) > 1 ? (PLATFORM_SPAN[slot.platform || ''] || PLATFORM_SPAN['']).split(' ')[1] + ' ' + (PLATFORM_SPAN[slot.platform || ''] || PLATFORM_SPAN['']).split(' ')[2] : '',
               )}
@@ -292,16 +515,19 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                       <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', PLATFORM_DOT[slot.platform] || 'bg-gray-400')}/>
                     )}
                     <span className="text-[11px] font-semibold text-gray-900 truncate leading-tight">
-                      {host?.full_name || '?'}
+                      {host?.username || host?.full_name || '?'}
                     </span>
                   </div>
-                  {slot.jam_mulai && slot.durasi ? (
-                    <p className="text-[9px] text-brand-500 font-mono leading-tight mt-0.5">
-                      {slot.jam_mulai}–{calcJamSelesai(slot.jam_mulai, slot.durasi)}
+                  {slot.brand && (
+                    <p className="text-[9px] font-semibold text-gray-600 truncate leading-tight mt-0.5">
+                      {slot.brand}{slot.platform ? ` · ${slot.platform}` : ''}
                     </p>
-                  ) : slot.brand ? (
-                    <p className="text-[9px] text-gray-400 truncate leading-tight mt-0.5">{slot.brand}</p>
-                  ) : null}
+                  )}
+                  {(slot.konsep || slot.background || slot.kostum || slot.gimmick) && (
+                    <p className="text-[8px] text-gray-400 truncate leading-tight mt-0.5">
+                      {[slot.konsep, slot.background, slot.kostum, slot.gimmick].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
                 </div>
               ) : isAdmin ? (
                 <div className="w-full flex items-center justify-center h-full opacity-20 hover:opacity-60">
@@ -319,10 +545,20 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
     <AppShell role={profile.role as any} userName={profile.full_name}>
       <div className="flex flex-col" style={{ height: '100vh' }}>
 
+        {/* Drag move error toast */}
+        {moveError && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-lg">
+            {moveError}
+          </div>
+        )}
+
         {/* Top bar */}
         <div className="bg-white border-b border-gray-100 px-4 py-2.5 flex items-center gap-2 flex-shrink-0 flex-wrap">
           <h1 className="font-bold text-gray-900 text-sm">{tr('schedule', lang)}</h1>
           <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{totalThisWeek} sesi</span>
+          {isAdmin && (
+            <span className="text-[10px] text-gray-400 hidden sm:inline">· seret kartu untuk pindah jam/ruangan</span>
+          )}
           <div className="flex items-center gap-1 ml-auto">
             <button onClick={() => setBaseDate(new Date())}
               className="text-xs bg-brand-50 text-brand-700 border border-brand-200 px-2.5 py-1.5 rounded-lg font-medium hover:bg-brand-100">
@@ -491,10 +727,9 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Live Durasi</label>
                 <div className="flex items-center gap-2">
                   {/* Start time */}
-                  <input
-                    type="time"
+                  <TimeInput
                     value={form.jamMulai}
-                    onChange={e => setForm(f => ({ ...f, jamMulai: e.target.value }))}
+                    onChange={v => setForm(f => ({ ...f, jamMulai: v }))}
                     className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50"
                   />
                   <span className="text-gray-400 text-sm font-medium flex-shrink-0">+</span>
@@ -533,6 +768,24 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                     </span>
                   </div>
                 )}
+                {/* Live blackout warning — shows as soon as brand conflicts with session time */}
+                {editSlot && form.brand && (() => {
+                  const { startMin, endMin } = slotTimeRange(editSlot.session, form.jamMulai, form.durasi)
+                  const c = checkBlackoutConflict(blackouts, form.brand, form.platform, startMin, endMin, editSlot.date)
+                  if (!c) return null
+                  return (
+                    <div className="mt-2 flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                      <span className="text-base leading-none mt-0.5">⛔</span>
+                      <div>
+                        <p className="text-xs font-bold text-red-700">{form.brand} diblokir jam ini</p>
+                        <p className="text-[11px] text-red-500 mt-0.5">
+                          {c.platform || 'Semua platform'} · {c.start_time.slice(0,5)}–{c.end_time.slice(0,5)}
+                          {c.reason ? ` · ${c.reason}` : ''}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
 
               {/* Konsep Live */}
