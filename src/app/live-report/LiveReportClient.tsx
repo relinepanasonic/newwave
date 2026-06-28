@@ -226,15 +226,20 @@ export default function LiveReportClient({ profile }: { profile: any }) {
     if (slotParam) setForm(f => ({ ...f, slot_id: slotParam }))
   }, [profile.id, profile.role, todayStr, periodStart, periodEnd, params])
 
-  // Fetch etalase products when brand is known
+  // Fetch etalase products when brand is known, filtered to the slot's platform
   useEffect(() => {
     const brand = selectedSlot?.brand || form.brand
     if (!brand) { setEtalaseProducts([]); return }
-    createClient()
+    const platform = selectedSlot?.platform || form.platform
+    let q = createClient()
       .from('brand_products').select('id, name, sku, price, platform')
-      .eq('brand', brand).eq('is_active', true).order('name')
-      .then(({ data }) => setEtalaseProducts(data || []))
-  }, [form.slot_id, form.brand, todaySlots])
+      .eq('brand', brand).eq('is_active', true)
+    // Only filter by platform for Shopee / TikTok — other platforms don't split catalog
+    if (platform === 'Shopee' || platform === 'TikTok') {
+      q = q.eq('platform', platform)
+    }
+    q.order('name').then(({ data }) => setEtalaseProducts(data || []))
+  }, [form.slot_id, form.brand, form.platform, selectedSlot?.platform, todaySlots])
 
   // Auto-fill brand/platform when slot selected
   useEffect(() => {

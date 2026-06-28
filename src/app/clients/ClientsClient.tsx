@@ -14,9 +14,10 @@ type Tab = 'clients' | 'invoice' | 'products' | 'blackout'
 interface ClientProfile { id: string; full_name: string; client_brand: string }
 interface PackageCapacity {
   tipe: string    // e.g. "Regular", "Silver"
-  slots: number
-  hours: number
+  slots: number   // purchased slot count
+  hours: number   // purchased hours
   jam_per_sesi: number
+  planSlots: number  // how many scheduled slots carry this tipe_live
 }
 interface ClientMeter {
   brand: string; clientName: string
@@ -68,7 +69,7 @@ function ClientListTab() {
         .eq('role', 'client').not('client_brand', 'is', null)
         .then(({ data }) => (data || []) as ClientProfile[]),
       supabase.from('schedule_slots')
-        .select('id, brand, slot_date, session_no, durasi, profiles:host_id(full_name)')
+        .select('id, brand, slot_date, session_no, durasi, tipe_live, profiles:host_id(full_name)')
         .not('host_id', 'is', null)
         .order('slot_date')
         .then(({ data }) => data || []),
@@ -121,12 +122,20 @@ function ClientListTab() {
       const planSlotsByBrand: Record<string, number> = {}
       const successByBrand: Record<string, number> = {}
       const successSlotsByBrand: Record<string, number> = {}
+      // per-package plan slots: brand → tipe → count
+      const planSlotsByBrandPkg: Record<string, Record<string, number>> = {}
       const scheduleMap: Record<string, any[]> = {}
       ;(slots as any[]).forEach((s: any) => {
         if (!s.brand) return
         const dur = Number(s.durasi) || 1
         planByBrand[s.brand] = (planByBrand[s.brand] || 0) + dur
         planSlotsByBrand[s.brand] = (planSlotsByBrand[s.brand] || 0) + 1
+        // per-package plan tracking (tipe_live on slot)
+        const slotTipe = s.tipe_live || ''
+        if (slotTipe) {
+          if (!planSlotsByBrandPkg[s.brand]) planSlotsByBrandPkg[s.brand] = {}
+          planSlotsByBrandPkg[s.brand][slotTipe] = (planSlotsByBrandPkg[s.brand][slotTipe] || 0) + 1
+        }
         if (reportedSlotIds.has(s.id)) {
           successByBrand[s.brand] = (successByBrand[s.brand] || 0) + dur
           successSlotsByBrand[s.brand] = (successSlotsByBrand[s.brand] || 0) + 1
@@ -138,8 +147,9 @@ function ClientListTab() {
 
       setMeters(clients.map(c => {
         const brandPkgs = pkgByBrand[c.client_brand] || {}
+        const brandPlanPkg = planSlotsByBrandPkg[c.client_brand] || {}
         const packages: PackageCapacity[] = Object.entries(brandPkgs)
-          .map(([tipe, d]) => ({ tipe, ...d }))
+          .map(([tipe, d]) => ({ tipe, ...d, planSlots: brandPlanPkg[tipe] || 0 }))
           .sort((a, b) => a.tipe.localeCompare(b.tipe))
         return {
           brand: c.client_brand,
@@ -232,9 +242,9 @@ function ClientListTab() {
                   </div>
                   <div className="space-y-1.5 mb-3">
                     <div className="flex justify-between text-xs">
-                      <span className="text-gray-500">Jam</span>
+                      <span className="text-gray-500">Jam terpakai</span>
                       <span className="font-semibold text-gray-800">
-                        {hasSlot ? `${trimH(m.planHours)} / ${trimH(m.capacityHours)} jam` : 'Belum ada slot'}
+                        {hasSlot ? `${trimH(m.successHours)} / ${trimH(m.capacityHours)} jam` : 'Belum ada slot'}
                       </span>
                     </div>
                     {/* Stacked bar: orange = total plan (low opacity), emerald = live sukses */}
@@ -250,18 +260,33 @@ function ClientListTab() {
                   </div>
                   {/* Per-package capacity breakdown */}
                   {m.packages.length > 0 && (
-                    <div className="mt-2.5 space-y-1">
+                    <div className="mt-2.5 space-y-1.5">
                       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Paket</p>
-                      {m.packages.map(pkg => (
-                        <div key={pkg.tipe} className="flex items-center justify-between text-[11px]">
-                          <div className="flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-brand-400 flex-shrink-0"/>
-                            <span className="font-semibold text-gray-700">{pkg.tipe}</span>
-                            <span className="text-gray-400">· {pkg.jam_per_sesi}j/sesi</span>
+                      {m.packages.map(pkg => {
+                        const pkgExceeds = pkg.planSlots > pkg.slots
+                        return (
+                          <div key={pkg.tipe}>
+                            <div className="flex items-center justify-between text-[11px]">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${pkgExceeds ? 'bg-red-400' : 'bg-brand-400'}`}/>
+                                <span className="font-semibold text-gray-700">{pkg.tipe}</span>
+                                <span className="text-gray-400">· {pkg.jam_per_sesi}j/sesi</span>
+                              </div>
+                              <div className="text-right">
+                                <span className={`font-bold ${pkgExceeds ? 'text-red-600' : 'text-gray-800'}`}>
+                                  {pkg.planSlots}/{pkg.slots} slot
+                                </span>
+                                <span className="text-gray-400 ml-1">· {trimH(pkg.hours)}j</span>
+                              </div>
+                            </div>
+                            {pkgExceeds && (
+                              <p className="text-[10px] text-red-500 font-semibold mt-0.5 ml-3">
+                                ⚠️ Lewat {pkg.planSlots - pkg.slots} slot
+                              </p>
+                            )}
                           </div>
-                          <span className="font-bold text-gray-800">{pkg.slots} slot · {trimH(pkg.hours)}j</span>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                   {/* Memo Evaluation Checklist */}

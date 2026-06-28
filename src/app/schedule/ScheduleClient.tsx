@@ -11,6 +11,7 @@ import TimeInput from '@/components/TimeInput'
 const DAYS_ID = ['Senin','Selasa','Rabu','Kamis','Jumat','Sabtu','Minggu']
 const DAYS_EN = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
 const PLATFORMS = ['Shopee','TikTok','Instagram','YouTube','Other']
+const TIPE_LIVE = ['Regular','Silver','Gold','Platinum','Rubi','UGC','Pre Content','Background Design','Other']
 
 // Sessions grouped by time of day. Session N covers hour (N-1):00–N:00,
 // so Morning = sessions 1–8 (00–08), Afternoon = 9–16 (08–16), Night = 17–24 (16–24).
@@ -29,7 +30,7 @@ interface Room { id: string; name: string; group_name: string; sort_order: numbe
 interface Host { id: string; full_name: string; username?: string }
 interface Slot {
   id?: string; slot_date: string; session_no: number; room_id: string
-  host_id?: string; brand?: string; platform?: string; konsep?: string
+  host_id?: string; brand?: string; platform?: string; tipe_live?: string; konsep?: string
   background?: string; kostum?: string; gimmick?: string; status?: string
   jam_mulai?: string; durasi?: number
 }
@@ -100,7 +101,7 @@ function formatWeekRange(dates: Date[]): string {
   return `${startFmt} – ${endFmt}`
 }
 
-const EMPTY_FORM = { hostId: '', brand: '', platform: '', konsep: '', background: '', kostum: '', gimmick: '', jamMulai: '', durasi: 0 }
+const EMPTY_FORM = { hostId: '', brand: '', platform: '', tipeLive: '', konsep: '', background: '', kostum: '', gimmick: '', jamMulai: '', durasi: 0 }
 
 function calcJamSelesai(jamMulai: string, durasi: number): string {
   if (!jamMulai || !durasi) return ''
@@ -185,7 +186,8 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
     const existing = getSlot(session, roomId)
     setForm({
       hostId: existing?.host_id || '', brand: existing?.brand || '',
-      platform: existing?.platform || '', konsep: existing?.konsep || '',
+      platform: existing?.platform || '', tipeLive: existing?.tipe_live || '',
+      konsep: existing?.konsep || '',
       background: existing?.background || '', kostum: existing?.kostum || '',
       gimmick: existing?.gimmick || '',
       jamMulai: existing?.jam_mulai || '', durasi: existing?.durasi || 0,
@@ -279,7 +281,8 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
     const payload = {
       slot_date: editSlot.date, session_no: editSlot.session, room_id: editSlot.roomId,
       host_id: form.hostId || null, brand: form.brand || null,
-      platform: form.platform || null, konsep: form.konsep || null,
+      platform: form.platform || null, tipe_live: form.tipeLive || null,
+      konsep: form.konsep || null,
       background: form.background || null, kostum: form.kostum || null,
       gimmick: form.gimmick || null, status: 'scheduled',
       jam_mulai: form.jamMulai || null, durasi: form.durasi || null,
@@ -381,7 +384,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
       const d = new Date(s.slot_date); d.setDate(d.getDate() + 7)
       return {
         slot_date: toLocalDateStr(d), session_no: s.session_no, room_id: s.room_id,
-        host_id: s.host_id, brand: s.brand, platform: s.platform,
+        host_id: s.host_id, brand: s.brand, platform: s.platform, tipe_live: s.tipe_live,
         konsep: s.konsep, background: s.background, kostum: s.kostum, gimmick: s.gimmick,
         jam_mulai: s.jam_mulai, durasi: s.durasi,
         status: 'scheduled',
@@ -541,7 +544,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                   </div>
                   {slot.brand && (
                     <p className="text-[9px] font-semibold text-gray-600 truncate leading-tight mt-0.5">
-                      {slot.brand}{slot.platform ? ` · ${slot.platform}` : ''}
+                      {slot.brand}{slot.platform ? ` · ${slot.platform}` : ''}{slot.tipe_live ? ` · ${slot.tipe_live}` : ''}
                     </p>
                   )}
                   {(slot.konsep || slot.background || slot.kostum || slot.gimmick) && (
@@ -733,14 +736,24 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                 )}
               </div>
 
-              {/* Platform */}
-              <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Platform</label>
-                <select value={form.platform} onChange={e => setForm(f => ({...f, platform: e.target.value}))}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50">
-                  <option value="">—</option>
-                  {PLATFORMS.map(p => <option key={p}>{p}</option>)}
-                </select>
+              {/* Platform + Tipe Live */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Platform</label>
+                  <select value={form.platform} onChange={e => setForm(f => ({...f, platform: e.target.value}))}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50">
+                    <option value="">—</option>
+                    {PLATFORMS.map(p => <option key={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Tipe Live</label>
+                  <select value={form.tipeLive} onChange={e => setForm(f => ({...f, tipeLive: e.target.value}))}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50">
+                    <option value="">—</option>
+                    {TIPE_LIVE.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </div>
               </div>
 
               {/* Jam Mulai + Durasi */}
