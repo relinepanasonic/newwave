@@ -29,12 +29,14 @@ function BrandReportContent({ profile }: { profile: any }) {
     const supabase = createClient()
     const from = toLocalDateStr(weekDates[0])
     const to = toLocalDateStr(weekDates[6])
-    supabase.from('schedule_slots')
+    let q = supabase.from('schedule_slots')
       .select('*, rooms(name, group_name), profiles(full_name)')
       .gte('slot_date', from).lte('slot_date', to)
-      .not('host_id', 'is', null)
       .order('slot_date').order('session_no')
-      .then(({ data }) => {
+    // Clients should see every planned live for their brand, even before a
+    // host is assigned. Non-clients only care about assigned sessions.
+    if (profile.role !== 'client') q = q.not('host_id', 'is', null)
+    q.then(({ data }) => {
         const s = data || []
         setSlots(s)
         const uniqueBrands = Array.from(new Set(s.map((sl: any) => sl.brand).filter(Boolean))) as string[]
@@ -59,7 +61,7 @@ function BrandReportContent({ profile }: { profile: any }) {
   })
 
   const totalSessions = filtered.length
-  const uniqueHosts = new Set(filtered.map(s => s.host_id)).size
+  const uniqueHosts = new Set(filtered.map(s => s.host_id).filter(Boolean)).size
 
   return (
     <AppShell role={profile.role} userName={profile.full_name}>
