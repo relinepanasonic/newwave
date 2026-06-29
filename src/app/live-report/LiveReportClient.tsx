@@ -231,14 +231,17 @@ export default function LiveReportClient({ profile }: { profile: any }) {
     const brand = selectedSlot?.brand || form.brand
     if (!brand) { setEtalaseProducts([]); return }
     const platform = selectedSlot?.platform || form.platform
-    let q = createClient()
+    createClient()
       .from('brand_products').select('id, name, sku, price, platform')
-      .eq('brand', brand).eq('is_active', true)
-    // Only filter by platform for Shopee / TikTok — other platforms don't split catalog
-    if (platform === 'Shopee' || platform === 'TikTok') {
-      q = q.eq('platform', platform)
-    }
-    q.order('name').then(({ data }) => setEtalaseProducts(data || []))
+      .eq('brand', brand).eq('is_active', true).order('name')
+      .then(({ data }) => {
+        let list = data || []
+        // Only restrict by platform for Shopee / TikTok — other platforms show all
+        if (platform === 'Shopee' || platform === 'TikTok') {
+          list = list.filter((p: any) => p.platform === platform)
+        }
+        setEtalaseProducts(list)
+      })
   }, [form.slot_id, form.brand, form.platform, selectedSlot?.platform, todaySlots])
 
   // Auto-fill brand/platform when slot selected
