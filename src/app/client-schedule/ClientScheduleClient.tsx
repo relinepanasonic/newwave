@@ -12,6 +12,7 @@ const DAYS_ID = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu']
 interface Slot {
   id: string; slot_date: string; session_no: number; room_id: string
   brand?: string; platform?: string; konsep?: string; status: string; host_id?: string
+  jam_mulai?: string | null; durasi?: number | null
 }
 
 // Merged representation of 1–N consecutive slots from the same session block
@@ -27,8 +28,8 @@ interface MergedSlot {
   host_id?: string
 }
 
-// Collapse runs of consecutive session_no that share the same date/brand/room/platform/konsep.
-// host_id and status are taken from the first slot in the run (they are almost always uniform).
+// Collapse runs of consecutive session_no that share the same date/brand/platform.
+// Slots with explicit jam_mulai+durasi are rendered directly without merging.
 function mergeConsecutiveSlots(slots: Slot[]): MergedSlot[] {
   if (!slots.length) return []
 
@@ -42,14 +43,37 @@ function mergeConsecutiveSlots(slots: Slot[]): MergedSlot[] {
 
   while (i < sorted.length) {
     const first = sorted[i]
-    let j = i + 1
 
+    // Slot has explicit start time + duration — compute end time directly
+    if (first.jam_mulai && first.durasi && first.durasi > 0) {
+      const [h, m] = first.jam_mulai.split(':').map(Number)
+      const endMin = h * 60 + m + Math.round(first.durasi * 60)
+      const endH = Math.floor(endMin / 60) % 24
+      const endM = endMin % 60
+      result.push({
+        id:        first.id,
+        slot_date: first.slot_date,
+        timeLabel: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')} – ${String(endH).padStart(2,'0')}:${String(endM).padStart(2,'0')}`,
+        room_id:   first.room_id,
+        brand:     first.brand,
+        platform:  first.platform,
+        konsep:    first.konsep,
+        status:    first.status,
+        host_id:   first.host_id,
+      })
+      i++
+      continue
+    }
+
+    // Merge consecutive plain 1-hour slots (same date/brand/platform)
+    let j = i + 1
     while (
       j < sorted.length &&
       sorted[j].slot_date  === first.slot_date &&
       sorted[j].brand      === first.brand &&
       sorted[j].platform   === first.platform &&
-      sorted[j].session_no === sorted[j - 1].session_no + 1
+      sorted[j].session_no === sorted[j - 1].session_no + 1 &&
+      !sorted[j].jam_mulai
     ) {
       j++
     }
@@ -118,7 +142,7 @@ export default function ClientScheduleClient({ profile }: { profile: any }) {
     // Host names are resolved from a separately fetched hosts map (requires migration 12).
     let q = supabase
       .from('schedule_slots')
-      .select('id, slot_date, session_no, room_id, brand, platform, konsep, status, host_id')
+      .select('id, slot_date, session_no, room_id, brand, platform, konsep, status, host_id, jam_mulai, durasi')
       .gte('slot_date', from).lte('slot_date', to)
       .order('slot_date').order('session_no')
 
