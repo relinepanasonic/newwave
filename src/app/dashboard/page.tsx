@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import AuthGuard from '@/components/AuthGuard'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
-import { Users, CalendarDays, Activity, Camera, CheckCircle, TrendingUp, Eye, MessageCircle, Target, Zap } from 'lucide-react'
+import { Users, CalendarDays, Activity, CheckCircle, TrendingUp, Eye, MessageCircle } from 'lucide-react'
 import { getPayPeriod, toLocalDateStr, PLATFORM_COLORS } from '@/lib/utils'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -168,61 +168,6 @@ function ClientDashboard({ profile }: { profile: any }) {
           )}
         </div>
 
-        {/* Live Report table */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-            <div>
-              <h2 className="font-semibold text-gray-900 text-sm">Live Report Detail</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Semua laporan live brand {brand}</p>
-            </div>
-            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-full">{reports.length} laporan</span>
-          </div>
-          {reports.length === 0 ? (
-            <div className="px-5 py-10 text-center text-sm text-gray-400">Belum ada laporan bulan ini</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
-                    <th className="px-4 py-3 text-left font-semibold">Tanggal</th>
-                    <th className="px-4 py-3 text-left font-semibold">Host</th>
-                    <th className="px-4 py-3 text-left font-semibold">Platform</th>
-                    <th className="px-4 py-3 text-right font-semibold">GMV</th>
-                    <th className="px-4 py-3 text-right font-semibold">Impresi</th>
-                    <th className="px-4 py-3 text-right font-semibold">Penonton</th>
-                    <th className="px-4 py-3 text-right font-semibold">Komentar</th>
-                    <th className="px-4 py-3 text-center font-semibold">SS</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {reports.map((r: any) => (
-                    <tr key={r.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">
-                        {new Date(r.report_date + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                      </td>
-                      <td className="px-4 py-2.5 text-xs font-medium text-gray-800">{(r.profiles as any)?.full_name || '—'}</td>
-                      <td className="px-4 py-2.5">
-                        {r.platform && <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${PLATFORM_COLORS[r.platform] || PLATFORM_COLORS.Other}`}>{r.platform}</span>}
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-xs font-semibold text-emerald-700">{fmtGMV(r.gmv || 0)}</td>
-                      <td className="px-4 py-2.5 text-right text-xs text-gray-500">{fmtNum(r.impression || 0)}</td>
-                      <td className="px-4 py-2.5 text-right text-xs text-gray-500">{fmtNum(r.viewer || 0)}</td>
-                      <td className="px-4 py-2.5 text-right text-xs text-gray-500">{fmtNum(r.comment_count || 0)}</td>
-                      <td className="px-4 py-2.5 text-center">
-                        {r.screenshot_url ? (
-                          <button onClick={() => window.open(r.screenshot_url, '_blank')}>
-                            <img src={r.screenshot_url} alt="ss" className="w-8 h-8 rounded-lg object-cover border border-gray-200 hover:border-brand-400 transition-colors mx-auto"/>
-                          </button>
-                        ) : <Camera size={14} className="text-gray-200 mx-auto"/>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
       </div>
     </AppShell>
   )
@@ -234,7 +179,6 @@ function CompanyDashboard({ profile }: { profile: any }) {
   const [activeHosts, setActiveHosts] = useState(0)
   const [monthStats, setMonthStats] = useState({ totalLive: 0, liveSucceed: 0, totalGmv: 0 })
   const [chartData, setChartData] = useState<any[]>([])
-  const [recentReports, setRecentReports] = useState<any[]>([])
   const [clientMeters, setClientMeters] = useState<{ brand: string; slots: number; reports: number }[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -268,7 +212,7 @@ function CompanyDashboard({ profile }: { profile: any }) {
         liveSucceed: reports.length,
         totalGmv: reports.reduce((s: number, r: any) => s + (r.gmv || 0), 0),
       })
-      setRecentReports(reports.slice(0, 50))
+
       const byDate: Record<string, any> = {}
       ;[...reports].reverse().forEach((r: any) => {
         if (!byDate[r.report_date]) byDate[r.report_date] = { date: r.report_date, gmv: 0, impression: 0, viewer: 0, comment: 0 }
@@ -413,61 +357,6 @@ function CompanyDashboard({ profile }: { profile: any }) {
               </div>
             )}
           </div>
-        </div>
-
-        {/* Live Report table */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-            <div>
-              <h2 className="font-semibold text-gray-900 text-sm">Live Report Terbaru</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Semua host · bulan ini</p>
-            </div>
-            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-full">{recentReports.length} laporan</span>
-          </div>
-          {recentReports.length === 0 ? (
-            <div className="px-5 py-10 text-center text-sm text-gray-400">Belum ada laporan bulan ini</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
-                    <th className="px-4 py-3 text-left font-semibold">Tanggal</th>
-                    <th className="px-4 py-3 text-left font-semibold">Host</th>
-                    <th className="px-4 py-3 text-left font-semibold">Brand</th>
-                    <th className="px-4 py-3 text-left font-semibold">Platform</th>
-                    <th className="px-4 py-3 text-right font-semibold">GMV</th>
-                    <th className="px-4 py-3 text-right font-semibold">Impresi</th>
-                    <th className="px-4 py-3 text-right font-semibold">Penonton</th>
-                    <th className="px-4 py-3 text-center font-semibold">SS</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {recentReports.map((r: any) => (
-                    <tr key={r.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">
-                        {new Date(r.report_date + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                      </td>
-                      <td className="px-4 py-2.5 font-medium text-gray-800 text-xs">{(r.profiles as any)?.full_name || '—'}</td>
-                      <td className="px-4 py-2.5 text-xs text-gray-600">{r.brand || '—'}</td>
-                      <td className="px-4 py-2.5">
-                        {r.platform && <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${PLATFORM_COLORS[r.platform] || PLATFORM_COLORS.Other}`}>{r.platform}</span>}
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-xs font-semibold text-emerald-700">{fmtGMV(r.gmv || 0)}</td>
-                      <td className="px-4 py-2.5 text-right text-xs text-gray-500">{fmtNum(r.impression || 0)}</td>
-                      <td className="px-4 py-2.5 text-right text-xs text-gray-500">{fmtNum(r.viewer || 0)}</td>
-                      <td className="px-4 py-2.5 text-center">
-                        {r.screenshot_url ? (
-                          <button onClick={() => window.open(r.screenshot_url, '_blank')}>
-                            <img src={r.screenshot_url} alt="ss" className="w-8 h-8 rounded-lg object-cover border border-gray-200 hover:border-brand-400 transition-colors mx-auto"/>
-                          </button>
-                        ) : <Camera size={14} className="text-gray-200 mx-auto"/>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
         </div>
 
       </div>

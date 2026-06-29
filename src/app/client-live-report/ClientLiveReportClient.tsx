@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { PLATFORM_COLORS } from '@/lib/utils'
-import { ChevronDown, ChevronUp, Package } from 'lucide-react'
+import { ChevronDown, ChevronUp, Package, Download, Filter } from 'lucide-react'
 
 interface ReportRow {
   id: string; report_date: string; brand: string | null; platform: string | null
@@ -49,6 +49,10 @@ export default function ClientLiveReportClient({ profile }: { profile: any }) {
   const [products, setProducts] = useState<ProductRow[]>([])
   const [loading, setLoading] = useState(true)
   const [monthIdx, setMonthIdx] = useState(0)
+  const [selectedHost, setSelectedHost] = useState('')
+  const [selectedPlatform, setSelectedPlatform] = useState('')
+  const [availableHosts, setAvailableHosts] = useState<{ id: string; name: string }[]>([])
+  const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([])
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
   const monthOptions = getMonthOptions()
@@ -57,6 +61,7 @@ export default function ClientLiveReportClient({ profile }: { profile: any }) {
   const fetchData = useCallback(async () => {
     if (!profile.client_brand) return
     setLoading(true)
+    setExpanded({})
     const supabase = createClient()
 
     const { data: reps } = await supabase
@@ -69,6 +74,14 @@ export default function ClientLiveReportClient({ profile }: { profile: any }) {
 
     const rows = (reps as unknown as ReportRow[]) || []
     setReports(rows)
+
+    // Derive available filter options from fetched data
+    const hostMap = new Map<string, string>()
+    rows.forEach(r => {
+      if (r.host_id && (r.profiles as any)?.full_name) hostMap.set(r.host_id, (r.profiles as any).full_name)
+    })
+    setAvailableHosts(Array.from(hostMap.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)))
+    setAvailablePlatforms(Array.from(new Set(rows.map(r => r.platform).filter(Boolean))) as string[])
 
     const ids = rows.map(r => r.id)
     if (ids.length) {
@@ -85,17 +98,61 @@ export default function ClientLiveReportClient({ profile }: { profile: any }) {
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  // Reset host/platform selection when month changes
+  useEffect(() => {
+    setSelectedHost('')
+    setSelectedPlatform('')
+  }, [monthIdx])
+
   const productsByReport: Record<string, ProductRow[]> = {}
   products.forEach(p => {
     if (!productsByReport[p.live_report_id]) productsByReport[p.live_report_id] = []
     productsByReport[p.live_report_id].push(p)
   })
 
+  const filtered = reports
+    .filter(r => !selectedHost || r.host_id === selectedHost)
+    .filter(r => !selectedPlatform || r.platform === selectedPlatform)
+
   function toggleExpand(id: string) {
     setExpanded(prev => ({ ...prev, [id]: !prev[id] }))
   }
 
-  const totalGmv = reports.reduce((s, r) => s + (r.gmv || 0), 0)
+  const totalGmv = filtered.reduce((s, r) => s + (r.gmv || 0), 0)
+
+  async function exportExcel() {
+    const { utils, writeFile } = await import('xlsx')
+    const ws = utils.json_to_sheet(filtered.map(r => ({
+      'Tanggal': r.report_date,
+      'Host': (r.profiles as any)?.full_name || '',
+      'Brand': r.brand || '',
+      'Platform': r.platform || '',
+      'Jam Mulai': r.start_time || '',
+      'Durasi (jam)': r.duration_hours || 0,
+      'GMV': r.gmv || 0,
+      'Impresi': r.impression || 0,
+      'Penonton': r.viewer || 0,
+      'Transaksi': r.trans || 0,
+      'Komentar': r.comment_count || 0,
+      'Produk Dijual': r.product_sold_name || '',
+      'Evaluasi': r.notes || '',
+    })))
+    const wb = utils.book_new()
+    utils.book_append_sheet(wb, ws, 'Laporan Live')
+    const prodRows = filtered.flatMap(r =>
+      (productsByReport[r.id] || []).map(p => ({
+        'Tanggal': r.report_date,
+        'Host': (r.profiles as any)?.full_name || '',
+        'Brand': r.brand || '',
+        'Produk': p.produk_terjual,
+        'Klik': p.product_klik,
+        'Terjual': p.item_sold,
+        'Total': p.total,
+      }))
+    )
+    if (prodRows.length) utils.book_append_sheet(wb, utils.json_to_sheet(prodRows), 'Produk Terjual')
+    writeFile(wb, `LaporanLive_${month.label.replace(/\s+/g, '-')}.xlsx`)
+  }
 
   return (
     <AppShell role="client" userName={profile.full_name}>
@@ -109,17 +166,39 @@ export default function ClientLiveReportClient({ profile }: { profile: any }) {
               </p>
             )}
           </div>
+        </div>
+
+        {/* Filters + Export */}
+        <div className="flex items-center gap-3 mb-5 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Filter size={14} className="text-gray-400"/>
+            <span className="text-xs text-gray-500 font-medium">Filter:</span>
+          </div>
           <select value={monthIdx} onChange={e => setMonthIdx(Number(e.target.value))}
             className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
             {monthOptions.map((m, i) => <option key={i} value={i}>{m.label}</option>)}
           </select>
+          <select value={selectedHost} onChange={e => setSelectedHost(e.target.value)}
+            className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white min-w-[140px]">
+            <option value="">Semua Host</option>
+            {availableHosts.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+          </select>
+          <select value={selectedPlatform} onChange={e => setSelectedPlatform(e.target.value)}
+            className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white min-w-[130px]">
+            <option value="">Semua Platform</option>
+            {availablePlatforms.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <button onClick={exportExcel} disabled={filtered.length === 0}
+            className="ml-auto flex items-center gap-1.5 text-sm bg-emerald-600 text-white px-3.5 py-2 rounded-xl font-medium hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">
+            <Download size={14}/> Unduh Excel
+          </button>
         </div>
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
           <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4">
             <p className="text-xs text-brand-500 font-medium">Total Laporan</p>
-            <p className="text-2xl font-bold text-brand-700 mt-0.5">{reports.length}</p>
+            <p className="text-2xl font-bold text-brand-700 mt-0.5">{filtered.length}</p>
           </div>
           <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
             <p className="text-xs text-emerald-600 font-medium">Total GMV</p>
@@ -128,7 +207,7 @@ export default function ClientLiveReportClient({ profile }: { profile: any }) {
           <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 hidden sm:block">
             <p className="text-xs text-blue-500 font-medium">Total Impresi</p>
             <p className="text-2xl font-bold text-blue-700 mt-0.5">
-              {fmtNum(reports.reduce((s, r) => s + (r.impression || 0), 0))}
+              {fmtNum(filtered.reduce((s, r) => s + (r.impression || 0), 0))}
             </p>
           </div>
         </div>
@@ -136,9 +215,9 @@ export default function ClientLiveReportClient({ profile }: { profile: any }) {
         {/* Table */}
         {loading ? (
           <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center text-sm text-gray-400">Memuat...</div>
-        ) : reports.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center text-sm text-gray-400">
-            Tidak ada laporan untuk {month.label}
+            Tidak ada laporan untuk filter ini
           </div>
         ) : (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -160,7 +239,7 @@ export default function ClientLiveReportClient({ profile }: { profile: any }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {reports.map(r => {
+                  {filtered.map(r => {
                     const prods = productsByReport[r.id] || []
                     const isOpen = expanded[r.id]
                     return (
@@ -200,7 +279,6 @@ export default function ClientLiveReportClient({ profile }: { profile: any }) {
                           <tr key={`${r.id}-detail`}>
                             <td colSpan={11} className="bg-gray-50 px-4 py-4 border-b border-gray-100">
                               <div className="space-y-3">
-                                {/* Product table */}
                                 {(prods.length > 0 || r.product_sold_name) && (
                                   <div>
                                     <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
@@ -233,7 +311,6 @@ export default function ClientLiveReportClient({ profile }: { profile: any }) {
                                     )}
                                   </div>
                                 )}
-                                {/* Evaluation */}
                                 {r.notes && (
                                   <div>
                                     <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wide mb-1">Evaluasi</p>
