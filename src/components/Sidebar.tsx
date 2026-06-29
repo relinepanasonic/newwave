@@ -38,7 +38,6 @@ const NAV_CLIENT = [
   { key: 'clientschedule',   icon: CalendarDays,    href: '/client-schedule' },
   { key: 'clientlivereport', icon: ScrollText,      href: '/client-live-report' },
   { key: 'invoice',          icon: FileText,        href: '/invoice' },
-  { key: 'brandreport',      icon: BarChart2,       href: '/brand-report' },
 ]
 
 export default function Sidebar({ role, lang = 'id', userName, onClose }: Props) {

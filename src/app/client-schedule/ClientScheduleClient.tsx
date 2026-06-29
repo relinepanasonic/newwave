@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
-import { SESSION_LABELS, PLATFORM_COLORS, STATUS_COLORS, getWeekDates, toLocalDateStr } from '@/lib/utils'
+import { PLATFORM_COLORS, STATUS_COLORS, getWeekDates, toLocalDateStr } from '@/lib/utils'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
@@ -12,7 +12,70 @@ const DAYS_ID = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu']
 interface Slot {
   id: string; slot_date: string; session_no: number; room_id: string
   brand?: string; platform?: string; konsep?: string; status: string; host_id?: string
-  rooms?: { name: string; group_name: string }
+}
+
+// Merged representation of 1–N consecutive slots from the same session block
+interface MergedSlot {
+  id: string
+  slot_date: string
+  timeLabel: string     // e.g. "09:00 – 13:00"
+  room_id: string
+  brand?: string
+  platform?: string
+  konsep?: string
+  status: string
+  host_id?: string
+}
+
+// Collapse runs of consecutive session_no that share the same date/brand/room/platform/konsep.
+// host_id and status are taken from the first slot in the run (they are almost always uniform).
+function mergeConsecutiveSlots(slots: Slot[]): MergedSlot[] {
+  if (!slots.length) return []
+
+  const sorted = [...slots].sort((a, b) => {
+    if (a.slot_date !== b.slot_date) return a.slot_date.localeCompare(b.slot_date)
+    return a.session_no - b.session_no
+  })
+
+  const result: MergedSlot[] = []
+  let i = 0
+
+  while (i < sorted.length) {
+    const first = sorted[i]
+    let j = i + 1
+
+    while (
+      j < sorted.length &&
+      sorted[j].slot_date    === first.slot_date &&
+      sorted[j].brand        === first.brand &&
+      sorted[j].room_id      === first.room_id &&
+      sorted[j].platform     === first.platform &&
+      sorted[j].konsep       === first.konsep &&
+      sorted[j].session_no   === sorted[j - 1].session_no + 1
+    ) {
+      j++
+    }
+
+    const last = sorted[j - 1]
+    const startHour = first.session_no - 1   // session_no=10 starts at 09:00
+    const endHour   = last.session_no         // session_no=13 ends at 13:00
+
+    result.push({
+      id:        first.id,
+      slot_date: first.slot_date,
+      timeLabel: `${String(startHour).padStart(2, '0')}:00 – ${String(endHour).padStart(2, '0')}:00`,
+      room_id:   first.room_id,
+      brand:     first.brand,
+      platform:  first.platform,
+      konsep:    first.konsep,
+      status:    first.status,
+      host_id:   first.host_id,
+    })
+
+    i = j
+  }
+
+  return result
 }
 
 export default function ClientScheduleClient({ profile }: { profile: any }) {
@@ -20,7 +83,7 @@ export default function ClientScheduleClient({ profile }: { profile: any }) {
   const [baseDate, setBaseDate] = useState(new Date())
   const [weekDates, setWeekDates] = useState<Date[]>(getWeekDates(new Date()))
   const [slots, setSlots] = useState<Slot[]>([])
-  const [rooms, setRooms] = useState<Record<string, { name: string; group_name: string }>>({})
+  const [rooms, setRooms] = useState<Record<string, { name: string }>>({})
   const [hosts, setHosts] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
 
@@ -28,15 +91,17 @@ export default function ClientScheduleClient({ profile }: { profile: any }) {
     setWeekDates(getWeekDates(baseDate))
   }, [baseDate])
 
-  // Load rooms (RLS: using true) and active host names (RLS: see migration 12)
+  // Rooms (RLS: using true — always available).
+  // Host names require migration 12 to allow clients to read host profiles.
+  // Until then the fetch returns 0 rows and host names show as "—".
   useEffect(() => {
     const supabase = createClient()
     Promise.all([
-      supabase.from('rooms').select('id, name, group_name'),
+      supabase.from('rooms').select('id, name'),
       supabase.from('profiles').select('id, full_name').eq('role', 'host').eq('is_active', true),
     ]).then(([{ data: roomData }, { data: hostData }]) => {
-      const roomMap: Record<string, { name: string; group_name: string }> = {}
-      ;(roomData || []).forEach((r: any) => { roomMap[r.id] = { name: r.name, group_name: r.group_name } })
+      const roomMap: Record<string, { name: string }> = {}
+      ;(roomData || []).forEach((r: any) => { roomMap[r.id] = { name: r.name } })
       setRooms(roomMap)
       const hostMap: Record<string, string> = {}
       ;(hostData || []).forEach((h: any) => { hostMap[h.id] = h.full_name })
@@ -49,12 +114,10 @@ export default function ClientScheduleClient({ profile }: { profile: any }) {
     setLoading(true)
     const supabase = createClient()
     const from = toLocalDateStr(weekDates[0])
-    const to = toLocalDateStr(weekDates[6])
+    const to   = toLocalDateStr(weekDates[6])
 
-    // IMPORTANT: do NOT embed profiles(full_name) here. The profiles RLS only
-    // lets a client read their own row, so embedding the host profile breaks
-    // the whole query for clients (returns 0). Fetch slots plain — same shape
-    // the client dashboard uses successfully — and resolve room names locally.
+    // Do NOT embed profiles(full_name) — clients can only read their own profile row via RLS.
+    // Host names are resolved from a separately fetched hosts map (requires migration 12).
     let q = supabase
       .from('schedule_slots')
       .select('id, slot_date, session_no, room_id, brand, platform, konsep, status, host_id')
@@ -73,10 +136,11 @@ export default function ClientScheduleClient({ profile }: { profile: any }) {
     })
   }, [weekDates, profile])
 
-  // Group by date using toLocalDateStr to avoid UTC offset issues
+  const merged = mergeConsecutiveSlots(slots)
+
   const grouped = weekDates.map((date, i) => {
-    const dateStr = toLocalDateStr(date)
-    const daySlots = slots.filter(s => s.slot_date === dateStr)
+    const dateStr  = toLocalDateStr(date)
+    const daySlots = merged.filter(s => s.slot_date === dateStr)
     return { date, dayLabel: DAYS_ID[i], dateStr, daySlots }
   }).filter(d => d.daySlots.length > 0)
 
@@ -130,12 +194,14 @@ export default function ClientScheduleClient({ profile }: { profile: any }) {
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm divide-y divide-gray-50">
               {daySlots.map(slot => (
                 <div key={slot.id} className="flex items-center gap-4 px-4 py-3">
-                  <span className="font-mono text-xs text-gray-500 w-16 flex-shrink-0">
-                    {SESSION_LABELS[slot.session_no]}
+                  <span className="font-mono text-xs text-gray-500 w-28 flex-shrink-0">
+                    {slot.timeLabel}
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-gray-900 text-sm truncate">
-                      {slot.host_id ? (hosts[slot.host_id] || 'Host TBA') : (rooms[slot.room_id]?.name || 'TBA')}
+                      {slot.host_id
+                        ? (hosts[slot.host_id] || '—')
+                        : (rooms[slot.room_id]?.name || '—')}
                     </p>
                     <p className="text-xs text-gray-500 truncate">
                       {rooms[slot.room_id]?.name || '—'}{slot.konsep ? ` · ${slot.konsep}` : ''}
