@@ -1,7 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, X, Save, ChevronDown, ChevronUp, FileText, CheckCircle, Pencil, Trash2 } from 'lucide-react'
+import { Plus, X, Save, ChevronDown, ChevronUp, FileText, CheckCircle, Pencil, Trash2, Printer } from 'lucide-react'
+import { printInvoice } from './printInvoice'
 
 const TIPE_LIVE = ['Regular', 'Silver', 'Gold', 'Platinum', 'Rubi', 'UGC', 'Pre Content', 'Background Design', 'Other']
 
@@ -528,6 +529,12 @@ export default function InvoicePanel({ profile }: { profile: any }) {
                     <p className="text-[10px] text-emerald-600 font-medium">Terima {fmtRp(invRealTotal)}</p>
                   </div>
                   <div className="flex items-center gap-0.5 flex-shrink-0">
+                    {!isConfirmDelete && (
+                      <button onClick={() => printInvoice(inv)} title="Cetak / Download PDF"
+                        className="p-2 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors">
+                        <Printer size={14}/>
+                      </button>
+                    )}
                     {isSuperadmin && !isConfirmDelete && (
                       <>
                         <button onClick={() => startEdit(inv)} title="Edit Invoice"

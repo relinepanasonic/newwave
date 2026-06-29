@@ -50,12 +50,6 @@ export default function Sidebar({ role, lang = 'id', userName, onClose }: Props)
     client: 'Client',
   }
 
-  const initials = userName
-    .split(' ')
-    .slice(0, 2)
-    .map(w => w[0]?.toUpperCase() || '')
-    .join('')
-
   return (
     <aside className="h-full w-[220px] bg-white border-r border-gray-100 flex flex-col">
       {/* Logo */}
@@ -102,8 +96,8 @@ export default function Sidebar({ role, lang = 'id', userName, onClose }: Props)
       {/* User card */}
       <div className="px-3 py-3 border-t border-gray-100">
         <div className="flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-gray-50 transition-colors">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center flex-shrink-0 shadow-sm">
-            <span className="text-white text-xs font-bold">{initials || '?'}</span>
+          <div className="w-8 h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center flex-shrink-0 shadow-sm overflow-hidden">
+            <img src="/logo.png" alt="New Wave Live Specialist" className="w-full h-full object-contain p-0.5"/>
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-gray-900 truncate leading-tight">{userName}</p>

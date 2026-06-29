@@ -46,8 +46,8 @@ function AppShellInner({ role, userName, children }: Props) {
               <Menu size={20} className="text-gray-700" />
             </button>
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 bg-brand-600 rounded-lg flex items-center justify-center flex-shrink-0">
-                <span className="text-white text-[10px] font-bold">NW</span>
+              <div className="w-7 h-7 bg-white border border-gray-200 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+                <img src="/logo.png" alt="New Wave Live" className="w-full h-full object-contain p-0.5"/>
               </div>
               <span className="font-bold text-gray-900 text-sm">New Wave Live</span>
             </div>
