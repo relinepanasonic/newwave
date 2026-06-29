@@ -41,7 +41,7 @@ function getMonthOptions() {
 // ─── CLIENT DASHBOARD ────────────────────────────────────────────────────────
 function ClientDashboard({ profile }: { profile: any }) {
   const [chartMonthIdx, setChartMonthIdx] = useState(0)
-  const [stats, setStats] = useState({ totalPlan: 0, totalSucceed: 0, gmv: 0, impression: 0, viewer: 0, comment: 0 })
+  const [stats, setStats] = useState({ totalPlan: 0, totalSucceed: 0, remainingPlan: 0, gmv: 0, impression: 0, viewer: 0, comment: 0 })
   const [chartData, setChartData] = useState<any[]>([])
   const [reports, setReports] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -54,6 +54,7 @@ function ClientDashboard({ profile }: { profile: any }) {
     if (!brand) return
     setLoading(true)
     const supabase = createClient()
+    const todayStr = toLocalDateStr(new Date())
     Promise.all([
       supabase.from('schedule_slots').select('id', { count: 'exact' })
         .eq('brand', brand)
@@ -63,7 +64,10 @@ function ClientDashboard({ profile }: { profile: any }) {
         .eq('brand', brand)
         .gte('report_date', selectedMonth.start).lte('report_date', selectedMonth.end)
         .order('report_date', { ascending: false }),
-    ]).then(([slotsRes, reportsRes]) => {
+      supabase.from('schedule_slots').select('id', { count: 'exact' })
+        .eq('brand', brand)
+        .gte('slot_date', todayStr).lte('slot_date', selectedMonth.end),
+    ]).then(([slotsRes, reportsRes, remainingRes]) => {
       setLoading(false)
       const reps = reportsRes.data || []
       setReports(reps)
@@ -71,7 +75,7 @@ function ClientDashboard({ profile }: { profile: any }) {
       const totImp = reps.reduce((s: number, r: any) => s + (r.impression || 0), 0)
       const totView = reps.reduce((s: number, r: any) => s + (r.viewer || 0), 0)
       const totCom = reps.reduce((s: number, r: any) => s + (r.comment_count || 0), 0)
-      setStats({ totalPlan: slotsRes.count || 0, totalSucceed: reps.length, gmv: totGmv, impression: totImp, viewer: totView, comment: totCom })
+      setStats({ totalPlan: slotsRes.count || 0, totalSucceed: reps.length, remainingPlan: remainingRes.count || 0, gmv: totGmv, impression: totImp, viewer: totView, comment: totCom })
       const byDate: Record<string, any> = {}
       ;[...reps].reverse().forEach((r: any) => {
         if (!byDate[r.report_date]) byDate[r.report_date] = { date: r.report_date, gmv: 0, impression: 0, viewer: 0, comment: 0 }
@@ -107,7 +111,7 @@ function ClientDashboard({ profile }: { profile: any }) {
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
           {[
-            { label: 'Total Live Plan', value: stats.totalPlan, icon: CalendarDays, ib: 'bg-blue-50', ic: 'text-blue-600' },
+            { label: 'Total Live Plan', value: `${stats.totalPlan} / ${stats.remainingPlan} sisa`, icon: CalendarDays, ib: 'bg-blue-50', ic: 'text-blue-600' },
             { label: 'Live Sukses', value: `${stats.totalSucceed} (${successPct}%)`, icon: CheckCircle, ib: 'bg-emerald-50', ic: 'text-emerald-600' },
             { label: 'Total GMV', value: fmtGMV(stats.gmv), icon: TrendingUp, ib: 'bg-purple-50', ic: 'text-purple-600' },
             { label: 'Total Impresi', value: fmtNum(stats.impression), icon: Eye, ib: 'bg-sky-50', ic: 'text-sky-600' },

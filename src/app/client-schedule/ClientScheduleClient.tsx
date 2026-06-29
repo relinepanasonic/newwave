@@ -46,12 +46,10 @@ function mergeConsecutiveSlots(slots: Slot[]): MergedSlot[] {
 
     while (
       j < sorted.length &&
-      sorted[j].slot_date    === first.slot_date &&
-      sorted[j].brand        === first.brand &&
-      sorted[j].room_id      === first.room_id &&
-      sorted[j].platform     === first.platform &&
-      sorted[j].konsep       === first.konsep &&
-      sorted[j].session_no   === sorted[j - 1].session_no + 1
+      sorted[j].slot_date  === first.slot_date &&
+      sorted[j].brand      === first.brand &&
+      sorted[j].platform   === first.platform &&
+      sorted[j].session_no === sorted[j - 1].session_no + 1
     ) {
       j++
     }

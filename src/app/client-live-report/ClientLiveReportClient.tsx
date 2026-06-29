@@ -169,29 +169,33 @@ export default function ClientLiveReportClient({ profile }: { profile: any }) {
         </div>
 
         {/* Filters + Export */}
-        <div className="flex items-center gap-3 mb-5 flex-wrap">
-          <div className="flex items-center gap-2">
-            <Filter size={14} className="text-gray-400"/>
-            <span className="text-xs text-gray-500 font-medium">Filter:</span>
+        <div className="mb-5 space-y-2">
+          {/* 3 filters always in one row */}
+          <div className="grid grid-cols-3 gap-2">
+            <select value={monthIdx} onChange={e => setMonthIdx(Number(e.target.value))}
+              className="text-xs border border-gray-200 rounded-xl px-2 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white truncate">
+              {monthOptions.map((m, i) => <option key={i} value={i}>{m.label}</option>)}
+            </select>
+            <select value={selectedHost} onChange={e => setSelectedHost(e.target.value)}
+              className="text-xs border border-gray-200 rounded-xl px-2 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white truncate">
+              <option value="">Semua Host</option>
+              {availableHosts.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+            </select>
+            <select value={selectedPlatform} onChange={e => setSelectedPlatform(e.target.value)}
+              className="text-xs border border-gray-200 rounded-xl px-2 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white truncate">
+              <option value="">Semua Platform</option>
+              {availablePlatforms.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
           </div>
-          <select value={monthIdx} onChange={e => setMonthIdx(Number(e.target.value))}
-            className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
-            {monthOptions.map((m, i) => <option key={i} value={i}>{m.label}</option>)}
-          </select>
-          <select value={selectedHost} onChange={e => setSelectedHost(e.target.value)}
-            className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white min-w-[140px]">
-            <option value="">Semua Host</option>
-            {availableHosts.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
-          </select>
-          <select value={selectedPlatform} onChange={e => setSelectedPlatform(e.target.value)}
-            className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white min-w-[130px]">
-            <option value="">Semua Platform</option>
-            {availablePlatforms.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-          <button onClick={exportExcel} disabled={filtered.length === 0}
-            className="ml-auto flex items-center gap-1.5 text-sm bg-emerald-600 text-white px-3.5 py-2 rounded-xl font-medium hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">
-            <Download size={14}/> Unduh Excel
-          </button>
+          {/* Export button + filter icon */}
+          <div className="flex items-center gap-2">
+            <Filter size={13} className="text-gray-400 flex-shrink-0"/>
+            <span className="text-xs text-gray-400">{filtered.length} laporan</span>
+            <button onClick={exportExcel} disabled={filtered.length === 0}
+              className="ml-auto flex items-center gap-1.5 text-sm bg-emerald-600 text-white px-3.5 py-2 rounded-xl font-medium hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">
+              <Download size={14}/> Unduh Excel
+            </button>
+          </div>
         </div>
 
         {/* Summary cards */}
