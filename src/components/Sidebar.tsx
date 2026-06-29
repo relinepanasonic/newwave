@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, CalendarDays, Users,
-  BarChart2, ClipboardList, X, Shield, FileText, Briefcase,
+  BarChart2, ClipboardList, X, Shield, FileText, Briefcase, ScrollText,
 } from 'lucide-react'
 import type { Lang } from '@/lib/i18n'
 import { tr } from '@/lib/i18n'
@@ -34,10 +34,11 @@ const NAV_HOST = [
 ]
 
 const NAV_CLIENT = [
-  { key: 'dashboard',      icon: LayoutDashboard, href: '/dashboard' },
-  { key: 'clientschedule', icon: CalendarDays,    href: '/client-schedule' },
-  { key: 'invoice',        icon: FileText,        href: '/invoice' },
-  { key: 'brandreport',    icon: BarChart2,       href: '/brand-report' },
+  { key: 'dashboard',        icon: LayoutDashboard, href: '/dashboard' },
+  { key: 'clientschedule',   icon: CalendarDays,    href: '/client-schedule' },
+  { key: 'clientlivereport', icon: ScrollText,      href: '/client-live-report' },
+  { key: 'invoice',          icon: FileText,        href: '/invoice' },
+  { key: 'brandreport',      icon: BarChart2,       href: '/brand-report' },
 ]
 
 export default function Sidebar({ role, lang = 'id', userName, onClose }: Props) {

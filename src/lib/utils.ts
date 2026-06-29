@@ -8,7 +8,7 @@ export function cn(...inputs: ClassValue[]) {
 export const SESSION_LABELS: Record<number, string> = Object.fromEntries(
   Array.from({ length: 24 }, (_, i) => [
     i + 1,
-    `${String(i).padStart(2, '0')} - ${String(i + 1).padStart(2, '0')}`,
+    `${String(i).padStart(2, '0')}:00 – ${String(i + 1).padStart(2, '0')}:00`,
   ])
 )
 

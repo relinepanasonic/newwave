@@ -11,7 +11,7 @@ const DAYS_ID = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu']
 
 interface Slot {
   id: string; slot_date: string; session_no: number; room_id: string
-  brand?: string; platform?: string; konsep?: string; status: string
+  brand?: string; platform?: string; konsep?: string; status: string; host_id?: string
   rooms?: { name: string; group_name: string }
 }
 
@@ -21,18 +21,26 @@ export default function ClientScheduleClient({ profile }: { profile: any }) {
   const [weekDates, setWeekDates] = useState<Date[]>(getWeekDates(new Date()))
   const [slots, setSlots] = useState<Slot[]>([])
   const [rooms, setRooms] = useState<Record<string, { name: string; group_name: string }>>({})
+  const [hosts, setHosts] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     setWeekDates(getWeekDates(baseDate))
   }, [baseDate])
 
-  // Load the room lookup once (rooms RLS allows all authenticated users)
+  // Load rooms (RLS: using true) and active host names (RLS: see migration 12)
   useEffect(() => {
-    createClient().from('rooms').select('id, name, group_name').then(({ data }) => {
-      const map: Record<string, { name: string; group_name: string }> = {}
-      ;(data || []).forEach((r: any) => { map[r.id] = { name: r.name, group_name: r.group_name } })
-      setRooms(map)
+    const supabase = createClient()
+    Promise.all([
+      supabase.from('rooms').select('id, name, group_name'),
+      supabase.from('profiles').select('id, full_name').eq('role', 'host').eq('is_active', true),
+    ]).then(([{ data: roomData }, { data: hostData }]) => {
+      const roomMap: Record<string, { name: string; group_name: string }> = {}
+      ;(roomData || []).forEach((r: any) => { roomMap[r.id] = { name: r.name, group_name: r.group_name } })
+      setRooms(roomMap)
+      const hostMap: Record<string, string> = {}
+      ;(hostData || []).forEach((h: any) => { hostMap[h.id] = h.full_name })
+      setHosts(hostMap)
     })
   }, [])
 
@@ -127,10 +135,10 @@ export default function ClientScheduleClient({ profile }: { profile: any }) {
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-gray-900 text-sm truncate">
-                      {rooms[slot.room_id]?.name || slot.brand || 'Live'}
+                      {slot.host_id ? (hosts[slot.host_id] || 'Host TBA') : (rooms[slot.room_id]?.name || 'TBA')}
                     </p>
                     <p className="text-xs text-gray-500 truncate">
-                      {slot.brand || '—'}{slot.konsep ? ` · ${slot.konsep}` : ''}
+                      {rooms[slot.room_id]?.name || '—'}{slot.konsep ? ` · ${slot.konsep}` : ''}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
