@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { PLATFORM_COLORS } from '@/lib/utils'
-import { Filter, Download, Package, TrendingUp, FileText, ChevronDown, ChevronUp } from 'lucide-react'
+import { Filter, Download, Package, TrendingUp, FileText, ChevronDown, ChevronUp, Pencil, Trash2, X, Save } from 'lucide-react'
 
 interface ReportRow {
   id: string; report_date: string; brand: string | null; platform: string | null
@@ -16,6 +16,8 @@ interface ProductRow {
   product_klik: number; item_sold: number; total: number
 }
 interface Host { id: string; full_name: string }
+
+const PLATFORMS = ['Shopee', 'TikTok', 'Instagram', 'YouTube', 'Other']
 
 function getMonthOptions() {
   const months = []
@@ -44,7 +46,15 @@ function localDate(dateStr: string) {
   return new Date(y, m - 1, d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-export default function ReportDetailTab() {
+const EMPTY_EDIT = {
+  report_date: '', host_id: '', brand: '', platform: '', start_time: '',
+  duration_hours: 0, gmv: 0, impression: 0, viewer: 0, trans: 0, comment_count: 0,
+  product_sold_name: '', notes: '',
+}
+
+export default function ReportDetailTab({ profile }: { profile: any }) {
+  const isSuperadmin = profile?.role === 'superadmin'
+
   const [reports, setReports] = useState<ReportRow[]>([])
   const [products, setProducts] = useState<ProductRow[]>([])
   const [hosts, setHosts] = useState<Host[]>([])
@@ -55,6 +65,16 @@ export default function ReportDetailTab() {
   const [monthIdx, setMonthIdx] = useState(0)
   const [selectedHost, setSelectedHost] = useState('')
   const [selectedBrand, setSelectedBrand] = useState('')
+
+  // Edit state
+  const [editRow, setEditRow] = useState<ReportRow | null>(null)
+  const [editForm, setEditForm] = useState({ ...EMPTY_EDIT })
+  const [saving, setSaving] = useState(false)
+  const [editError, setEditError] = useState('')
+
+  // Delete state
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const monthOptions = getMonthOptions()
   const month = monthOptions[monthIdx]
@@ -111,6 +131,64 @@ export default function ReportDetailTab() {
 
   const totalGmv = reports.reduce((s, r) => s + (r.gmv || 0), 0)
 
+  // ── Edit ─────────────────────────────────────────────────────────────────────
+  function openEdit(r: ReportRow, e: React.MouseEvent) {
+    e.stopPropagation()
+    setEditRow(r)
+    setEditForm({
+      report_date: r.report_date,
+      host_id: r.host_id,
+      brand: r.brand || '',
+      platform: r.platform || '',
+      start_time: r.start_time || '',
+      duration_hours: r.duration_hours || 0,
+      gmv: r.gmv || 0,
+      impression: r.impression || 0,
+      viewer: r.viewer || 0,
+      trans: r.trans || 0,
+      comment_count: r.comment_count || 0,
+      product_sold_name: r.product_sold_name || '',
+      notes: r.notes || '',
+    })
+    setEditError('')
+  }
+
+  async function saveEdit() {
+    if (!editRow) return
+    setSaving(true); setEditError('')
+    const supabase = createClient()
+    const { error } = await supabase.from('live_reports').update({
+      report_date: editForm.report_date,
+      host_id: editForm.host_id || null,
+      brand: editForm.brand || null,
+      platform: editForm.platform || null,
+      start_time: editForm.start_time || null,
+      duration_hours: Number(editForm.duration_hours) || null,
+      gmv: Number(editForm.gmv) || 0,
+      impression: Number(editForm.impression) || 0,
+      viewer: Number(editForm.viewer) || 0,
+      trans: Number(editForm.trans) || 0,
+      comment_count: Number(editForm.comment_count) || 0,
+      product_sold_name: editForm.product_sold_name || null,
+      notes: editForm.notes || null,
+    }).eq('id', editRow.id)
+    setSaving(false)
+    if (error) { setEditError(error.message); return }
+    setEditRow(null)
+    fetchData()
+  }
+
+  // ── Delete ────────────────────────────────────────────────────────────────────
+  async function handleDelete(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    setDeleting(true)
+    await createClient().from('live_reports').delete().eq('id', id)
+    setReports(prev => prev.filter(r => r.id !== id))
+    setConfirmDeleteId(null)
+    setDeleting(false)
+  }
+
+  // ── Export ────────────────────────────────────────────────────────────────────
   async function exportExcel() {
     const { utils, writeFile } = await import('xlsx')
     const ws = utils.json_to_sheet(reports.map(r => ({
@@ -149,6 +227,10 @@ export default function ReportDetailTab() {
     if (selectedBrand) parts.push(selectedBrand.replace(/\s+/g, ''))
     writeFile(wb, `${parts.filter(Boolean).join('_')}.xlsx`)
   }
+
+  // ── Render ────────────────────────────────────────────────────────────────────
+  const f = (key: keyof typeof editForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+    setEditForm(prev => ({ ...prev, [key]: e.target.value }))
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -225,13 +307,10 @@ export default function ReportDetailTab() {
                 {reports.map(r => {
                   const prods = productsByReport[r.id] || []
                   const isOpen = expanded[r.id]
+                  const isConfirm = confirmDeleteId === r.id
                   return (
                     <>
-                      <tr
-                        key={r.id}
-                        onClick={() => toggleExpand(r.id)}
-                        className="hover:bg-gray-50 cursor-pointer transition-colors"
-                      >
+                      <tr key={r.id} onClick={() => toggleExpand(r.id)} className="hover:bg-gray-50 cursor-pointer transition-colors">
                         <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600">{localDate(r.report_date)}</td>
                         <td className="px-3 py-3 font-semibold text-brand-700 text-xs whitespace-nowrap">
                           {(r.profiles as any)?.full_name || '—'}
@@ -251,9 +330,7 @@ export default function ReportDetailTab() {
                         <td className="px-3 py-3 text-xs text-gray-700 max-w-[140px] truncate">
                           {r.product_sold_name || (prods.length > 0 ? `${prods.length} produk` : '—')}
                         </td>
-                        <td className="px-3 py-3 text-xs text-gray-500 max-w-[160px] truncate">
-                          {r.notes || '—'}
-                        </td>
+                        <td className="px-3 py-3 text-xs text-gray-500 max-w-[160px] truncate">{r.notes || '—'}</td>
                         <td className="px-3 py-3 text-gray-400">
                           {isOpen ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                         </td>
@@ -262,7 +339,6 @@ export default function ReportDetailTab() {
                         <tr key={`${r.id}-detail`}>
                           <td colSpan={11} className="bg-gray-50 px-4 py-4 border-b border-gray-100">
                             <div className="flex gap-6 flex-wrap">
-                              {/* Screenshot */}
                               {r.screenshot_url && (
                                 <div className="flex-shrink-0">
                                   <button onClick={e => { e.stopPropagation(); window.open(r.screenshot_url!, '_blank') }}>
@@ -272,7 +348,6 @@ export default function ReportDetailTab() {
                                 </div>
                               )}
                               <div className="flex-1 space-y-3 min-w-0">
-                                {/* Product detail */}
                                 {(prods.length > 0 || r.product_sold_name) && (
                                   <div>
                                     <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
@@ -305,11 +380,38 @@ export default function ReportDetailTab() {
                                     )}
                                   </div>
                                 )}
-                                {/* Evaluation */}
                                 {r.notes && (
                                   <div>
                                     <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wide mb-1">Evaluasi</p>
                                     <p className="text-xs text-gray-700 whitespace-pre-wrap">{r.notes}</p>
+                                  </div>
+                                )}
+
+                                {/* Superadmin actions */}
+                                {isSuperadmin && (
+                                  <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
+                                    <button onClick={e => openEdit(r, e)}
+                                      className="flex items-center gap-1.5 text-xs bg-brand-50 text-brand-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-brand-100 transition-colors">
+                                      <Pencil size={12}/> Edit
+                                    </button>
+                                    {!isConfirm ? (
+                                      <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(r.id) }}
+                                        className="flex items-center gap-1.5 text-xs bg-red-50 text-red-600 px-3 py-1.5 rounded-lg font-semibold hover:bg-red-100 transition-colors">
+                                        <Trash2 size={12}/> Hapus
+                                      </button>
+                                    ) : (
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-[11px] text-red-500 font-medium">Hapus laporan ini?</span>
+                                        <button onClick={e => handleDelete(r.id, e)} disabled={deleting}
+                                          className="text-[11px] bg-red-500 text-white px-2.5 py-1.5 rounded-lg font-semibold hover:bg-red-600 disabled:opacity-60 transition-colors">
+                                          {deleting ? '...' : 'Ya, Hapus'}
+                                        </button>
+                                        <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(null) }}
+                                          className="text-[11px] bg-gray-100 text-gray-600 px-2.5 py-1.5 rounded-lg font-semibold hover:bg-gray-200 transition-colors">
+                                          Batal
+                                        </button>
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -322,6 +424,99 @@ export default function ReportDetailTab() {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {editRow && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 overflow-y-auto"
+          onClick={() => setEditRow(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-4" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between"
+              style={{ background: 'linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%)' }}>
+              <div>
+                <h3 className="font-bold text-brand-900 text-sm">Edit Live Report</h3>
+                <p className="text-[10px] text-brand-500 mt-0.5">
+                  {(editRow.profiles as any)?.full_name} · {editRow.brand} · {localDate(editRow.report_date)}
+                </p>
+              </div>
+              <button onClick={() => setEditRow(null)} className="p-1.5 rounded-lg hover:bg-brand-100 transition-colors">
+                <X size={16} className="text-brand-400"/>
+              </button>
+            </div>
+            <div className="p-5 space-y-4 overflow-y-auto max-h-[70vh]">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Tanggal</label>
+                  <input type="date" value={editForm.report_date} onChange={f('report_date')}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Host</label>
+                  <select value={editForm.host_id} onChange={f('host_id')}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+                    <option value="">— Pilih Host —</option>
+                    {hosts.map(h => <option key={h.id} value={h.id}>{h.full_name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Brand</label>
+                  <input value={editForm.brand} onChange={f('brand')}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Platform</label>
+                  <select value={editForm.platform} onChange={f('platform')}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+                    <option value="">— Pilih —</option>
+                    {PLATFORMS.map(p => <option key={p}>{p}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                {([
+                  { label: 'GMV (Rp)', key: 'gmv' as const },
+                  { label: 'Impresi', key: 'impression' as const },
+                  { label: 'Penonton', key: 'viewer' as const },
+                  { label: 'Transaksi', key: 'trans' as const },
+                  { label: 'Komentar', key: 'comment_count' as const },
+                  { label: 'Durasi (jam)', key: 'duration_hours' as const },
+                ] as { label: string; key: keyof typeof editForm }[]).map(({ label, key }) => (
+                  <div key={key}>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{label}</label>
+                    <input type="number" min="0" value={editForm[key] as number} onChange={f(key)}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Produk Terjual (Utama)</label>
+                <input value={editForm.product_sold_name} onChange={f('product_sold_name')}
+                  placeholder="Nama produk utama yang terjual"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Evaluasi / Catatan</label>
+                <textarea value={editForm.notes} onChange={f('notes')} rows={3}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none"/>
+              </div>
+
+              {editError && <p className="text-xs text-red-600 font-medium">{editError}</p>}
+
+              <div className="flex gap-2.5 pt-1">
+                <button onClick={() => setEditRow(null)} className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors">
+                  Batal
+                </button>
+                <button onClick={saveEdit} disabled={saving}
+                  className="flex-1 bg-brand-600 text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-brand-700 disabled:opacity-60 flex items-center justify-center gap-2 transition-colors shadow-sm">
+                  <Save size={14}/> {saving ? 'Menyimpan...' : 'Simpan Perubahan'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

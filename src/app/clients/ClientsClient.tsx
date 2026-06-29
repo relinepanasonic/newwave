@@ -201,10 +201,10 @@ function ClientListTab() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {meters.map(m => {
-            const hasSlot = m.capacitySlots > 0
-            const planPct = hasSlot ? Math.round((m.planSlots / m.capacitySlots) * 100) : 0
-            const successPct = hasSlot ? Math.round((m.successSlots / m.capacitySlots) * 100) : 0
-            const exceeds = m.planSlots > m.capacitySlots
+            const hasHours = m.capacityHours > 0
+            const planPct = hasHours ? Math.round((m.planHours / m.capacityHours) * 100) : 0
+            const reportPct = m.planSlots > 0 ? Math.round((m.successSlots / m.planSlots) * 100) : 0
+            const exceeds = m.planHours > m.capacityHours
             const isExpanded = expandedBrand === m.brand
             const allSlots = scheduleByBrand[m.brand] || []
             // jadwal table is scoped to the selected month
@@ -223,40 +223,40 @@ function ClientListTab() {
                         : planPct >= 80 ? 'bg-amber-100 text-amber-700'
                         : 'bg-emerald-100 text-emerald-700'
                     }`}>
-                      {hasSlot ? `${planPct}%` : '—'}
+                      {hasHours ? `${planPct}%` : '—'}
                     </span>
                   </div>
-                  {/* Total Slot focal point */}
+                  {/* Hours focal point */}
                   <div className="flex items-center gap-2 mb-3">
                     <div className="flex-1 text-center bg-brand-50 rounded-xl py-2 border border-brand-100">
-                      <p className="text-[10px] text-brand-500 font-medium">Total Slot</p>
-                      <p className="text-xl font-bold text-brand-700 leading-tight">{m.capacitySlots}</p>
+                      <p className="text-[10px] text-brand-500 font-medium">Total Jam</p>
+                      <p className="text-xl font-bold text-brand-700 leading-tight">{trimH(m.capacityHours)}j</p>
                     </div>
                     <div className="flex-1 text-center bg-orange-50 rounded-xl py-2 border border-orange-100">
-                      <p className="text-[10px] text-orange-500 font-medium">Terpakai</p>
-                      <p className="text-xl font-bold text-orange-700 leading-tight">{m.planSlots}</p>
+                      <p className="text-[10px] text-orange-500 font-medium">Jam Live</p>
+                      <p className="text-xl font-bold text-orange-700 leading-tight">{trimH(m.planHours)}j</p>
                     </div>
                     <div className="flex-1 text-center bg-emerald-50 rounded-xl py-2 border border-emerald-100">
-                      <p className="text-[10px] text-emerald-500 font-medium">Sukses</p>
+                      <p className="text-[10px] text-emerald-500 font-medium">Report</p>
                       <p className="text-xl font-bold text-emerald-700 leading-tight">{m.successSlots}</p>
                     </div>
                   </div>
                   <div className="space-y-1.5 mb-3">
                     <div className="flex justify-between text-xs">
-                      <span className="text-gray-500">Jam terpakai</span>
+                      <span className="text-gray-500">Laporan terkumpul</span>
                       <span className="font-semibold text-gray-800">
-                        {hasSlot ? `${trimH(m.successHours)} / ${trimH(m.capacityHours)} jam` : 'Belum ada slot'}
+                        {m.planSlots > 0 ? `${m.successSlots} / ${m.planSlots} sesi` : 'Belum ada jadwal'}
                       </span>
                     </div>
-                    {/* Stacked bar: orange = total plan (low opacity), emerald = live sukses */}
+                    {/* Stacked bar: orange = jam live scheduled, emerald = reports collected */}
                     <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
                       <div className="absolute inset-y-0 left-0 bg-orange-400/30 rounded-full transition-all duration-500"
-                        style={{ width: hasSlot ? `${Math.min(planPct, 100)}%` : '0%' }}/>
+                        style={{ width: hasHours ? `${Math.min(planPct, 100)}%` : '0%' }}/>
                       <div className="absolute inset-y-0 left-0 bg-emerald-500 rounded-full transition-all duration-500"
-                        style={{ width: hasSlot ? `${Math.min(successPct, 100)}%` : '0%' }}/>
+                        style={{ width: hasHours ? `${Math.min(reportPct, 100)}%` : '0%' }}/>
                     </div>
                     {exceeds && (
-                      <p className="text-[10px] text-red-600 font-bold">⚠️ Lewat {m.planSlots - m.capacitySlots} slot!</p>
+                      <p className="text-[10px] text-red-600 font-bold">⚠️ Lewat {trimH(m.planHours - m.capacityHours)}j!</p>
                     )}
                   </div>
                   {/* Per-package capacity breakdown */}

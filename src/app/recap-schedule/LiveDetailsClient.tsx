@@ -39,7 +39,7 @@ export default function LiveDetailsClient({ profile }: { profile: any }) {
           ))}
         </div>
 
-        {tab === 'recap' ? <RecapTab profile={profile} /> : <ReportDetailTab />}
+        {tab === 'recap' ? <RecapTab profile={profile} /> : <ReportDetailTab profile={profile} />}
       </div>
     </AppShell>
   )
