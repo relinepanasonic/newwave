@@ -8,30 +8,5 @@ export default async function ClientSchedulePage() {
   if (!user) redirect('/login')
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
   if (!profile) redirect('/login')
-
-  const today = new Date()
-  const weekStart = new Date(today)
-  weekStart.setDate(today.getDate() - ((today.getDay() + 6) % 7))
-  const weekEnd = new Date(weekStart)
-  weekEnd.setDate(weekStart.getDate() + 6)
-
-  let query = supabase
-    .from('schedule_slots')
-    .select('*, rooms(name, group_name), profiles(full_name)')
-    .gte('slot_date', weekStart.toISOString().split('T')[0])
-    .lte('slot_date', weekEnd.toISOString().split('T')[0])
-    .order('slot_date').order('session_no')
-
-  if (profile.role === 'client' && profile.client_brand) {
-    // Show every live planned for this brand, even before a host is assigned
-    // (so this matches the "Total Live Plan" count on the dashboard).
-    query = query.ilike('brand', `%${profile.client_brand}%`)
-  } else {
-    // Non-client viewers only care about assigned sessions.
-    query = query.not('host_id', 'is', null)
-  }
-
-  const { data: slots } = await query
-
-  return <ClientScheduleClient profile={profile} slots={slots || []} weekStart={weekStart.toISOString()} />
+  return <ClientScheduleClient profile={profile} />
 }
