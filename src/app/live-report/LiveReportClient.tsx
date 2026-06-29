@@ -226,11 +226,13 @@ export default function LiveReportClient({ profile }: { profile: any }) {
     if (slotParam) setForm(f => ({ ...f, slot_id: slotParam }))
   }, [profile.id, profile.role, todayStr, periodStart, periodEnd, params])
 
-  // Fetch etalase products when brand is known, filtered to the slot's platform
+  // Fetch etalase products when brand is known, filtered to the slot's platform.
+  // form.platform is already synced from the selected slot by the auto-fill effect below.
   useEffect(() => {
-    const brand = selectedSlot?.brand || form.brand
+    const slot = todaySlots.find(s => s.id === form.slot_id)
+    const brand = slot?.brand || form.brand
     if (!brand) { setEtalaseProducts([]); return }
-    const platform = selectedSlot?.platform || form.platform
+    const platform = slot?.platform || form.platform
     createClient()
       .from('brand_products').select('id, name, sku, price, platform')
       .eq('brand', brand).eq('is_active', true).order('name')
@@ -242,7 +244,7 @@ export default function LiveReportClient({ profile }: { profile: any }) {
         }
         setEtalaseProducts(list)
       })
-  }, [form.slot_id, form.brand, form.platform, selectedSlot?.platform, todaySlots])
+  }, [form.slot_id, form.brand, form.platform, todaySlots])
 
   // Auto-fill brand/platform when slot selected
   useEffect(() => {
