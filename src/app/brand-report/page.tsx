@@ -29,8 +29,14 @@ function BrandReportContent({ profile }: { profile: any }) {
     const supabase = createClient()
     const from = toLocalDateStr(weekDates[0])
     const to = toLocalDateStr(weekDates[6])
+    // Clients can't read other profiles (RLS), so embedding profiles(full_name)
+    // would break the whole query for them (returns 0). Only embed the host
+    // profile for non-client roles; rooms RLS allows all so that embed is safe.
+    const selectCols = profile.role === 'client'
+      ? '*, rooms(name, group_name)'
+      : '*, rooms(name, group_name), profiles(full_name)'
     let q = supabase.from('schedule_slots')
-      .select('*, rooms(name, group_name), profiles(full_name)')
+      .select(selectCols)
       .gte('slot_date', from).lte('slot_date', to)
       .order('slot_date').order('session_no')
     // Clients should see every planned live for their brand, even before a

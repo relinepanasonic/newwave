@@ -10,10 +10,9 @@ import { useLang } from '@/lib/lang-context'
 const DAYS_ID = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu']
 
 interface Slot {
-  id: string; slot_date: string; session_no: number
+  id: string; slot_date: string; session_no: number; room_id: string
   brand?: string; platform?: string; konsep?: string; status: string
-  rooms: { name: string; group_name: string }
-  profiles?: { full_name: string }
+  rooms?: { name: string; group_name: string }
 }
 
 export default function ClientScheduleClient({ profile }: { profile: any }) {
@@ -21,11 +20,21 @@ export default function ClientScheduleClient({ profile }: { profile: any }) {
   const [baseDate, setBaseDate] = useState(new Date())
   const [weekDates, setWeekDates] = useState<Date[]>(getWeekDates(new Date()))
   const [slots, setSlots] = useState<Slot[]>([])
+  const [rooms, setRooms] = useState<Record<string, { name: string; group_name: string }>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     setWeekDates(getWeekDates(baseDate))
   }, [baseDate])
+
+  // Load the room lookup once (rooms RLS allows all authenticated users)
+  useEffect(() => {
+    createClient().from('rooms').select('id, name, group_name').then(({ data }) => {
+      const map: Record<string, { name: string; group_name: string }> = {}
+      ;(data || []).forEach((r: any) => { map[r.id] = { name: r.name, group_name: r.group_name } })
+      setRooms(map)
+    })
+  }, [])
 
   useEffect(() => {
     if (!weekDates.length) return
@@ -34,14 +43,18 @@ export default function ClientScheduleClient({ profile }: { profile: any }) {
     const from = toLocalDateStr(weekDates[0])
     const to = toLocalDateStr(weekDates[6])
 
+    // IMPORTANT: do NOT embed profiles(full_name) here. The profiles RLS only
+    // lets a client read their own row, so embedding the host profile breaks
+    // the whole query for clients (returns 0). Fetch slots plain — same shape
+    // the client dashboard uses successfully — and resolve room names locally.
     let q = supabase
       .from('schedule_slots')
-      .select('*, rooms(name, group_name), profiles(full_name)')
+      .select('id, slot_date, session_no, room_id, brand, platform, konsep, status, host_id')
       .gte('slot_date', from).lte('slot_date', to)
       .order('slot_date').order('session_no')
 
     if (profile.role === 'client' && profile.client_brand) {
-      q = q.ilike('brand', `%${profile.client_brand}%`)
+      q = q.eq('brand', profile.client_brand)
     } else {
       q = q.not('host_id', 'is', null)
     }
@@ -113,9 +126,11 @@ export default function ClientScheduleClient({ profile }: { profile: any }) {
                     {SESSION_LABELS[slot.session_no]}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-900 text-sm truncate">{slot.rooms?.name}</p>
-                    <p className="text-xs text-gray-500">
-                      {slot.profiles?.full_name || '—'}{slot.konsep ? ` · ${slot.konsep}` : ''}
+                    <p className="font-semibold text-gray-900 text-sm truncate">
+                      {rooms[slot.room_id]?.name || slot.brand || 'Live'}
+                    </p>
+                    <p className="text-xs text-gray-500 truncate">
+                      {slot.brand || '—'}{slot.konsep ? ` · ${slot.konsep}` : ''}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
