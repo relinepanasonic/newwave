@@ -166,8 +166,11 @@ export default function ClientScheduleClient({ profile }: { profile: any }) {
     return { date, dayLabel: DAYS_ID[i], dateStr, daySlots }
   }).filter(d => d.daySlots.length > 0)
 
+  function fmtShortDate(d: Date) {
+    return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long' })
+  }
   const weekLabel = weekDates.length
-    ? `${toLocalDateStr(weekDates[0])} – ${toLocalDateStr(weekDates[6])}`
+    ? `${fmtShortDate(weekDates[0])} – ${fmtShortDate(weekDates[6])}`
     : ''
 
   return (

@@ -48,6 +48,21 @@ const EMPTY_ITEM: InvoiceItem = {
   name: '', description: '', tipe_live: 'Regular', jam_per_sesi: 4, qty: 1, price: 0, amount: 0, is_free: false,
 }
 
+// Generate next invoice number: NW{YY}{MM}{SEQ}
+// e.g. NW2607001. Scans existing numbers for same year+month prefix to find next seq.
+function nextInvoiceNumber(date: string, existing: string[]): string {
+  const d = new Date(date + 'T00:00:00')
+  const yy = String(d.getFullYear()).slice(-2)
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const prefix = `NW${yy}${mm}`
+  const seqs = existing
+    .filter(n => n.startsWith(prefix))
+    .map(n => parseInt(n.slice(prefix.length), 10))
+    .filter(n => !isNaN(n))
+  const max = seqs.length ? Math.max(...seqs) : 0
+  return `${prefix}${String(max + 1).padStart(3, '0')}`
+}
+
 const FORM_DEFAULT = {
   invoice_number: '', invoice_date: new Date().toISOString().slice(0, 10),
   brand: '', invoice_to: '', discount_pct: 0, ppn_pct: 0, pph_pct: 0,
@@ -239,14 +254,28 @@ export default function InvoicePanel({ profile }: { profile: any }) {
       <div className="p-5 space-y-5">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">No. Invoice *</label>
-            <input value={form.invoice_number} onChange={e => setForm(f => ({ ...f, invoice_number: e.target.value }))}
-              placeholder="INV-2026-001"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 transition-shadow"/>
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+              No. Invoice {!editingId && <span className="text-brand-400 normal-case">(otomatis)</span>}
+            </label>
+            <input value={form.invoice_number} readOnly={!editingId}
+              onChange={e => editingId && setForm(f => ({ ...f, invoice_number: e.target.value }))}
+              className={`w-full border rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none transition-shadow ${
+                !editingId
+                  ? 'border-brand-200 bg-brand-50 text-brand-700 font-bold cursor-default'
+                  : 'border-gray-200 focus:ring-2 focus:ring-brand-400'
+              }`}/>
           </div>
           <div>
             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Tanggal</label>
-            <input type="date" value={form.invoice_date} onChange={e => setForm(f => ({ ...f, invoice_date: e.target.value }))}
+            <input type="date" value={form.invoice_date} onChange={e => {
+              const newDate = e.target.value
+              setForm(f => ({
+                ...f,
+                invoice_date: newDate,
+                // Re-generate number when date changes on a new invoice (not when editing)
+                ...(!editingId ? { invoice_number: nextInvoiceNumber(newDate, invoices.map(i => i.invoice_number)) } : {}),
+              }))
+            }}
               className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
           </div>
           <div>
@@ -472,7 +501,12 @@ export default function InvoicePanel({ profile }: { profile: any }) {
           </p>
         </div>
         {isSuperadmin && !showCreate && (
-          <button onClick={() => setShowCreate(true)}
+          <button onClick={() => {
+            const today = new Date().toISOString().slice(0, 10)
+            const num = nextInvoiceNumber(today, invoices.map(i => i.invoice_number))
+            setForm(f => ({ ...f, invoice_date: today, invoice_number: num }))
+            setShowCreate(true)
+          }}
             className="flex items-center gap-2 bg-brand-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-brand-700 transition-colors shadow-sm">
             <Plus size={15}/> Buat Invoice
           </button>
