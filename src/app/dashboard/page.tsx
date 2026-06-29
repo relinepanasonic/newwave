@@ -41,7 +41,7 @@ function getMonthOptions() {
 // ─── CLIENT DASHBOARD ────────────────────────────────────────────────────────
 function ClientDashboard({ profile }: { profile: any }) {
   const [chartMonthIdx, setChartMonthIdx] = useState(0)
-  const [stats, setStats] = useState({ totalPlan: 0, totalSucceed: 0, remainingPlan: 0, gmv: 0, impression: 0, viewer: 0, comment: 0, doneHours: 0, totalHours: 0 })
+  const [stats, setStats] = useState({ totalPlan: 0, totalSucceed: 0, remainingPlan: 0, gmv: 0, impression: 0, viewer: 0, comment: 0, scheduledHours: 0, totalHours: 0 })
   const [chartData, setChartData] = useState<any[]>([])
   const [reports, setReports] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -56,7 +56,7 @@ function ClientDashboard({ profile }: { profile: any }) {
     const supabase = createClient()
     const todayStr = toLocalDateStr(new Date())
     Promise.all([
-      supabase.from('schedule_slots').select('id', { count: 'exact' })
+      supabase.from('schedule_slots').select('id, durasi')
         .eq('brand', brand)
         .gte('slot_date', selectedMonth.start).lte('slot_date', selectedMonth.end),
       supabase.from('live_reports')
@@ -81,12 +81,13 @@ function ClientDashboard({ profile }: { profile: any }) {
       const totImp = reps.reduce((s: number, r: any) => s + (r.impression || 0), 0)
       const totView = reps.reduce((s: number, r: any) => s + (r.viewer || 0), 0)
       const totCom = reps.reduce((s: number, r: any) => s + (r.comment_count || 0), 0)
+      // Scheduled hours = sum of each slot's duration (durasi); null/0 counts as 1h.
+      const slotsArr: any[] = slotsRes.data || []
+      const scheduledHours = slotsArr.reduce((s: number, x: any) => s + (Number(x.durasi) > 0 ? Number(x.durasi) : 1), 0)
+      // Contract hours = total hours on the most recent invoice (qty × jam_per_sesi).
       const invItems: any[] = invoiceRes.data?.invoice_items || []
       const totalHours = invItems.reduce((s: number, i: any) => s + (Number(i.qty) || 0) * (Number(i.jam_per_sesi) || 0), 0)
-      const totalQty = invItems.reduce((s: number, i: any) => s + (Number(i.qty) || 0), 0)
-      const avgJps = totalQty > 0 ? totalHours / totalQty : 0
-      const doneHours = Math.round(reps.length * avgJps)
-      setStats({ totalPlan: slotsRes.count || 0, totalSucceed: reps.length, remainingPlan: remainingRes.count || 0, gmv: totGmv, impression: totImp, viewer: totView, comment: totCom, doneHours, totalHours })
+      setStats({ totalPlan: slotsArr.length, totalSucceed: reps.length, remainingPlan: remainingRes.count || 0, gmv: totGmv, impression: totImp, viewer: totView, comment: totCom, scheduledHours, totalHours })
       const byDate: Record<string, any> = {}
       ;[...reps].reverse().forEach((r: any) => {
         if (!byDate[r.report_date]) byDate[r.report_date] = { date: r.report_date, gmv: 0, impression: 0, viewer: 0, comment: 0 }
@@ -122,7 +123,20 @@ function ClientDashboard({ profile }: { profile: any }) {
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
           {[
-            { label: 'Total Live Plan', value: stats.totalHours > 0 ? `${stats.doneHours}j / ${stats.totalHours}j` : `${stats.totalSucceed} / ${stats.totalPlan}`, icon: CalendarDays, ib: 'bg-blue-50', ic: 'text-blue-600' },
+            {
+              label: 'Total Live Plan',
+              // Big = scheduled hours this month. Small faded = contract hours from last
+              // invoice; hidden once the contract is fully consumed (awaiting a new invoice).
+              value: (
+                <span className="inline-flex items-baseline gap-1">
+                  <span>{stats.scheduledHours}j</span>
+                  {stats.totalHours > 0 && stats.scheduledHours < stats.totalHours && (
+                    <span className="text-sm font-medium text-gray-300">/ {stats.totalHours}j</span>
+                  )}
+                </span>
+              ),
+              icon: CalendarDays, ib: 'bg-blue-50', ic: 'text-blue-600',
+            },
             { label: 'Live Sukses', value: `${stats.totalSucceed} (${successPct}%)`, icon: CheckCircle, ib: 'bg-emerald-50', ic: 'text-emerald-600' },
             { label: 'Total GMV', value: fmtGMV(stats.gmv), icon: TrendingUp, ib: 'bg-purple-50', ic: 'text-purple-600' },
             { label: 'Total Impresi', value: fmtNum(stats.impression), icon: Eye, ib: 'bg-sky-50', ic: 'text-sky-600' },
