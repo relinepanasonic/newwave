@@ -106,6 +106,39 @@ async function uploadMultipart(
 }
 
 /**
+ * Upload a petty cash receipt into:
+ *   [Root] / [Host Name] / Petty Cash / [cash_id] / filename
+ */
+export async function uploadPettyCashReceipt(opts: {
+  hostName: string
+  cashId: string
+  filename: string
+  mimeType: string
+  buffer: Buffer
+}): Promise<{ fileUrl: string; folderUrl: string }> {
+  const token = await getAccessToken()
+  const root = process.env.GDRIVE_ROOT_FOLDER_ID!
+  const hostName = sanitizeName(opts.hostName) || 'Tanpa Nama'
+
+  // [Root] / [Host Name]
+  let hostId = await findFolder(token, hostName, root)
+  if (!hostId) hostId = await createFolder(token, hostName, root)
+
+  // [Host] / Petty Cash
+  let pcRootId = await findFolder(token, 'Petty Cash', hostId)
+  if (!pcRootId) pcRootId = await createFolder(token, 'Petty Cash', hostId)
+
+  // [Host] / Petty Cash / [cash_id]
+  let cashFolderId = await findFolder(token, opts.cashId, pcRootId)
+  if (!cashFolderId) cashFolderId = await createFolder(token, opts.cashId, pcRootId)
+
+  const fileUrl = await uploadMultipart(
+    token, cashFolderId, sanitizeName(opts.filename), opts.mimeType, opts.buffer,
+  )
+  return { fileUrl, folderUrl: `https://drive.google.com/drive/folders/${cashFolderId}` }
+}
+
+/**
  * Ensure a folder named after the host exists directly under the root folder,
  * upload the given file into it, and return both the file link and folder link.
  * Reuses the host folder if it already exists.

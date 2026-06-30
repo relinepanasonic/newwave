@@ -6,8 +6,9 @@ import { Download, ExternalLink, Save, X, Edit2, CheckCircle, FileText, Plane, T
 import { formatCurrency, getPayPeriod } from '@/lib/utils'
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
+import PettyCashPanel from './PettyCashPanel'
 
-type Tab = 'hosts' | 'gaji' | 'kasbon'
+type Tab = 'hosts' | 'gaji' | 'kasbon' | 'pettycash'
 
 interface Kasbon {
   id: string; host_id: string; amount: number; reason?: string
@@ -791,18 +792,18 @@ export default function HRDClient({ profile }: { profile: any }) {
           </div>
         </div>
 
-        <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-5 w-fit">
-          {(['hosts', 'gaji', 'kasbon'] as Tab[]).map(t => (
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-5 w-fit flex-wrap">
+          {(['hosts', 'gaji', 'kasbon', 'pettycash'] as Tab[]).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
                 tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}>
-              {t === 'hosts' ? 'Data Host' : t === 'gaji' ? 'Gaji' : 'Kasbon'}
+              {t === 'hosts' ? 'Data Host' : t === 'gaji' ? 'Gaji' : t === 'kasbon' ? 'Kasbon' : 'Petty Cash'}
             </button>
           ))}
         </div>
 
-        {tab === 'hosts' ? <HostListTab/> : tab === 'gaji' ? <GajiTab/> : <KasbonTab/>}
+        {tab === 'hosts' ? <HostListTab/> : tab === 'gaji' ? <GajiTab/> : tab === 'kasbon' ? <KasbonTab/> : <PettyCashPanel/>}
       </div>
     </AppShell>
   )

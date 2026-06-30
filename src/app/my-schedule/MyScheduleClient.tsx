@@ -5,6 +5,7 @@ import { PLATFORM_COLORS, getPayPeriod } from '@/lib/utils'
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
 import { CalendarDays, Clock, CalendarCheck, Copy, ExternalLink, Check } from 'lucide-react'
+import PettyCashHostPanel from './PettyCashHostPanel'
 
 interface CheckIn { total_hours: number | null }
 interface Slot {
@@ -90,6 +91,9 @@ export default function MyScheduleClient({ profile, slots }: { profile: any; slo
             </div>
           </div>
         </div>
+
+        {/* Petty Cash */}
+        <PettyCashHostPanel profile={profile} />
 
         {/* Google Calendar Connect Banner */}
         <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50 overflow-hidden">
