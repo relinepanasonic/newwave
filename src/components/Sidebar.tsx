@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, CalendarDays, Users,
-  BarChart2, ClipboardList, X, Shield, FileText, Briefcase, ScrollText,
+  BarChart2, ClipboardList, X, Shield, FileText, Briefcase, ScrollText, Wallet,
 } from 'lucide-react'
 import type { Lang } from '@/lib/i18n'
 import { tr } from '@/lib/i18n'
@@ -31,6 +31,7 @@ const NAV_HOST = [
   { key: 'dashboard',   icon: LayoutDashboard, href: '/dashboard' },
   { key: 'myschedule',  icon: CalendarDays,    href: '/my-schedule' },
   { key: 'livereport',  icon: BarChart2,       href: '/live-report' },
+  { key: 'hosthrd',     icon: Wallet,          href: '/host-hrd' },
 ]
 
 const NAV_CLIENT = [

@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
-import { Download, ExternalLink, Save, X, Edit2, CheckCircle, FileText, Plane, Trash2, Plus, Wallet } from 'lucide-react'
+import { Download, ExternalLink, Save, X, Edit2, CheckCircle, XCircle, FileText, Plane, Trash2, Plus, Wallet } from 'lucide-react'
 import { formatCurrency, getPayPeriod } from '@/lib/utils'
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
@@ -605,14 +605,24 @@ function GajiTab() {
 }
 
 // ── Kasbon Tab ────────────────────────────────────────────────────────────────
+interface KasbonFull extends Kasbon {
+  requested_amount?: number | null
+  request_status?: string | null
+  request_note?: string | null
+  approved_at?: string | null
+}
+
 function KasbonTab() {
   const [hosts, setHosts] = useState<{ id: string; full_name: string }[]>([])
-  const [kasbons, setKasbons] = useState<Kasbon[]>([])
+  const [kasbons, setKasbons] = useState<KasbonFull[]>([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ host_id: '', amount: 0, reason: '' })
   const [filter, setFilter] = useState<'all' | 'unpaid' | 'paid'>('all')
+  // Per-request approve state: { [id]: approveAmount }
+  const [approveAmounts, setApproveAmounts] = useState<Record<string, string>>({})
+  const [actioningId, setActioningId] = useState<string | null>(null)
 
   function load() {
     const supabase = createClient()
@@ -621,7 +631,12 @@ function KasbonTab() {
       supabase.from('kasbon').select('*').order('created_at', { ascending: false }),
     ]).then(([h, k]) => {
       setHosts(h.data || [])
-      setKasbons((k.data as Kasbon[]) || [])
+      const rows = (k.data as KasbonFull[]) || []
+      setKasbons(rows)
+      // Pre-fill approve amounts with requested values
+      const init: Record<string, string> = {}
+      rows.forEach(r => { if (r.request_status === 'pending') init[r.id] = String(r.requested_amount ?? r.amount) })
+      setApproveAmounts(init)
       setLoading(false)
     })
   }
@@ -635,14 +650,37 @@ function KasbonTab() {
     }).select().single()
     setSaving(false)
     if (!error && data) {
-      setKasbons(prev => [data as Kasbon, ...prev])
+      setKasbons(prev => [data as KasbonFull, ...prev])
       setForm({ host_id: '', amount: 0, reason: '' }); setAdding(false)
     } else if (error) {
       alert('Gagal simpan kasbon: ' + error.message)
     }
   }
 
-  async function togglePaid(k: Kasbon) {
+  async function approveRequest(k: KasbonFull) {
+    const approvedAmt = Number(approveAmounts[k.id] || k.requested_amount || k.amount)
+    if (!approvedAmt || approvedAmt <= 0) return
+    setActioningId(k.id)
+    await createClient().from('kasbon').update({
+      amount: approvedAmt,
+      request_status: 'approved',
+      approved_at: new Date().toISOString(),
+      status: 'unpaid',
+    }).eq('id', k.id)
+    setKasbons(prev => prev.map(x => x.id === k.id
+      ? { ...x, amount: approvedAmt, request_status: 'approved', approved_at: new Date().toISOString() }
+      : x))
+    setActioningId(null)
+  }
+
+  async function rejectRequest(k: KasbonFull) {
+    setActioningId(k.id)
+    await createClient().from('kasbon').update({ request_status: 'rejected' }).eq('id', k.id)
+    setKasbons(prev => prev.map(x => x.id === k.id ? { ...x, request_status: 'rejected' } : x))
+    setActioningId(null)
+  }
+
+  async function togglePaid(k: KasbonFull) {
     const next = k.status === 'paid' ? 'unpaid' : 'paid'
     const { error } = await createClient().from('kasbon')
       .update({ status: next, paid_at: next === 'paid' ? new Date().toISOString() : null })
@@ -657,17 +695,71 @@ function KasbonTab() {
   }
 
   const nameOf = (id: string) => hosts.find(h => h.id === id)?.full_name || '—'
-  const filtered = kasbons.filter(k => filter === 'all' ? true : k.status === filter)
-  const totalUnpaid = kasbons.filter(k => k.status === 'unpaid').reduce((s, k) => s + Number(k.amount), 0)
+  const pending = kasbons.filter(k => k.request_status === 'pending')
+  const nonPending = kasbons.filter(k => k.request_status !== 'pending')
+  const filtered = nonPending.filter(k => filter === 'all' ? true : k.status === filter)
+  const totalUnpaid = nonPending.filter(k => k.status === 'unpaid' && k.request_status !== 'rejected')
+    .reduce((s, k) => s + Number(k.amount), 0)
 
   if (loading) return <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">Memuat kasbon...</div>
 
   return (
     <div className="space-y-5">
+      {/* Pending requests notification */}
+      {pending.length > 0 && (
+        <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
+            <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"/>
+            <p className="text-sm font-bold text-amber-800">{pending.length} Request Kasbon Masuk</p>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {pending.map(k => (
+              <div key={k.id} className="px-4 py-4">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div>
+                    <p className="font-bold text-gray-900 text-sm">{nameOf(k.host_id)}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {new Date(k.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                    {(k.request_note || k.reason) && (
+                      <p className="text-xs text-gray-600 mt-1 italic">"{k.request_note || k.reason}"</p>
+                    )}
+                    <p className="text-xs text-gray-500 mt-1">
+                      Diajukan: <span className="font-bold text-gray-900">{formatCurrency(Number(k.requested_amount || k.amount))}</span>
+                    </p>
+                  </div>
+                </div>
+                {/* Approve with editable amount */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">ACC Nominal:</span>
+                    <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden flex-1 min-w-0">
+                      <span className="px-2 text-xs text-gray-400 bg-gray-50 border-r border-gray-200 py-2 flex-shrink-0">Rp</span>
+                      <input type="number" min="1000"
+                        value={approveAmounts[k.id] ?? String(k.requested_amount ?? k.amount)}
+                        onChange={e => setApproveAmounts(a => ({ ...a, [k.id]: e.target.value }))}
+                        className="px-2 py-2 text-sm flex-1 min-w-0 focus:outline-none focus:ring-2 focus:ring-brand-400 rounded-r-xl"/>
+                    </div>
+                  </div>
+                  <button onClick={() => approveRequest(k)} disabled={actioningId === k.id}
+                    className="flex items-center gap-1 bg-emerald-600 text-white text-xs font-bold px-3 py-2 rounded-xl hover:bg-emerald-700 disabled:opacity-60 flex-shrink-0">
+                    <CheckCircle size={12}/> ACC
+                  </button>
+                  <button onClick={() => rejectRequest(k)} disabled={actioningId === k.id}
+                    className="flex items-center gap-1 bg-red-100 text-red-600 text-xs font-bold px-3 py-2 rounded-xl hover:bg-red-200 disabled:opacity-60 flex-shrink-0">
+                    <XCircle size={12}/> Tolak
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Total Kasbon', value: `${kasbons.length}` },
-          { label: 'Belum Lunas', value: `${kasbons.filter(k => k.status === 'unpaid').length}` },
+          { label: 'Total Kasbon', value: `${nonPending.length}` },
+          { label: 'Belum Lunas', value: `${nonPending.filter(k => k.status === 'unpaid' && k.request_status !== 'rejected').length}` },
           { label: 'Sisa Hutang', value: formatCurrency(totalUnpaid) },
         ].map(({ label, value }) => (
           <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
@@ -744,20 +836,30 @@ function KasbonTab() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {filtered.map(k => (
-                <tr key={k.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3 font-semibold text-gray-900">{nameOf(k.host_id)}</td>
-                  <td className="px-4 py-3 text-gray-500">{k.reason || '—'}</td>
+                <tr key={k.id} className={`hover:bg-gray-50 transition-colors ${k.request_status === 'rejected' ? 'opacity-50' : ''}`}>
+                  <td className="px-4 py-3 font-semibold text-gray-900">
+                    {nameOf(k.host_id)}
+                    {k.request_status === 'approved' && k.requested_amount && Number(k.requested_amount) !== Number(k.amount) && (
+                      <span className="block text-[10px] font-normal text-gray-400">Req: {formatCurrency(Number(k.requested_amount))}</span>
+                    )}
+                    {k.request_status === 'rejected' && (
+                      <span className="block text-[10px] font-normal text-red-400">Ditolak</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-gray-500">{k.reason || k.request_note || '—'}</td>
                   <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
                     {new Date(k.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </td>
                   <td className="px-4 py-3 text-right font-bold text-gray-900">{formatCurrency(Number(k.amount))}</td>
                   <td className="px-4 py-3 text-center">
-                    <button onClick={() => togglePaid(k)}
-                      className={`text-xs font-bold px-2.5 py-1 rounded-full transition-colors ${
-                        k.status === 'paid' ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                      }`}>
-                      {k.status === 'paid' ? 'Lunas' : 'Belum Lunas'}
-                    </button>
+                    {k.request_status !== 'rejected' && (
+                      <button onClick={() => togglePaid(k)}
+                        className={`text-xs font-bold px-2.5 py-1 rounded-full transition-colors ${
+                          k.status === 'paid' ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                        }`}>
+                        {k.status === 'paid' ? 'Lunas' : 'Belum Lunas'}
+                      </button>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-center">
                     <button onClick={() => remove(k.id)} className="text-gray-300 hover:text-red-500 transition-colors">
