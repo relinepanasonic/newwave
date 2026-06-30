@@ -58,22 +58,64 @@ function localDate(dateStr: string) {
   return new Date(y, m - 1, d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-// Parse DD/MM/YYYY or YYYY-MM-DD → YYYY-MM-DD
+const MONTH_ID: Record<string, number> = {
+  jan:1,feb:2,mar:3,apr:4,may:5,mei:5,jun:6,jul:7,aug:8,agu:8,sep:9,oct:10,okt:10,nov:11,dec:12,des:12,
+}
+
+// Parse many date formats → YYYY-MM-DD
+// Supports: YYYY-MM-DD | DD/MM/YYYY | 21-Jun-2026 | 21 Jun 2026
 function parseDate(s: string): string {
   s = s.trim()
+  if (!s) return ''
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
   if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
     const [d, m, y] = s.split('/').map(Number)
-    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+  }
+  // 21-Jun-2026 or 21 Jun 2026
+  const m3 = s.match(/^(\d{1,2})[-\s]([a-zA-Z]{3,})[-\s](\d{4})$/)
+  if (m3) {
+    const mo = MONTH_ID[m3[2].toLowerCase().slice(0,3)]
+    if (mo) return `${m3[3]}-${String(mo).padStart(2,'0')}-${String(m3[1]).padStart(2,'0')}`
   }
   return ''
 }
 
-// Parse CSV text → array of objects keyed by header
+// Parse "13.00" or "13:00" → "13:00"
+function parseTime(s: string): string {
+  s = s.trim()
+  if (!s) return ''
+  const m = s.match(/^(\d{1,2})[.:](\d{2})$/)
+  if (m) return `${String(m[1]).padStart(2,'0')}:${m[2]}`
+  return s
+}
+
+// Strip "Rp" prefix and dots used as Indonesian thousands separator → integer
+function parseRp(s: string): number {
+  if (!s || !s.trim()) return 0
+  const clean = s.replace(/Rp/gi,'').replace(/\./g,'').replace(/,/g,'').replace(/\s/g,'')
+  return parseInt(clean, 10) || 0
+}
+
+// Parse numbers that may use dots as thousands separator: "7.430" → 7430
+function parseNum(s: string): number {
+  if (!s || !s.trim()) return 0
+  // If it contains a dot but no comma it's likely thousands-separator style
+  const clean = s.replace(/\./g,'').replace(/,/g,'').trim()
+  return parseInt(clean, 10) || 0
+}
+
+// Normalize platform name
+function normalizePlatform(s: string): string {
+  const map: Record<string,string> = { tiktok:'TikTok', shopee:'Shopee', instagram:'Instagram', youtube:'YouTube', other:'Other' }
+  return map[s.toLowerCase().trim()] || s.trim()
+}
+
+// Parse CSV text → headers + rows (supports comma and semicolon delimiters)
 function parseCsv(text: string): { headers: string[]; rows: string[][] } {
-  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim())
+  const lines = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n').filter(l => l.trim())
   if (lines.length === 0) return { headers: [], rows: [] }
-  const splitLine = (l: string) => l.split(/[,;]/).map(c => c.trim().replace(/^"|"$/g, ''))
+  const splitLine = (l: string) => l.split(/[,;]/).map(c => c.trim().replace(/^"|"$/g,''))
   return { headers: splitLine(lines[0]), rows: lines.slice(1).map(splitLine) }
 }
 
@@ -241,13 +283,23 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
       const text = ev.target?.result as string
       const { headers, rows } = parseCsv(text)
 
-      // Map header aliases → canonical keys
+      // Map header names (case-insensitive) → canonical field keys
+      // Supports both the NW template names AND the user's existing spreadsheet columns
       const alias: Record<string, string> = {
+        // NW template names
         tanggal: 'report_date', host: 'host_name', brand: 'brand', platform: 'platform',
         jam_mulai: 'start_time', durasi_jam: 'duration_hours',
         gmv: 'gmv', impresi: 'impression', penonton: 'viewer',
         transaksi: 'trans', komentar: 'comment_count',
         produk_terjual: 'product_sold_name', evaluasi: 'notes',
+        // Their spreadsheet column names
+        'start sesi': 'start_time',
+        'total jam': 'duration_hours',
+        impression: 'impression',
+        viewer: 'viewer',
+        trans: 'trans',
+        comment: 'comment_count',
+        // ignored: bulan, cabang, tipe live, room
       }
       const colMap: Record<number, string> = {}
       headers.forEach((h, i) => {
@@ -255,32 +307,44 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
         if (key) colMap[i] = key
       })
 
+      // Build host lookup: try full name, then first name only
       const hostMap: Record<string, string> = {}
-      hosts.forEach(h => { hostMap[h.full_name.toLowerCase()] = h.id })
+      hosts.forEach(h => {
+        hostMap[h.full_name.toLowerCase()] = h.id
+        // also index by first name alone for short-name CSVs
+        const first = h.full_name.split(' ')[0].toLowerCase()
+        if (!hostMap[first]) hostMap[first] = h.id
+      })
 
       const parsed: CsvRow[] = rows.map((row, li) => {
         const obj: Record<string, string> = {}
         Object.entries(colMap).forEach(([ci, key]) => { obj[key] = (row[Number(ci)] || '').trim() })
+
         const dateStr = parseDate(obj.report_date || '')
         const hostName = obj.host_name || ''
-        const hostId = hostMap[hostName.toLowerCase()] || ''
+        // Try full name first, then first-name match
+        const hostId = hostMap[hostName.toLowerCase()] || hostMap[hostName.split(' ')[0].toLowerCase()] || ''
+        const platform = normalizePlatform(obj.platform || '')
+        const startTime = parseTime(obj.start_time || '')
+
         const errors: string[] = []
         if (!dateStr) errors.push('tanggal tidak valid')
         if (!obj.brand) errors.push('brand kosong')
+
         return {
           _line: li + 2,
           _error: errors.length ? errors.join('; ') : undefined,
           report_date: dateStr,
           host_id: hostId, host_name: hostName,
           brand: obj.brand || '',
-          platform: obj.platform || '',
-          start_time: obj.start_time || '',
+          platform,
+          start_time: startTime,
           duration_hours: parseFloat(obj.duration_hours || '0') || 0,
-          gmv: parseInt(obj.gmv || '0') || 0,
-          impression: parseInt(obj.impression || '0') || 0,
-          viewer: parseInt(obj.viewer || '0') || 0,
-          trans: parseInt(obj.trans || '0') || 0,
-          comment_count: parseInt(obj.comment_count || '0') || 0,
+          gmv: parseRp(obj.gmv || '0'),
+          impression: parseNum(obj.impression || '0'),
+          viewer: parseNum(obj.viewer || '0'),
+          trans: parseNum(obj.trans || '0'),
+          comment_count: parseNum(obj.comment_count || '0'),
           product_sold_name: obj.product_sold_name || '',
           notes: obj.notes || '',
         }
