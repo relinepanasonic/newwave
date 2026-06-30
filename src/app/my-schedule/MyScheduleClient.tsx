@@ -4,7 +4,7 @@ import AppShell from '@/components/AppShell'
 import { PLATFORM_COLORS, getPayPeriod } from '@/lib/utils'
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
-import { CalendarDays, Clock } from 'lucide-react'
+import { CalendarDays, Clock, CalendarCheck, Copy, ExternalLink, Check } from 'lucide-react'
 
 interface CheckIn { total_hours: number | null }
 interface Slot {
@@ -37,6 +37,20 @@ function slotTimeLabel(slot: Slot): string {
 export default function MyScheduleClient({ profile, slots }: { profile: any; slots: Slot[] }) {
   const { lang } = useLang()
   const payPeriod = getPayPeriod()
+  const [copied, setCopied] = useState(false)
+
+  const calFeedUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}/api/calendar/${profile.id}`
+    : `/api/calendar/${profile.id}`
+
+  function copyFeedUrl() {
+    navigator.clipboard.writeText(calFeedUrl).then(() => {
+      setCopied(true); setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  // Google Calendar "add by URL" deep link
+  const gcalSubscribeUrl = `https://calendar.google.com/calendar/r/settings/addbyurl?url=${encodeURIComponent(calFeedUrl)}`
 
   const totalHours = slots.reduce((s, slot) => {
     return s + (slot.check_ins?.[0]?.total_hours || 0)
@@ -74,6 +88,60 @@ export default function MyScheduleClient({ profile, slots }: { profile: any; slo
               <p className="text-xs text-emerald-500 font-medium">Total Jam Tercatat</p>
               <p className="text-2xl font-bold text-emerald-700">{totalHours.toFixed(1)}</p>
             </div>
+          </div>
+        </div>
+
+        {/* Google Calendar Connect Banner */}
+        <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50 overflow-hidden">
+          <div className="px-4 py-3 flex items-center gap-3 border-b border-blue-100">
+            <div className="w-8 h-8 bg-white rounded-xl flex items-center justify-center shadow-sm flex-shrink-0">
+              <CalendarCheck size={16} className="text-blue-500"/>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-blue-900">Sinkronisasi Google Calendar</p>
+              <p className="text-xs text-blue-500">Jadwalmu otomatis muncul di Google Calendar + alarm pengingat</p>
+            </div>
+          </div>
+          <div className="px-4 py-3 space-y-3">
+            {/* Feed URL */}
+            <div>
+              <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-1.5">URL Kalender Kamu</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-[11px] bg-white border border-blue-100 text-blue-700 px-3 py-2 rounded-xl truncate font-mono">
+                  {calFeedUrl}
+                </code>
+                <button onClick={copyFeedUrl}
+                  className={`flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold transition-colors flex-shrink-0 ${
+                    copied ? 'bg-emerald-500 text-white' : 'bg-white border border-blue-200 text-blue-700 hover:bg-blue-100'
+                  }`}>
+                  {copied ? <><Check size={12}/> Tersalin</> : <><Copy size={12}/> Salin</>}
+                </button>
+              </div>
+            </div>
+            {/* Quick subscribe button */}
+            <a href={gcalSubscribeUrl} target="_blank" rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 w-full py-2.5 bg-white border border-blue-200 text-blue-700 rounded-xl text-sm font-semibold hover:bg-blue-100 transition-colors">
+              <ExternalLink size={14}/>
+              Buka Google Calendar & Subscribe Otomatis
+            </a>
+            {/* Manual steps */}
+            <details className="group">
+              <summary className="text-[11px] text-blue-400 cursor-pointer hover:text-blue-600 list-none flex items-center gap-1 select-none">
+                <span className="group-open:rotate-90 inline-block transition-transform">▶</span>
+                Cara manual (jika tombol di atas tidak langsung terbuka)
+              </summary>
+              <ol className="mt-2 space-y-1 text-[11px] text-blue-600 pl-4 list-decimal">
+                <li>Buka <strong>Google Calendar</strong> di browser</li>
+                <li>Klik ⚙️ <strong>Pengaturan</strong> → <strong>Tambahkan kalender</strong></li>
+                <li>Pilih <strong>"Dari URL"</strong></li>
+                <li>Tempel URL di atas → klik <strong>Tambahkan Kalender</strong></li>
+                <li>Selesai! Jadwal dan alarm akan otomatis tersinkronisasi</li>
+              </ol>
+              <p className="mt-2 text-[10px] text-blue-400 pl-4">
+                · Alarm: 1 hari sebelum + 1 jam sebelum live<br/>
+                · Google Calendar sinkron setiap ±8 jam secara otomatis
+              </p>
+            </details>
           </div>
         </div>
 
