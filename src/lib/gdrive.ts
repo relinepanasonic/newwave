@@ -106,6 +106,43 @@ async function uploadMultipart(
 }
 
 /**
+ * Upload a live report screenshot into:
+ *   [Root] / [Host Name] / Live Report Detail / [Month Year, e.g. "July 2026"] / filename
+ */
+export async function uploadLiveReportFile(opts: {
+  hostName: string
+  reportDate: string  // YYYY-MM-DD
+  filename: string
+  mimeType: string
+  buffer: Buffer
+}): Promise<{ fileUrl: string; folderUrl: string }> {
+  const token = await getAccessToken()
+  const root = process.env.GDRIVE_ROOT_FOLDER_ID!
+  const hostName = sanitizeName(opts.hostName) || 'Tanpa Nama'
+
+  // Month folder name: "July 2026"
+  const d = new Date(opts.reportDate + 'T00:00:00')
+  const monthName = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+
+  // [Root] / [Host Name]
+  let hostId = await findFolder(token, hostName, root)
+  if (!hostId) hostId = await createFolder(token, hostName, root)
+
+  // [Host] / Live Report Detail
+  let lrFolderId = await findFolder(token, 'Live Report Detail', hostId)
+  if (!lrFolderId) lrFolderId = await createFolder(token, 'Live Report Detail', hostId)
+
+  // [Host] / Live Report Detail / [Month Year]
+  let monthFolderId = await findFolder(token, monthName, lrFolderId)
+  if (!monthFolderId) monthFolderId = await createFolder(token, monthName, lrFolderId)
+
+  const fileUrl = await uploadMultipart(
+    token, monthFolderId, sanitizeName(opts.filename), opts.mimeType, opts.buffer,
+  )
+  return { fileUrl, folderUrl: `https://drive.google.com/drive/folders/${monthFolderId}` }
+}
+
+/**
  * Upload a petty cash receipt into:
  *   [Root] / [Host Name] / Petty Cash / [cash_id] / filename
  */

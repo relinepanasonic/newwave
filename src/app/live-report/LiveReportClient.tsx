@@ -355,7 +355,7 @@ export default function LiveReportClient({ profile }: { profile: any }) {
       })
       await fetch('/api/drive/upload', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host_name: profile.full_name, filename, mime: screenshotFile.type || 'image/jpeg', base64 }),
+        body: JSON.stringify({ host_name: profile.full_name, filename, mime: screenshotFile.type || 'image/jpeg', base64, report_date: todayStr }),
       })
     } catch { /* non-fatal */ }
   }
