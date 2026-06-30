@@ -124,7 +124,9 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
   const [dupDays, setDupDays] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
-  const [showDupConfirm, setShowDupConfirm] = useState(false)
+  const [showDupModal, setShowDupModal] = useState(false)
+  const [dupSourceDays, setDupSourceDays] = useState<string[]>([])
+  const [dupTargetDays, setDupTargetDays] = useState<string[]>([])
   const [duplicating, setDuplicating] = useState(false)
   const [dupResult, setDupResult] = useState('')
   // Time-group collapse: open only the group covering the current hour by default
@@ -366,38 +368,42 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
     if (id) moveSlot(id, session, roomId)
   }
 
-  async function duplicateWeek() {
+  async function duplicateSelected() {
+    if (!dupSourceDays.length || !dupTargetDays.length) return
     setDuplicating(true)
     const supabase = createClient()
-    const from = toLocalDateStr(weekDates[0])
-    const to = toLocalDateStr(weekDates[6])
-    const { data: thisWeekSlots } = await supabase
-      .from('schedule_slots').select('*')
-      .gte('slot_date', from).lte('slot_date', to).not('host_id', 'is', null)
 
-    if (!thisWeekSlots?.length) {
-      setDupResult('Tidak ada jadwal minggu ini untuk diduplikasi.')
-      setDuplicating(false); setShowDupConfirm(false); return
+    const { data: sourceSlots } = await supabase
+      .from('schedule_slots').select('*')
+      .in('slot_date', dupSourceDays).not('host_id', 'is', null)
+
+    if (!sourceSlots?.length) {
+      setDupResult('Tidak ada jadwal di hari sumber yang dipilih.')
+      setDuplicating(false); return
     }
 
-    const nextWeekSlots = thisWeekSlots.map(s => {
-      const d = new Date(s.slot_date); d.setDate(d.getDate() + 7)
-      return {
-        slot_date: toLocalDateStr(d), session_no: s.session_no, room_id: s.room_id,
+    // For each source slot × each target day, create a copy
+    const toInsert = sourceSlots.flatMap(s =>
+      dupTargetDays.map(targetDate => ({
+        slot_date: targetDate, session_no: s.session_no, room_id: s.room_id,
         host_id: s.host_id, brand: s.brand, platform: s.platform, tipe_live: s.tipe_live,
         konsep: s.konsep, background: s.background, kostum: s.kostum, gimmick: s.gimmick,
         jam_mulai: s.jam_mulai, durasi: s.durasi,
         status: 'scheduled',
-      }
-    })
+      }))
+    )
 
     const { error } = await supabase.from('schedule_slots')
-      .upsert(nextWeekSlots, { onConflict: 'slot_date,session_no,room_id', ignoreDuplicates: true })
+      .upsert(toInsert, { onConflict: 'slot_date,session_no,room_id', ignoreDuplicates: true })
 
-    setDuplicating(false); setShowDupConfirm(false)
-    if (error) { setDupResult('Error: ' + error.message) } else {
-      setDupResult(`✓ ${nextWeekSlots.length} sesi berhasil diduplikasi ke minggu depan!`)
-      const next = new Date(baseDate); next.setDate(next.getDate() + 7); setBaseDate(next)
+    setDuplicating(false)
+    if (error) {
+      setDupResult('Error: ' + error.message)
+    } else {
+      setDupResult(`✓ ${toInsert.length} sesi berhasil diduplikasi ke ${dupTargetDays.length} hari!`)
+      setShowDupModal(false)
+      setDupSourceDays([]); setDupTargetDays([])
+      fetchSlots()
     }
   }
 
@@ -589,9 +595,9 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
               Hari Ini
             </button>
             {isAdmin && (
-              <button onClick={() => setShowDupConfirm(true)}
+              <button onClick={() => { setDupSourceDays([]); setDupTargetDays([]); setShowDupModal(true) }}
                 className="flex items-center gap-1.5 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1.5 rounded-lg font-medium hover:bg-emerald-100">
-                <Copy size={12}/> Duplikasi Minggu
+                <Copy size={12}/> Duplikasi Jadwal
               </button>
             )}
           </div>
@@ -907,32 +913,159 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
         </div>
       )}
 
-      {/* Duplicate Week Confirmation */}
-      {showDupConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4"
-          onClick={() => !duplicating && setShowDupConfirm(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center" onClick={e => e.stopPropagation()}>
-            <div className="w-12 h-12 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Copy size={20} className="text-emerald-600"/>
-            </div>
-            <h3 className="font-bold text-gray-900 text-base mb-1">Duplikasi Minggu?</h3>
-            <p className="text-sm text-gray-500 mb-1">Apakah mau diduplikasi ke minggu depan?</p>
-            <p className="text-xs text-gray-400 mb-5">
-              {formatWeekRange(weekDates)} → {formatWeekRange(getWeekDates(new Date(baseDate.getTime() + 7*24*60*60*1000)))}
-            </p>
-            <div className="flex gap-3">
-              <button onClick={() => setShowDupConfirm(false)} disabled={duplicating}
-                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">
-                Tidak
-              </button>
-              <button onClick={duplicateWeek} disabled={duplicating}
-                className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60">
-                {duplicating ? 'Menduplikasi...' : 'Ya, Duplikasi'}
-              </button>
+      {/* Duplikasi Jadwal Modal */}
+      {showDupModal && (() => {
+        // Build selectable date pool: current week + next week (14 days total)
+        const thisWeekStrs = weekDates.map(d => toLocalDateStr(d))
+        const nextWeek = weekDates.map(d => { const nd = new Date(d); nd.setDate(nd.getDate() + 7); return nd })
+        const nextWeekStrs = nextWeek.map(d => toLocalDateStr(d))
+        const allPool = [...weekDates, ...nextWeek]
+        const allPoolStrs = [...thisWeekStrs, ...nextWeekStrs]
+
+        // Count slots per day in current week (for source badges)
+        const slotsByDay: Record<string, number> = {}
+        slots.forEach(s => { slotsByDay[s.slot_date] = (slotsByDay[s.slot_date] || 0) + 1 })
+
+        const DAYS_SHORT = ['Sen','Sel','Rab','Kam','Jum','Sab','Min']
+
+        function toggleSource(ds: string) {
+          setDupSourceDays(prev => prev.includes(ds) ? prev.filter(x => x !== ds) : [...prev, ds])
+          // Remove from target if also in source
+          setDupTargetDays(prev => prev.filter(x => x !== ds))
+        }
+        function toggleTarget(ds: string) {
+          if (dupSourceDays.includes(ds)) return // can't be both source and target
+          setDupTargetDays(prev => prev.includes(ds) ? prev.filter(x => x !== ds) : [...prev, ds])
+        }
+
+        // Estimate total slots to be created
+        const srcSlotCount = dupSourceDays.reduce((s, d) => s + (slotsByDay[d] || 0), 0)
+        const totalEstimate = srcSlotCount * dupTargetDays.length
+
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4"
+            onClick={() => !duplicating && setShowDupModal(false)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between"
+                style={{ background: 'linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%)' }}>
+                <div>
+                  <h3 className="font-bold text-emerald-900 text-sm">Duplikasi Jadwal</h3>
+                  <p className="text-[10px] text-emerald-600 mt-0.5">Pilih hari sumber dan hari tujuan</p>
+                </div>
+                <button onClick={() => setShowDupModal(false)} className="p-1.5 rounded-lg hover:bg-emerald-100 transition-colors">
+                  <X size={16} className="text-emerald-500"/>
+                </button>
+              </div>
+
+              <div className="p-5 space-y-5">
+                {/* Source days — current week only */}
+                <div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">
+                    Sumber — Pilih hari yang ingin diduplikasi
+                  </p>
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {weekDates.map((d, i) => {
+                      const ds = toLocalDateStr(d)
+                      const count = slotsByDay[ds] || 0
+                      const selected = dupSourceDays.includes(ds)
+                      return (
+                        <button key={ds} onClick={() => toggleSource(ds)} disabled={count === 0}
+                          className={cn('flex flex-col items-center py-2 px-1 rounded-xl text-xs border transition-colors',
+                            selected
+                              ? 'bg-brand-600 text-white border-brand-600'
+                              : count === 0
+                                ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
+                                : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-emerald-400 hover:bg-emerald-50')}>
+                          <span className="text-[9px] font-medium opacity-70">{DAYS_SHORT[i]}</span>
+                          <span className="font-bold text-sm leading-tight">{d.getDate()}</span>
+                          {count > 0 && (
+                            <span className={cn('text-[9px] mt-0.5 font-semibold', selected ? 'text-white/80' : 'text-emerald-600')}>
+                              {count}s
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Target days — current week + next week */}
+                <div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">
+                    Tujuan — Pilih hari tujuan
+                  </p>
+                  {/* Current week */}
+                  <p className="text-[10px] text-gray-400 mb-1.5 font-medium">Minggu ini ({thisWeekStrs[0].slice(5)} – {thisWeekStrs[6].slice(5)})</p>
+                  <div className="grid grid-cols-7 gap-1.5 mb-3">
+                    {weekDates.map((d, i) => {
+                      const ds = toLocalDateStr(d)
+                      const isSource = dupSourceDays.includes(ds)
+                      const selected = dupTargetDays.includes(ds)
+                      return (
+                        <button key={ds} onClick={() => toggleTarget(ds)} disabled={isSource}
+                          className={cn('flex flex-col items-center py-2 px-1 rounded-xl text-xs border transition-colors',
+                            isSource
+                              ? 'bg-gray-100 text-gray-300 border-gray-100 cursor-not-allowed'
+                              : selected
+                                ? 'bg-emerald-600 text-white border-emerald-600'
+                                : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-emerald-400 hover:bg-emerald-50')}>
+                          <span className="text-[9px] font-medium opacity-70">{DAYS_SHORT[i]}</span>
+                          <span className="font-bold text-sm leading-tight">{d.getDate()}</span>
+                          {isSource && <span className="text-[9px] opacity-50">src</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {/* Next week */}
+                  <p className="text-[10px] text-gray-400 mb-1.5 font-medium">Minggu depan ({nextWeekStrs[0].slice(5)} – {nextWeekStrs[6].slice(5)})</p>
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {nextWeek.map((d, i) => {
+                      const ds = toLocalDateStr(d)
+                      const selected = dupTargetDays.includes(ds)
+                      return (
+                        <button key={ds} onClick={() => toggleTarget(ds)}
+                          className={cn('flex flex-col items-center py-2 px-1 rounded-xl text-xs border transition-colors',
+                            selected
+                              ? 'bg-emerald-600 text-white border-emerald-600'
+                              : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-emerald-400 hover:bg-emerald-50')}>
+                          <span className="text-[9px] font-medium opacity-70">{DAYS_SHORT[i]}</span>
+                          <span className="font-bold text-sm leading-tight">{d.getDate()}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Summary */}
+                {(dupSourceDays.length > 0 || dupTargetDays.length > 0) && (
+                  <div className="bg-emerald-50 rounded-xl px-4 py-3 text-xs text-emerald-700">
+                    {dupSourceDays.length === 0 && <span className="opacity-70">Pilih hari sumber dahulu</span>}
+                    {dupTargetDays.length === 0 && dupSourceDays.length > 0 && <span className="opacity-70">Pilih hari tujuan</span>}
+                    {dupSourceDays.length > 0 && dupTargetDays.length > 0 && (
+                      <span className="font-semibold">
+                        {srcSlotCount} sesi dari {dupSourceDays.length} hari → {dupTargetDays.length} hari tujuan
+                        {totalEstimate > 0 && ` = ~${totalEstimate} slot baru`}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="px-5 pb-5 flex gap-3">
+                <button onClick={() => setShowDupModal(false)} disabled={duplicating}
+                  className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                  Batal
+                </button>
+                <button onClick={duplicateSelected}
+                  disabled={duplicating || dupSourceDays.length === 0 || dupTargetDays.length === 0}
+                  className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+                  {duplicating ? 'Menduplikasi...' : `Duplikasi${totalEstimate > 0 ? ` (${totalEstimate})` : ''}`}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Dup result toast */}
       {dupResult && (
