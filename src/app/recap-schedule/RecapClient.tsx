@@ -1,10 +1,25 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { getPayPeriod, toLocalDateStr, SESSION_LABELS, PLATFORM_COLORS } from '@/lib/utils'
+import { getPayPeriod, toLocalDateStr, PLATFORM_COLORS } from '@/lib/utils'
 import { CalendarDays, Clock, Users, Filter } from 'lucide-react'
 
 const DAYS_ID = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
+
+function slotTimeLabel(slot: { jam_mulai?: string; durasi?: number; session_no: number }): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  let startMin: number
+  if (slot.jam_mulai) {
+    const [h, m] = slot.jam_mulai.split(':').map(Number)
+    startMin = h * 60 + (m || 0)
+  } else {
+    startMin = (slot.session_no - 1) * 60
+  }
+  const durMin = (slot.durasi && slot.durasi > 0 ? slot.durasi : 1) * 60
+  const endMin = startMin + durMin
+  const fmt = (mins: number) => `${pad(Math.floor((mins % 1440) / 60))}:${pad(mins % 60)}`
+  return `${fmt(startMin)} – ${fmt(endMin)}`
+}
 
 interface Slot {
   id: string; slot_date: string; session_no: number; status: string
@@ -147,8 +162,8 @@ export default function RecapTab({ profile: _profile }: { profile: any }) {
                         return (
                           <div key={slot.id} className="flex items-start gap-3 px-4 py-3">
                             {/* Time */}
-                            <span className="font-mono text-xs text-gray-500 w-14 flex-shrink-0 pt-0.5">
-                              {slot.jam_mulai ? slot.jam_mulai.slice(0,5) : SESSION_LABELS[slot.session_no]}
+                            <span className="font-mono text-xs text-gray-500 w-28 flex-shrink-0 pt-0.5">
+                              {slotTimeLabel(slot)}
                             </span>
                             {/* Host name */}
                             {!selectedHost && (
