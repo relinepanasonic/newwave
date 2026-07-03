@@ -4,7 +4,7 @@ import { useSearchParams } from 'next/navigation'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { getPayPeriod, toLocalDateStr, SESSION_LABELS, PLATFORM_COLORS, formatCurrency } from '@/lib/utils'
-import { Upload, X, CheckCircle2, Camera, TrendingUp, ChevronDown, ChevronUp, Plus, Package, Trash2, PlayCircle } from 'lucide-react'
+import { Upload, X, CheckCircle2, Camera, TrendingUp, ChevronDown, ChevronUp, Plus, Package, Trash2, PlayCircle, ClipboardList } from 'lucide-react'
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
 import TimeInput from '@/components/TimeInput'
@@ -192,6 +192,9 @@ export default function LiveReportClient({ profile }: { profile: any }) {
   // "Start Live" phase tracking — once pressed, timestamp stored and form revealed
   const [liveStartedAt, setLiveStartedAt] = useState<string | null>(null)
   const [startingLive, setStartingLive] = useState(false)
+  const [viewMode, setViewMode] = useState<'report' | 'log'>('report')
+  const [logSlots, setLogSlots] = useState<any[]>([])
+  const [logLoading, setLogLoading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const lookCamRef = useRef<HTMLInputElement>(null)  // camera input for Look Approval photo
 
@@ -209,7 +212,7 @@ export default function LiveReportClient({ profile }: { profile: any }) {
     Promise.all([
       uid
         ? supabase.from('schedule_slots')
-            .select('id, session_no, brand, platform, status, jam_mulai, look_approval_at, rooms(name)')
+            .select('id, session_no, brand, platform, status, jam_mulai, look_approval_at, look_approval_url, rooms(name)')
             .eq('slot_date', todayStr).eq('host_id', uid).order('session_no')
         : Promise.resolve({ data: [] }),
       supabase.from('live_reports')
@@ -254,12 +257,29 @@ export default function LiveReportClient({ profile }: { profile: any }) {
     }
   }, [form.slot_id, todaySlots])
 
-  // Reset live-started state when slot changes
+  // When slot changes: if look approval already in DB, auto-unlock the form
+  // so hosts who logged out after approval don't have to redo it (which would mark them late)
   useEffect(() => {
-    setLiveStartedAt(null)
-  }, [form.slot_id])
+    const slot = todaySlots.find(s => s.id === form.slot_id)
+    setLiveStartedAt(slot?.look_approval_at ?? null)
+  }, [form.slot_id, todaySlots])
 
   const selectedSlot = todaySlots.find(s => s.id === form.slot_id)
+
+  // Load Look Approval log when user switches to log tab
+  useEffect(() => {
+    if (viewMode !== 'log' || !hostId) return
+    setLogLoading(true)
+    const since = new Date(); since.setDate(since.getDate() - 60)
+    const sinceStr = since.toISOString().split('T')[0]
+    createClient().from('schedule_slots')
+      .select('id, slot_date, session_no, brand, platform, jam_mulai, look_approval_at, look_approval_url, rooms(name)')
+      .eq('host_id', hostId)
+      .not('look_approval_at', 'is', null)
+      .gte('slot_date', sinceStr)
+      .order('slot_date', { ascending: false }).order('look_approval_at', { ascending: false })
+      .then(({ data }) => { setLogSlots(data || []); setLogLoading(false) })
+  }, [viewMode, hostId])
 
   // ── Look Approval ─────────────────────────────────────────────────────────
   // Tapping "Rekam Look Approval" opens the camera; once a photo is taken we
@@ -363,7 +383,7 @@ export default function LiveReportClient({ profile }: { profile: any }) {
   // ── Validation ────────────────────────────────────────────────────────────
   const catatan = form.notes.trim()
   const catatanOk = catatan.length >= 25
-  const canSubmit = liveStartedAt !== null
+  const canSubmit = approvalDone
     && form.brand.trim() !== ''
     && form.platform !== ''
     && screenshotFile !== null
@@ -437,6 +457,8 @@ export default function LiveReportClient({ profile }: { profile: any }) {
   const liveStartTs = liveStartedAt
     ? new Date(liveStartedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
     : null
+  // True if liveStartedAt was freshly clicked this session vs restored from look_approval_at
+  const liveStartedFresh = liveStartedAt !== null && liveStartedAt !== selectedSlot?.look_approval_at
 
   return (
     <AppShell role={profile.role as any} userName={profile.full_name}>
@@ -450,6 +472,75 @@ export default function LiveReportClient({ profile }: { profile: any }) {
             {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
           </p>
         </div>
+
+        {/* ── Tab switcher ── */}
+        <div className="flex gap-1 bg-gray-100 rounded-2xl p-1">
+          {(['report', 'log'] as const).map(mode => (
+            <button key={mode} onClick={() => setViewMode(mode)}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-semibold transition-all ${
+                viewMode === mode ? 'bg-white shadow text-brand-700' : 'text-gray-500 hover:text-gray-700'
+              }`}>
+              {mode === 'report' ? <><Camera size={14}/> Laporan</> : <><ClipboardList size={14}/> Log Approval</>}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Log View ── */}
+        {viewMode === 'log' && (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-400">Look Approval 60 hari terakhir</p>
+            {logLoading ? (
+              <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center text-sm text-gray-400">Memuat log...</div>
+            ) : logSlots.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center text-sm text-gray-400">
+                Belum ada Look Approval yang tercatat
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {logSlots.map((slot: any) => {
+                  const approvalTime = new Date(slot.look_approval_at)
+                  const slotDate = slot.slot_date
+                  const sessionStart = slot.jam_mulai
+                    ? new Date(`${slotDate}T${slot.jam_mulai}`)
+                    : new Date(`${slotDate}T${String((slot.session_no - 1)).padStart(2, '0')}:00:00`)
+                  const isLate = approvalTime > sessionStart
+                  const approvalFmt = approvalTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+                  const dateFmt = new Date(slotDate + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+                  return (
+                    <div key={slot.id} className={`bg-white rounded-2xl border shadow-sm p-4 flex items-center gap-3 ${isLate ? 'border-red-100' : 'border-emerald-100'}`}>
+                      {slot.look_approval_url ? (
+                        <button onClick={() => window.open(slot.look_approval_url, '_blank')} className="flex-shrink-0">
+                          <img src={slot.look_approval_url} alt="Look" className={`w-14 h-14 rounded-xl object-cover border-2 ${isLate ? 'border-red-200' : 'border-emerald-200'}`}/>
+                        </button>
+                      ) : (
+                        <div className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 ${isLate ? 'bg-red-50' : 'bg-emerald-50'}`}>
+                          <Camera size={20} className={isLate ? 'text-red-300' : 'text-emerald-300'}/>
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                          <span className="font-bold text-gray-900 text-sm">{slot.brand || '—'}</span>
+                          {slot.platform && (
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${PLATFORM_COLORS[slot.platform] || PLATFORM_COLORS.Other}`}>
+                              {slot.platform}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500">{dateFmt} · {(slot.rooms as any)?.name}</p>
+                        <p className={`text-xs font-semibold mt-0.5 ${isLate ? 'text-red-600' : 'text-emerald-600'}`}>
+                          {isLate ? '🔴 Terlambat' : '✅ Tepat Waktu'} · {approvalFmt}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Report content (hidden when log tab is active) ── */}
+        {viewMode === 'report' && <>
 
         {/* ── Session selector ── */}
         {todaySlots.length > 0 && (
@@ -525,7 +616,8 @@ export default function LiveReportClient({ profile }: { profile: any }) {
             </div>
 
             {/* Start Live button */}
-            {liveStartedAt ? (
+            {liveStartedFresh ? (
+              // Freshly clicked Start Live this session
               <div className="bg-green-50 border-2 border-green-200 rounded-2xl px-5 py-4 flex items-center gap-3">
                 <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
                   <PlayCircle size={20} className="text-white"/>
@@ -535,6 +627,19 @@ export default function LiveReportClient({ profile }: { profile: any }) {
                   <p className="text-xs text-green-600 font-medium">{liveStartTs}</p>
                 </div>
               </div>
+            ) : approvalDone && !liveStartedFresh ? (
+              // Approval done (from DB) — form is unlocked; offer Start Live to record fresh timestamp
+              <div className="flex flex-col gap-2">
+                <div className="bg-brand-50 border border-brand-100 rounded-xl px-4 py-2.5 flex items-center gap-2">
+                  <CheckCircle2 size={14} className="text-brand-600"/>
+                  <p className="text-xs text-brand-700 font-medium">Look Approval selesai — form laporan siap diisi</p>
+                </div>
+                <button type="button" onClick={handleStartLive} disabled={startingLive}
+                  className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white rounded-2xl py-3.5 font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-sm">
+                  <PlayCircle size={18}/>
+                  {startingLive ? 'Memulai...' : 'Mulai Live Sekarang (catat waktu)'}
+                </button>
+              </div>
             ) : (
               <button type="button" onClick={handleStartLive}
                 disabled={!approvalDone || startingLive || !form.slot_id}
@@ -543,18 +648,21 @@ export default function LiveReportClient({ profile }: { profile: any }) {
                 {startingLive ? 'Memulai...' : 'Start Live'}
               </button>
             )}
-            {!approvalDone && form.slot_id && !liveStartedAt && (
+            {!approvalDone && form.slot_id && (
               <p className="text-[11px] text-center text-amber-600">Selesaikan Look Approval untuk mengaktifkan Start Live</p>
             )}
           </div>
         </div>
 
-        {/* ── SECTION 2: Report Form — revealed after Start Live ── */}
-        {liveStartedAt && (
+        {/* ── SECTION 2: Report Form — revealed once look approval is done ── */}
+        {approvalDone && (
           <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 bg-brand-50">
               <h2 className="font-bold text-brand-900 text-sm">Submit Laporan Live</h2>
-              <p className="text-xs text-brand-600 mt-0.5">Live dimulai pukul {liveStartTs}</p>
+              <p className="text-xs text-brand-600 mt-0.5">
+                Look Approval pukul {approvalTs}
+                {liveStartedFresh && ` · Live mulai pukul ${liveStartTs}`}
+              </p>
             </div>
 
             <div className="p-5 space-y-4">
@@ -766,6 +874,8 @@ export default function LiveReportClient({ profile }: { profile: any }) {
             </div>
           )}
         </div>
+
+        </> /* end viewMode === 'report' */}
 
       </div>
     </AppShell>

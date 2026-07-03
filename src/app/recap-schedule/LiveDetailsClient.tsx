@@ -1,16 +1,18 @@
 'use client'
 import { useState } from 'react'
 import AppShell from '@/components/AppShell'
-import { CalendarDays, BarChart2 } from 'lucide-react'
+import { CalendarDays, BarChart2, Camera } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import RecapTab from './RecapClient'
 import ReportDetailTab from './ReportDetailTab'
+import LookApprovalLogTab from './LookApprovalLogTab'
 
-type Tab = 'recap' | 'report'
+type Tab = 'recap' | 'report' | 'looklog'
 
 const TABS: { key: Tab; label: string; icon: any }[] = [
-  { key: 'recap',  label: 'Recap Schedule',    icon: CalendarDays },
-  { key: 'report', label: 'Live Report Detail', icon: BarChart2 },
+  { key: 'recap',   label: 'Recap Schedule',    icon: CalendarDays },
+  { key: 'report',  label: 'Live Report Detail', icon: BarChart2 },
+  { key: 'looklog', label: 'Look Approval Log',  icon: Camera },
 ]
 
 export default function LiveDetailsClient({ profile }: { profile: any }) {
@@ -39,7 +41,9 @@ export default function LiveDetailsClient({ profile }: { profile: any }) {
           ))}
         </div>
 
-        {tab === 'recap' ? <RecapTab profile={profile} /> : <ReportDetailTab profile={profile} />}
+        {tab === 'recap' && <RecapTab profile={profile} />}
+        {tab === 'report' && <ReportDetailTab profile={profile} />}
+        {tab === 'looklog' && <LookApprovalLogTab profile={profile} />}
       </div>
     </AppShell>
   )
