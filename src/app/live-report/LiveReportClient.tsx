@@ -221,12 +221,15 @@ export default function LiveReportClient({ profile }: { profile: any }) {
         .gte('report_date', periodStart).lte('report_date', periodEnd)
         .order('report_date', { ascending: false }).order('start_time', { ascending: false }),
     ]).then(([slots, reps]) => {
-      setTodaySlots((slots.data as Slot[]) || [])
+      const loadedSlots = (slots.data as Slot[]) || []
+      setTodaySlots(loadedSlots)
       setReports(reps.data || [])
-    })
 
-    const slotParam = params.get('slot')
-    if (slotParam) setForm(f => ({ ...f, slot_id: slotParam }))
+      // Auto-select if only one slot today and no slot already chosen
+      const slotParam = params.get('slot')
+      const autoId = slotParam || (loadedSlots.length === 1 ? loadedSlots[0].id : '')
+      if (autoId) setForm(f => ({ ...f, slot_id: autoId }))
+    })
   }, [profile.id, profile.role, todayStr, periodStart, periodEnd, params])
 
   // Fetch etalase products when brand is known, filtered to the slot's platform.
@@ -296,19 +299,27 @@ export default function LiveReportClient({ profile }: { profile: any }) {
     const supabase = createClient()
     const now = new Date().toISOString()
 
-    // Upload the captured look photo
+    // Upload the captured look photo to storage
     let url: string | null = null
-    const ext = file.name.split('.').pop() || 'jpg'
-    const path = `look-approval/${profile.id}/${form.slot_id}-${Date.now()}.${ext}`
-    const { data, error: upErr } = await supabase.storage.from('live-reports').upload(path, file, { contentType: file.type })
-    if (!upErr && data) url = supabase.storage.from('live-reports').getPublicUrl(data.path).data.publicUrl
+    try {
+      const ext = file.name.split('.').pop() || 'jpg'
+      const path = `look-approval/${profile.id}/${form.slot_id}-${Date.now()}.${ext}`
+      const { data, error: upErr } = await supabase.storage.from('live-reports').upload(path, file, { contentType: file.type })
+      if (!upErr && data) url = supabase.storage.from('live-reports').getPublicUrl(data.path).data.publicUrl
+    } catch { /* non-fatal — save timestamp without photo */ }
 
-    const { error } = await supabase.from('schedule_slots')
-      .update({ look_approval_at: now, look_approval_url: url }).eq('id', form.slot_id)
-    setRecordingApproval(false)
+    // Use server-side API to bypass RLS (hosts can't UPDATE schedule_slots directly)
+    const res = await fetch('/api/look-approval', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slot_id: form.slot_id, look_approval_at: now, look_approval_url: url }),
+    })
     if (e.target) e.target.value = ''
-    if (!error) {
-      setTodaySlots(prev => prev.map(s => s.id === form.slot_id ? { ...s, look_approval_at: now, look_approval_url: url || undefined } : s))
+    setRecordingApproval(false)
+    if (res.ok) {
+      setTodaySlots(prev => prev.map(s =>
+        s.id === form.slot_id ? { ...s, look_approval_at: now, look_approval_url: url || undefined } : s
+      ))
     }
   }
 
