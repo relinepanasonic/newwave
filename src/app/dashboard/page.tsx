@@ -398,7 +398,7 @@ export default function DashboardPage() {
   return (
     <AuthGuard>
       {(profile) => {
-        if (profile.role === 'host') return <HostDashboard profile={profile} />
+        if (['host', 'host_manager'].includes(profile.role)) return <HostDashboard profile={profile} />
         if (profile.role === 'client') return <ClientDashboard profile={profile} />
         return <CompanyDashboard profile={profile} />
       }}

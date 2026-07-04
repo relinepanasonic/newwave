@@ -19,7 +19,7 @@ export default async function CheckinPage() {
     .eq('slot_date', today)
     .order('session_no')
 
-  if (profile.role === 'host') query.eq('host_id', user.id)
+  if (['host', 'host_manager', 'operator'].includes(profile.role)) query.eq('host_id', user.id)
 
   const { data: slots } = await query
 

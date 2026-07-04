@@ -8,7 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import { LangProvider, useLang } from '@/lib/lang-context'
 
 interface Props {
-  role: 'superadmin' | 'host' | 'client'
+  role: 'superadmin' | 'host' | 'client' | 'operator' | 'host_manager'
   userName: string
   children: React.ReactNode
 }

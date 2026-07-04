@@ -4,12 +4,12 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, CalendarDays, Users,
-  BarChart2, ClipboardList, X, Shield, FileText, Briefcase, ScrollText, Wallet, BookOpen,
+  BarChart2, ClipboardList, X, Shield, FileText, Briefcase, ScrollText, Wallet, BookOpen, Headphones,
 } from 'lucide-react'
 import type { Lang } from '@/lib/i18n'
 import { tr } from '@/lib/i18n'
 
-type Role = 'superadmin' | 'host' | 'client'
+type Role = 'superadmin' | 'host' | 'client' | 'operator' | 'host_manager'
 
 interface Props {
   role: Role
@@ -42,14 +42,36 @@ const NAV_CLIENT = [
   { key: 'invoice',          icon: FileText,        href: '/invoice' },
 ]
 
+const NAV_HOST_MANAGER = [
+  { key: 'dashboard',   icon: LayoutDashboard, href: '/dashboard' },
+  { key: 'schedule',    icon: CalendarDays,    href: '/schedule' },
+  { key: 'myschedule',  icon: ClipboardList,   href: '/my-schedule' },
+  { key: 'livereport',  icon: BarChart2,       href: '/live-report' },
+  { key: 'hosthrd',     icon: Wallet,          href: '/host-hrd' },
+]
+
+const NAV_OPERATOR = [
+  { key: 'dashboard',   icon: LayoutDashboard, href: '/dashboard' },
+  { key: 'schedule',    icon: CalendarDays,    href: '/schedule' },
+  { key: 'myschedule',  icon: ClipboardList,   href: '/my-schedule' },
+  { key: 'checkin',     icon: Headphones,      href: '/check-in' },
+]
+
 export default function Sidebar({ role, lang = 'id', userName, onClose }: Props) {
   const pathname = usePathname()
-  const navItems = role === 'superadmin' ? NAV_SUPERADMIN : role === 'host' ? NAV_HOST : NAV_CLIENT
+  const navItems =
+    role === 'superadmin'   ? NAV_SUPERADMIN :
+    role === 'host_manager' ? NAV_HOST_MANAGER :
+    role === 'operator'     ? NAV_OPERATOR :
+    role === 'host'         ? NAV_HOST :
+    NAV_CLIENT
 
   const roleLabel: Record<Role, string> = {
-    superadmin: 'Super Admin',
-    host: 'Host',
-    client: 'Client',
+    superadmin:   'Super Admin',
+    host:         'Host',
+    host_manager: 'Host Manager',
+    operator:     'Operator',
+    client:       'Client',
   }
 
   return (

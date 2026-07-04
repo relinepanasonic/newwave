@@ -142,7 +142,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
   const draggingIdRef = useRef<string | null>(null)
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
   const [moveError, setMoveError] = useState('')
-  const isAdmin = profile.role === 'superadmin'
+  const isAdmin = profile.role === 'superadmin' || profile.role === 'host_manager'
 
   function toggleGroup(key: string) {
     setCollapsedGroups(prev => ({ ...prev, [key]: !prev[key] }))

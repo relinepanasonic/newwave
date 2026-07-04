@@ -7,7 +7,7 @@ export default async function HostHRDPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-  if (!profile || profile.role !== 'host') redirect('/dashboard')
+  if (!profile || !['host', 'host_manager'].includes(profile.role)) redirect('/dashboard')
 
   return <HostHRDClient profile={profile} />
 }

@@ -159,8 +159,8 @@ interface Report {
 }
 
 interface Slot {
-  id: string; session_no: number; brand: string; platform: string
-  status: string; jam_mulai?: string; look_approval_at?: string; look_approval_url?: string
+  id: string; slot_date: string; session_no: number; brand: string; platform: string
+  status: string; jam_mulai?: string; durasi?: number; look_approval_at?: string; look_approval_url?: string
   rooms: { name: string }
 }
 
@@ -203,17 +203,23 @@ export default function LiveReportClient({ profile }: { profile: any }) {
   const periodStart = toLocalDateStr(payPeriod.start)
   const periodEnd = toLocalDateStr(payPeriod.end)
 
-  const hostId = profile.role === 'host' ? profile.id : null
+  const isHostLike = ['host', 'host_manager'].includes(profile.role)
+  const hostId = isHostLike ? profile.id : null
 
   useEffect(() => {
     const supabase = createClient()
-    const uid = profile.role === 'host' ? profile.id : null
+    const uid = isHostLike ? profile.id : null
+
+    // 3-day window: today + 2 days back, so hosts can report after the fact
+    const threeDaysAgo = new Date(); threeDaysAgo.setDate(threeDaysAgo.getDate() - 2)
+    const windowStart = toLocalDateStr(threeDaysAgo)
 
     Promise.all([
       uid
         ? supabase.from('schedule_slots')
-            .select('id, session_no, brand, platform, status, jam_mulai, look_approval_at, look_approval_url, rooms(name)')
-            .eq('slot_date', todayStr).eq('host_id', uid).order('session_no')
+            .select('id, slot_date, session_no, brand, platform, status, jam_mulai, durasi, look_approval_at, look_approval_url, rooms(name)')
+            .gte('slot_date', windowStart).lte('slot_date', todayStr)
+            .eq('host_id', uid).order('slot_date', { ascending: false }).order('session_no')
         : Promise.resolve({ data: [] }),
       supabase.from('live_reports')
         .select('*')
@@ -225,10 +231,10 @@ export default function LiveReportClient({ profile }: { profile: any }) {
       setTodaySlots(loadedSlots)
       setReports(reps.data || [])
 
-      // Auto-select if only one slot today and no slot already chosen
+      // Auto-select if only one slot across the 3-day window and no slot already chosen
       const slotParam = params.get('slot')
       const autoId = slotParam || (loadedSlots.length === 1 ? loadedSlots[0].id : '')
-      if (autoId) setForm(f => ({ ...f, slot_id: autoId }))
+      if (autoId) setForm(f => ({ ...f, slot_id: f.slot_id || autoId }))
     })
   }, [profile.id, profile.role, todayStr, periodStart, periodEnd, params])
 
@@ -326,10 +332,11 @@ export default function LiveReportClient({ profile }: { profile: any }) {
   function getLookApprovalStatus(): 'none' | 'done' | 'late' | 'no_slot' {
     if (!form.slot_id || !selectedSlot) return 'no_slot'
     if (!selectedSlot.look_approval_at) return 'none'
+    const slotDate = selectedSlot.slot_date || todayStr
     const approvalTime = new Date(selectedSlot.look_approval_at)
     const sessionStart = selectedSlot.jam_mulai
-      ? new Date(`${todayStr}T${selectedSlot.jam_mulai}`)
-      : new Date(`${todayStr}T${String(selectedSlot.session_no - 1).padStart(2, '0')}:00:00`)
+      ? new Date(`${slotDate}T${selectedSlot.jam_mulai}`)
+      : new Date(`${slotDate}T${String(selectedSlot.session_no - 1).padStart(2, '0')}:00:00`)
     return approvalTime > sessionStart ? 'late' : 'done'
   }
 
@@ -556,15 +563,20 @@ export default function LiveReportClient({ profile }: { profile: any }) {
         {/* ── Session selector ── */}
         {todaySlots.length > 0 && (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Sesi Hari Ini</label>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Pilih Sesi (3 Hari Terakhir)</label>
             <select value={form.slot_id} onChange={e => setForm(f => ({ ...f, slot_id: e.target.value }))}
               className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50">
               <option value="">— Pilih sesi —</option>
-              {todaySlots.map(s => (
-                <option key={s.id} value={s.id}>
-                  {SESSION_LABELS[s.session_no]} · {(s.rooms as any)?.name} {s.brand ? `· ${s.brand}` : ''}
-                </option>
-              ))}
+              {todaySlots.map(s => {
+                const dateLabel = s.slot_date === todayStr ? 'Hari ini' :
+                  new Date(s.slot_date + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
+                const timeLabel = s.jam_mulai ? s.jam_mulai.slice(0, 5) : SESSION_LABELS[s.session_no]
+                return (
+                  <option key={s.id} value={s.id}>
+                    {dateLabel} · {timeLabel} · {(s.rooms as any)?.name}{s.brand ? ` · ${s.brand}` : ''}
+                  </option>
+                )
+              })}
             </select>
           </div>
         )}

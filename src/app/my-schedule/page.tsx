@@ -20,7 +20,7 @@ export default async function MySchedulePage() {
     .lte('slot_date', monthEnd)
     .order('slot_date').order('session_no')
 
-  if (profile.role === 'host') query.eq('host_id', user.id)
+  if (['host', 'host_manager'].includes(profile.role)) query.eq('host_id', user.id)
 
   const { data: slots } = await query
 
