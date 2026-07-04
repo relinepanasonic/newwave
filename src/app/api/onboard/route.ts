@@ -30,11 +30,12 @@ export async function POST(req: Request) {
   }
 
   // 2. Create auth user
+  const profileRole = invite.role || 'host'
   const { data: authData, error: authErr } = await admin.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
-    user_metadata: { full_name, role: 'host' },
+    user_metadata: { full_name, role: profileRole },
   })
 
   if (authErr) {
@@ -90,7 +91,7 @@ export async function POST(req: Request) {
     id: userId,
     full_name,
     username: username || null,
-    role: 'host',
+    role: profileRole,
     alamat: alamat || null,
     nik_id: nik_id || null,
     ktp_photo_url,

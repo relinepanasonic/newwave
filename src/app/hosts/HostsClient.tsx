@@ -15,7 +15,7 @@ interface Profile {
   phone?: string; client_brand?: string; is_active: boolean; tipe_host?: string; target_hours?: number
 }
 interface Invite {
-  id: string; token: string; name: string; tipe_host: string
+  id: string; token: string; name: string; tipe_host: string; role: string
   target_hours: number; hourly_rate: number; status: string
   created_at: string; used_at?: string; host_id?: string
 }
@@ -32,7 +32,7 @@ export default function HostsClient({ profile }: { profile: any }) {
 
   // Invite form
   const [showInviteModal, setShowInviteModal] = useState(false)
-  const [inviteForm, setInviteForm] = useState({ name: '', tipe_host: 'Regular', target_hours: 155, hourly_rate: 0 })
+  const [inviteForm, setInviteForm] = useState({ role: 'host', name: '', tipe_host: 'Regular', target_hours: 155, hourly_rate: 0 })
   const [inviteSaving, setInviteSaving] = useState(false)
   const [inviteError, setInviteError] = useState('')
   const [generatedLink, setGeneratedLink] = useState<string | null>(null)
@@ -97,7 +97,7 @@ export default function HostsClient({ profile }: { profile: any }) {
   useEffect(() => {
     const supabase = createClient()
     Promise.all([
-      supabase.from('profiles').select('*').in('role', ['host', 'client']).order('full_name'),
+      supabase.from('profiles').select('*').in('role', ['host', 'host_manager', 'operator', 'client']).order('full_name'),
       supabase.from('onboarding_invites').select('*').order('created_at', { ascending: false }),
       supabase.from('rooms').select('*').order('sort_order'),
     ]).then(([hostsRes, invitesRes, roomsRes]) => {
@@ -116,9 +116,10 @@ export default function HostsClient({ profile }: { profile: any }) {
     const { data, error } = await supabase
       .from('onboarding_invites')
       .insert({
+        role: inviteForm.role,
         name: inviteForm.name,
-        tipe_host: inviteForm.tipe_host,
-        target_hours: inviteForm.target_hours,
+        tipe_host: inviteForm.role === 'operator' ? 'Regular' : inviteForm.tipe_host,
+        target_hours: inviteForm.role === 'operator' ? 0 : inviteForm.target_hours,
         hourly_rate: inviteForm.hourly_rate,
         created_by: profile.id,
       })
@@ -147,7 +148,7 @@ export default function HostsClient({ profile }: { profile: any }) {
   function resetInviteModal() {
     setShowInviteModal(false)
     setGeneratedLink(null)
-    setInviteForm({ name: '', tipe_host: 'Regular', target_hours: 155, hourly_rate: 0 })
+    setInviteForm({ role: 'host', name: '', tipe_host: 'Regular', target_hours: 155, hourly_rate: 0 })
     setInviteError('')
   }
 
@@ -230,7 +231,7 @@ export default function HostsClient({ profile }: { profile: any }) {
     if (data) setRooms(prev => prev.map(room => room.id === r.id ? data : room))
   }
 
-  const filteredHosts = hosts.filter(h => h.role === 'host')
+  const filteredHosts = hosts.filter(h => ['host', 'host_manager', 'operator'].includes(h.role))
   const filteredClients = hosts.filter(h => h.role === 'client')
   const pendingInvites = invites.filter(i => i.status === 'pending')
   const roomGroups = ROOM_GROUPS.map(g => ({ name: g, rooms: rooms.filter(r => r.group_name === g) }))
@@ -302,7 +303,15 @@ export default function HostsClient({ profile }: { profile: any }) {
                       <div key={inv.id} className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap">
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-gray-900 text-sm">{inv.name}</p>
-                          <p className="text-xs text-gray-500">{inv.tipe_host} · {formatCurrency(inv.hourly_rate)}/jam · {inv.target_hours} jam target</p>
+                          <p className="text-xs text-gray-500">
+                            <span className={cn('inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold mr-1.5',
+                              inv.role === 'host_manager' ? 'bg-purple-100 text-purple-700' :
+                              inv.role === 'operator' ? 'bg-blue-100 text-blue-700' : 'bg-brand-50 text-brand-700')}>
+                              {inv.role === 'host_manager' ? 'Host Manager' : inv.role === 'operator' ? 'Operator' : 'Host'}
+                            </span>
+                            {inv.role !== 'operator' && <>{inv.tipe_host} · {formatCurrency(inv.hourly_rate)}/jam · {inv.target_hours} jam</>}
+                            {inv.role === 'operator' && formatCurrency(inv.hourly_rate) + '/jam'}
+                          </p>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-semibold">Belum diisi</span>
@@ -341,7 +350,15 @@ export default function HostsClient({ profile }: { profile: any }) {
                     <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400 text-sm">Belum ada host</td></tr>
                   ) : filteredHosts.map(h => (
                     <tr key={h.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 font-semibold text-gray-900">{h.full_name}</td>
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-gray-900">{h.full_name}</p>
+                        {h.role !== 'host' && (
+                          <span className={cn('inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold mt-0.5',
+                            h.role === 'host_manager' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700')}>
+                            {h.role === 'host_manager' ? 'Host Manager' : 'Operator'}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-xs text-gray-500">{h.tipe_host || '—'}</td>
                       <td className="px-4 py-3 text-right text-gray-700 font-medium">{formatCurrency(h.hourly_rate || 0)}</td>
                       <td className="px-4 py-3 text-center text-xs text-gray-500">{h.target_hours || 155} jam</td>
@@ -551,45 +568,72 @@ export default function HostsClient({ profile }: { profile: any }) {
             ) : (
               <>
                 <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
-                  <h3 className="font-bold text-gray-900">Buat Link Onboarding Host</h3>
+                  <h3 className="font-bold text-gray-900">
+                    Buat Link Onboarding —{' '}
+                    {inviteForm.role === 'host' ? 'Host' : inviteForm.role === 'operator' ? 'Operator' : 'Host Manager'}
+                  </h3>
                   <button onClick={resetInviteModal}><X size={16} className="text-gray-400"/></button>
                 </div>
                 <div className="p-6 space-y-4">
+                  {/* Role dropdown — first */}
                   <div>
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Nama Host</label>
-                    <input value={inviteForm.name} onChange={e => setInviteForm(f => ({...f, name: e.target.value}))}
-                      placeholder="e.g. Regina Putri"
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Tipe Host</label>
-                    <select value={inviteForm.tipe_host} onChange={e => setInviteForm(f => ({...f, tipe_host: e.target.value}))}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400">
-                      {TIPE_HOST.map(t => <option key={t}>{t}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Target Live per Periode</label>
-                    <div className="flex items-center gap-3">
-                      <button type="button" onClick={() => setInviteForm(f => ({...f, target_hours: Math.max(0, f.target_hours - 5)}))}
-                        className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center hover:bg-gray-200 text-gray-700 font-bold text-lg">−</button>
-                      <div className="flex-1 text-center">
-                        <span className="text-3xl font-bold text-brand-700">{inviteForm.target_hours}</span>
-                        <span className="text-sm text-gray-400 ml-1">jam</span>
-                      </div>
-                      <button type="button" onClick={() => setInviteForm(f => ({...f, target_hours: f.target_hours + 5}))}
-                        className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center hover:bg-gray-200 text-gray-700 font-bold text-lg">+</button>
-                    </div>
-                    <div className="flex justify-between text-[10px] text-gray-400 mt-1.5 px-1">
-                      {[100, 120, 140, 155, 170, 200].map(v => (
-                        <button key={v} type="button" onClick={() => setInviteForm(f => ({...f, target_hours: v}))}
-                          className={cn('px-1.5 py-0.5 rounded font-medium transition-colors',
-                            inviteForm.target_hours === v ? 'bg-brand-100 text-brand-700' : 'hover:text-gray-600')}>
-                          {v}
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Role</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {([['host', 'Host'], ['operator', 'Operator'], ['host_manager', 'Host Manager']] as const).map(([val, lbl]) => (
+                        <button key={val} type="button"
+                          onClick={() => setInviteForm(f => ({ ...f, role: val }))}
+                          className={cn('py-2.5 rounded-xl text-sm font-semibold border transition-all',
+                            inviteForm.role === val
+                              ? 'bg-brand-600 text-white border-brand-600'
+                              : 'border-gray-200 text-gray-600 hover:border-brand-300 hover:text-brand-600')}>
+                          {lbl}
                         </button>
                       ))}
                     </div>
                   </div>
+
+                  {/* Name */}
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Nama</label>
+                    <input value={inviteForm.name} onChange={e => setInviteForm(f => ({...f, name: e.target.value}))}
+                      placeholder="e.g. Regina Putri"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                  </div>
+
+                  {/* Host / Host Manager only fields */}
+                  {inviteForm.role !== 'operator' && (<>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Tipe Host</label>
+                      <select value={inviteForm.tipe_host} onChange={e => setInviteForm(f => ({...f, tipe_host: e.target.value}))}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400">
+                        {TIPE_HOST.map(t => <option key={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Target Live per Periode</label>
+                      <div className="flex items-center gap-3">
+                        <button type="button" onClick={() => setInviteForm(f => ({...f, target_hours: Math.max(0, f.target_hours - 5)}))}
+                          className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center hover:bg-gray-200 text-gray-700 font-bold text-lg">−</button>
+                        <div className="flex-1 text-center">
+                          <span className="text-3xl font-bold text-brand-700">{inviteForm.target_hours}</span>
+                          <span className="text-sm text-gray-400 ml-1">jam</span>
+                        </div>
+                        <button type="button" onClick={() => setInviteForm(f => ({...f, target_hours: f.target_hours + 5}))}
+                          className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center hover:bg-gray-200 text-gray-700 font-bold text-lg">+</button>
+                      </div>
+                      <div className="flex justify-between text-[10px] text-gray-400 mt-1.5 px-1">
+                        {[100, 120, 140, 155, 170, 200].map(v => (
+                          <button key={v} type="button" onClick={() => setInviteForm(f => ({...f, target_hours: v}))}
+                            className={cn('px-1.5 py-0.5 rounded font-medium transition-colors',
+                              inviteForm.target_hours === v ? 'bg-brand-100 text-brand-700' : 'hover:text-gray-600')}>
+                            {v}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>)}
+
+                  {/* Fee per Jam — all roles */}
                   <div>
                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Fee per Jam</label>
                     <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-brand-400">
