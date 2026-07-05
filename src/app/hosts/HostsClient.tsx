@@ -310,7 +310,6 @@ export default function HostsClient({ profile }: { profile: any }) {
                               {inv.role === 'host_manager' ? 'Host Manager' : inv.role === 'operator' ? 'Operator' : 'Host'}
                             </span>
                             {inv.role !== 'operator' && <>{inv.tipe_host} · {formatCurrency(inv.hourly_rate)}/jam · {inv.target_hours} jam</>}
-                            {inv.role === 'operator' && formatCurrency(inv.hourly_rate) + '/jam'}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -633,17 +632,18 @@ export default function HostsClient({ profile }: { profile: any }) {
                     </div>
                   </>)}
 
-                  {/* Fee per Jam — all roles */}
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Fee per Jam</label>
-                    <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-brand-400">
-                      <span className="px-3 py-2.5 bg-gray-50 text-sm font-semibold text-gray-500 border-r border-gray-200">Rp</span>
-                      <input type="number" min="0" step="5000" value={inviteForm.hourly_rate || ''}
-                        onChange={e => setInviteForm(f => ({...f, hourly_rate: Number(e.target.value)}))}
-                        placeholder="50000"
-                        className="flex-1 px-3 py-2.5 text-sm focus:outline-none"/>
+                  {inviteForm.role !== 'operator' && (
+                    <div>
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Fee per Jam</label>
+                      <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-brand-400">
+                        <span className="px-3 py-2.5 bg-gray-50 text-sm font-semibold text-gray-500 border-r border-gray-200">Rp</span>
+                        <input type="number" min="0" step="5000" value={inviteForm.hourly_rate || ''}
+                          onChange={e => setInviteForm(f => ({...f, hourly_rate: Number(e.target.value)}))}
+                          placeholder="50000"
+                          className="flex-1 px-3 py-2.5 text-sm focus:outline-none"/>
+                      </div>
                     </div>
-                  </div>
+                  )}
                   {inviteError && <p className="text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2">{inviteError}</p>}
                 </div>
                 <div className="px-6 pb-6 flex gap-2">
