@@ -4,7 +4,7 @@ import PraLiveClient from './PraLiveClient'
 
 export default function PraLivePage() {
   return (
-    <AuthGuard requiredRole={['host', 'superadmin']}>
+    <AuthGuard requiredRole={['host', 'host_manager', 'superadmin']}>
       {(profile) => <PraLiveClient profile={profile} />}
     </AuthGuard>
   )

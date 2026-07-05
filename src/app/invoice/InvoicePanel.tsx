@@ -4,6 +4,37 @@ import { createClient } from '@/lib/supabase/client'
 import { Plus, X, Save, ChevronDown, ChevronUp, FileText, CheckCircle, Pencil, Trash2, Printer } from 'lucide-react'
 import { printInvoice } from './printInvoice'
 
+const PROONE_URL = process.env.NEXT_PUBLIC_PROONE_API_URL ?? 'https://prooneaccounting.vercel.app/api/v1'
+const PROONE_KEY = process.env.NEXT_PUBLIC_PROONE_API_KEY ?? ''
+
+async function syncInvoiceToProone(
+  invoiceId: string,
+  invoiceNumber: string,
+  invoiceDate: string,
+  clientName: string,
+  items: { name: string; description: string; is_free: boolean; amount: number }[]
+) {
+  if (!PROONE_KEY) return
+  try {
+    await fetch(`${PROONE_URL}/invoices`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${PROONE_KEY}` },
+      body: JSON.stringify({
+        invoice_number: invoiceNumber,
+        due_date: invoiceDate,
+        client_name: clientName || 'New Wave Client',
+        source: 'new-wave',
+        external_id: invoiceId,
+        items: items.filter(i => i.name.trim()).map(i => ({
+          description: i.name + (i.description ? ` — ${i.description}` : ''),
+          quantity: 1,
+          unit_price: i.is_free ? 0 : i.amount,
+        })),
+      }),
+    })
+  } catch { /* non-blocking */ }
+}
+
 const TIPE_LIVE = ['Regular', 'Silver', 'Gold', 'Platinum', 'Rubi', 'UGC', 'Pre Content', 'Background Design', 'Other']
 
 function fmtRp(n: number) {
@@ -215,6 +246,7 @@ export default function InvoicePanel({ profile }: { profile: any }) {
       if (itemsToInsert.length > 0)
         await supabase.from('invoice_items').insert(itemsToInsert.map(i => ({ ...i, invoice_id: inv.id })))
       setInvoices(prev => [{ ...inv, invoice_items: itemsToInsert } as Invoice, ...prev])
+      syncInvoiceToProone(inv.id, form.invoice_number, form.invoice_date, form.brand || form.invoice_to, items)
       cancelForm()
     }
     setSaving(false)
