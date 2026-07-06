@@ -210,15 +210,12 @@ export default function LiveReportClient({ profile }: { profile: any }) {
     const supabase = createClient()
     const uid = isHostLike ? profile.id : null
 
-    // 3-day window: today + 2 days back, so hosts can report after the fact
-    const threeDaysAgo = new Date(); threeDaysAgo.setDate(threeDaysAgo.getDate() - 2)
-    const windowStart = toLocalDateStr(threeDaysAgo)
-
+    // No date window for now — hosts can report any past slot at any time
     Promise.all([
       uid
         ? supabase.from('schedule_slots')
             .select('id, slot_date, session_no, brand, platform, status, jam_mulai, durasi, look_approval_at, look_approval_url, rooms(name)')
-            .gte('slot_date', windowStart).lte('slot_date', todayStr)
+            .lte('slot_date', todayStr)
             .eq('host_id', uid).order('slot_date', { ascending: false }).order('session_no')
         : Promise.resolve({ data: [] }),
       supabase.from('live_reports')
@@ -231,7 +228,7 @@ export default function LiveReportClient({ profile }: { profile: any }) {
       setTodaySlots(loadedSlots)
       setReports(reps.data || [])
 
-      // Auto-select if only one slot across the 3-day window and no slot already chosen
+      // Auto-select if only one slot available and no slot already chosen
       const slotParam = params.get('slot')
       const autoId = slotParam || (loadedSlots.length === 1 ? loadedSlots[0].id : '')
       if (autoId) setForm(f => ({ ...f, slot_id: f.slot_id || autoId }))
@@ -563,7 +560,7 @@ export default function LiveReportClient({ profile }: { profile: any }) {
         {/* ── Session selector ── */}
         {todaySlots.length > 0 && (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Pilih Sesi (3 Hari Terakhir)</label>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Pilih Sesi</label>
             <select value={form.slot_id} onChange={e => setForm(f => ({ ...f, slot_id: e.target.value }))}
               className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50">
               <option value="">— Pilih sesi —</option>
