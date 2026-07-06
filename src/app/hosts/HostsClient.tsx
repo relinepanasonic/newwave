@@ -44,6 +44,12 @@ export default function HostsClient({ profile }: { profile: any }) {
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState('')
 
+  // Delete host/client
+  const [deleteModal, setDeleteModal] = useState<Profile | null>(null)
+  const [deleteClearData, setDeleteClearData] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+
   // Add client
   const [clientModal, setClientModal] = useState(false)
   const [clientForm, setClientForm] = useState({ full_name: '', hourly_rate: 0, phone: '', client_brand: '', email: '', password: '' })
@@ -188,6 +194,29 @@ export default function HostsClient({ profile }: { profile: any }) {
     const supabase = createClient()
     const { data } = await supabase.from('profiles').update({ is_active: !h.is_active }).eq('id', h.id).select().single()
     if (data) setHosts(prev => prev.map(p => p.id === h.id ? data : p))
+  }
+
+  function openDelete(h: Profile) {
+    setDeleteModal(h); setDeleteClearData(false); setDeleteError('')
+  }
+
+  async function confirmDelete() {
+    if (!deleteModal) return
+    setDeleting(true); setDeleteError('')
+    try {
+      const res = await fetch('/api/delete-host', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host_id: deleteModal.id, clear_data: deleteClearData }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setDeleteError(json.error || 'Gagal menghapus'); setDeleting(false); return }
+      setHosts(prev => prev.filter(p => p.id !== deleteModal.id))
+      setDeleteModal(null)
+    } catch {
+      setDeleteError('Gagal menghapus')
+    }
+    setDeleting(false)
   }
 
   // ── Add client ───────────────────────────────────────────────
@@ -369,9 +398,14 @@ export default function HostsClient({ profile }: { profile: any }) {
                         </button>
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <button onClick={() => openEdit(h)} className="p-1.5 rounded-lg hover:bg-brand-50 text-brand-600">
-                          <Pencil size={14}/>
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          <button onClick={() => openEdit(h)} className="p-1.5 rounded-lg hover:bg-brand-50 text-brand-600">
+                            <Pencil size={14}/>
+                          </button>
+                          <button onClick={() => openDelete(h)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-600">
+                            <Trash2 size={14}/>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -412,9 +446,14 @@ export default function HostsClient({ profile }: { profile: any }) {
                       </button>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <button onClick={() => openEdit(h)} className="p-1.5 rounded-lg hover:bg-brand-50 text-brand-600">
-                        <Pencil size={14}/>
-                      </button>
+                      <div className="flex items-center justify-center gap-1">
+                        <button onClick={() => openEdit(h)} className="p-1.5 rounded-lg hover:bg-brand-50 text-brand-600">
+                          <Pencil size={14}/>
+                        </button>
+                        <button onClick={() => openDelete(h)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-600">
+                          <Trash2 size={14}/>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -733,6 +772,35 @@ export default function HostsClient({ profile }: { profile: any }) {
               <button onClick={saveEdit} disabled={editSaving}
                 className="flex-1 bg-brand-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-brand-700 disabled:opacity-60 flex items-center justify-center gap-2">
                 <Save size={14}/>{editSaving ? '...' : 'Simpan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Confirm Modal ── */}
+      {deleteModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !deleting && setDeleteModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-bold text-gray-900">Hapus {deleteModal.full_name}?</h3>
+              <button onClick={() => setDeleteModal(null)}><X size={16} className="text-gray-400"/></button>
+            </div>
+            <p className="text-sm text-gray-500">
+              Akun ini akan dihapus permanen dan tidak bisa login lagi. Tindakan ini tidak bisa dibatalkan.
+            </p>
+            <label className="flex items-center gap-2 mt-4 text-xs text-gray-600">
+              <input type="checkbox" checked={deleteClearData} onChange={e => setDeleteClearData(e.target.checked)}
+                className="rounded accent-red-600"/>
+              Hapus juga jadwal &amp; laporan live miliknya (jika tidak dicentang, jadwal akan tetap ada tanpa host)
+            </label>
+            {deleteError && <p className="text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2 mt-3">{deleteError}</p>}
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setDeleteModal(null)} disabled={deleting}
+                className="flex-1 border border-gray-200 rounded-xl py-2.5 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-60">Batal</button>
+              <button onClick={confirmDelete} disabled={deleting}
+                className="flex-1 bg-red-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-60">
+                {deleting ? 'Menghapus...' : 'Ya, Hapus'}
               </button>
             </div>
           </div>
