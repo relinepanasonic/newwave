@@ -18,7 +18,13 @@ quota"*. With your own refresh token, files are owned by you and just work.
    - User type: **External** → Create.
    - Fill App name + your email. Save.
    - **Audience / Test users** → add your Google account email (`relinepanasonic@gmail.com`).
-     (Test mode is fine — the token won't expire as long as you keep using the app.)
+   - ⚠️ **Important:** while publishing status is "Testing", Google force-expires the
+     refresh token after exactly **7 days**, no matter how often the app is used. Once
+     you finish Step 1–3 below, go back to **OAuth consent screen → Publishing status**
+     and click **Publish App** to move it to **Production**. You do NOT need Google's
+     verification review for personal/internal use — Google just shows an "unverified
+     app" warning the one time you authorize in Step 2. In Production status the
+     refresh token does not auto-expire.
 4. **APIs & Services → Credentials → Create Credentials → OAuth client ID**:
    - Application type: **Web application**.
    - Authorized redirect URIs → add: `https://developers.google.com/oauthplayground`

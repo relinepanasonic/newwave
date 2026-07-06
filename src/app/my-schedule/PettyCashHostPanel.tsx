@@ -114,7 +114,10 @@ export default function PettyCashHostPanel({ profile }: { profile: any }) {
         })
         const json = await res.json()
         if (json.fileUrl) receiptUrl = json.fileUrl
-      } catch { /* Drive upload failure is non-fatal */ }
+        else if (!json.skipped) setRowError(`Bukti gagal diunggah: ${json.error || 'Unknown error'}`)
+      } catch {
+        setRowError('Bukti gagal diunggah — cek koneksi internet')
+      }
       setUploadProgress('')
     }
 

@@ -144,7 +144,7 @@ export async function uploadLiveReportFile(opts: {
 
 /**
  * Upload a petty cash receipt into:
- *   [Root] / [Host Name] / Petty Cash / [cash_id] / filename
+ *   [Root] / Pattycash / [Host Name] / [cash_id] / filename
  */
 export async function uploadPettyCashReceipt(opts: {
   hostName: string
@@ -157,17 +157,17 @@ export async function uploadPettyCashReceipt(opts: {
   const root = process.env.GDRIVE_ROOT_FOLDER_ID!
   const hostName = sanitizeName(opts.hostName) || 'Tanpa Nama'
 
-  // [Root] / [Host Name]
-  let hostId = await findFolder(token, hostName, root)
-  if (!hostId) hostId = await createFolder(token, hostName, root)
+  // [Root] / Pattycash
+  let pcRootId = await findFolder(token, 'Pattycash', root)
+  if (!pcRootId) pcRootId = await createFolder(token, 'Pattycash', root)
 
-  // [Host] / Petty Cash
-  let pcRootId = await findFolder(token, 'Petty Cash', hostId)
-  if (!pcRootId) pcRootId = await createFolder(token, 'Petty Cash', hostId)
+  // [Root] / Pattycash / [Host Name]
+  let hostId = await findFolder(token, hostName, pcRootId)
+  if (!hostId) hostId = await createFolder(token, hostName, pcRootId)
 
-  // [Host] / Petty Cash / [cash_id]
-  let cashFolderId = await findFolder(token, opts.cashId, pcRootId)
-  if (!cashFolderId) cashFolderId = await createFolder(token, opts.cashId, pcRootId)
+  // [Root] / Pattycash / [Host Name] / [cash_id]
+  let cashFolderId = await findFolder(token, opts.cashId, hostId)
+  if (!cashFolderId) cashFolderId = await createFolder(token, opts.cashId, hostId)
 
   const fileUrl = await uploadMultipart(
     token, cashFolderId, sanitizeName(opts.filename), opts.mimeType, opts.buffer,
