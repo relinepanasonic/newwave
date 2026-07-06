@@ -71,7 +71,7 @@ export default function PettyCashPanel() {
       supabase.from('petty_cash')
         .select('*, profiles:host_id(full_name)')
         .order('created_at', { ascending: false }),
-      supabase.from('profiles').select('id, full_name').eq('role', 'host').order('full_name'),
+      supabase.from('profiles').select('id, full_name').in('role', ['host', 'host_manager', 'operator']).order('full_name'),
     ])
     setPcs((pcsRes.data as PC[]) || [])
     setHosts(hostsRes.data || [])

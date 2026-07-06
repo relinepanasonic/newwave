@@ -55,6 +55,7 @@ const NAV_OPERATOR = [
   { key: 'schedule',    icon: CalendarDays,    href: '/schedule' },
   { key: 'myschedule',  icon: ClipboardList,   href: '/my-schedule' },
   { key: 'checkin',     icon: Headphones,      href: '/check-in' },
+  { key: 'hosthrd',     icon: Wallet,          href: '/host-hrd' },
 ]
 
 export default function Sidebar({ role, lang = 'id', userName, onClose }: Props) {
