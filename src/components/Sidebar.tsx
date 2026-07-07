@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, CalendarDays, Users,
-  BarChart2, ClipboardList, X, Shield, FileText, Briefcase, ScrollText, Wallet, BookOpen, Headphones,
+  BarChart2, ClipboardList, X, Shield, FileText, Briefcase, ScrollText, Wallet, BookOpen, Headphones, FileBarChart2,
 } from 'lucide-react'
 import type { Lang } from '@/lib/i18n'
 import { tr } from '@/lib/i18n'
@@ -23,6 +23,7 @@ const NAV_SUPERADMIN = [
   { key: 'schedule',      icon: CalendarDays,    href: '/schedule' },
   { key: 'livedetails',   icon: ClipboardList,   href: '/recap-schedule' },
   { key: 'clients',       icon: Briefcase,       href: '/clients' },
+  { key: 'clientreport',  icon: FileBarChart2,   href: '/client-report' },
   { key: 'hrd',           icon: Shield,          href: '/hrd' },
   { key: 'onboarding',    icon: Users,           href: '/hosts' },
   { key: 'accounting',   icon: BookOpen,        href: '/accounting' },
@@ -39,6 +40,7 @@ const NAV_CLIENT = [
   { key: 'dashboard',        icon: LayoutDashboard, href: '/dashboard' },
   { key: 'clientschedule',   icon: CalendarDays,    href: '/client-schedule' },
   { key: 'clientlivereport', icon: ScrollText,      href: '/client-live-report' },
+  { key: 'clientreport',     icon: FileBarChart2,   href: '/client-report' },
   { key: 'invoice',          icon: FileText,        href: '/invoice' },
 ]
 
@@ -47,6 +49,7 @@ const NAV_HOST_MANAGER = [
   { key: 'schedule',    icon: CalendarDays,    href: '/schedule' },
   { key: 'myschedule',  icon: ClipboardList,   href: '/my-schedule' },
   { key: 'livereport',  icon: BarChart2,       href: '/live-report' },
+  { key: 'clientreport', icon: FileBarChart2,  href: '/client-report' },
   { key: 'hosthrd',     icon: Wallet,          href: '/host-hrd' },
 ]
 
@@ -55,6 +58,7 @@ const NAV_OPERATOR = [
   { key: 'schedule',    icon: CalendarDays,    href: '/schedule' },
   { key: 'myschedule',  icon: ClipboardList,   href: '/my-schedule' },
   { key: 'checkin',     icon: Headphones,      href: '/check-in' },
+  { key: 'clientreport', icon: FileBarChart2,  href: '/client-report' },
   { key: 'hosthrd',     icon: Wallet,          href: '/host-hrd' },
 ]
 
