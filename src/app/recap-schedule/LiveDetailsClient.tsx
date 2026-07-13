@@ -19,7 +19,7 @@ export default function LiveDetailsClient({ profile }: { profile: any }) {
   const [tab, setTab] = useState<Tab>('recap')
 
   return (
-    <AppShell role="superadmin" userName={profile.full_name}>
+    <AppShell role={profile.role as any} userName={profile.full_name}>
       <div className="p-6 max-w-5xl mx-auto">
 
         {/* Header */}

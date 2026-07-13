@@ -49,6 +49,7 @@ const NAV_HOST_MANAGER = [
   { key: 'schedule',    icon: CalendarDays,    href: '/schedule' },
   { key: 'myschedule',  icon: ClipboardList,   href: '/my-schedule' },
   { key: 'livereport',  icon: BarChart2,       href: '/live-report' },
+  { key: 'livedetails', icon: ClipboardList,   href: '/recap-schedule' },
   { key: 'clientreport', icon: FileBarChart2,  href: '/client-report' },
   { key: 'hosthrd',     icon: Wallet,          href: '/host-hrd' },
 ]

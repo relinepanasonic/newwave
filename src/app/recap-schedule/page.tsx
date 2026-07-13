@@ -4,7 +4,7 @@ import LiveDetailsClient from './LiveDetailsClient'
 
 export default function LiveDetailsPage() {
   return (
-    <AuthGuard requiredRole={['superadmin']}>
+    <AuthGuard requiredRole={['superadmin', 'host_manager']}>
       {(profile) => <LiveDetailsClient profile={profile} />}
     </AuthGuard>
   )
