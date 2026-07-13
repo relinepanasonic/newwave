@@ -159,48 +159,56 @@ export default function RecapTab({ profile: _profile }: { profile: any }) {
                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm divide-y divide-gray-50">
                       {daySlots.map(slot => {
                         const report = reportBySlotId[slot.id]
+                        const badge = report ? (
+                          <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">
+                            Laporan ✓
+                          </span>
+                        ) : (
+                          <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full whitespace-nowrap">
+                            No report
+                          </span>
+                        )
                         return (
-                          <div key={slot.id} className="flex items-start gap-3 px-4 py-3">
-                            {/* Time */}
-                            <span className="font-mono text-xs text-gray-500 w-28 flex-shrink-0 pt-0.5">
-                              {slotTimeLabel(slot)}
-                            </span>
-                            {/* Host name */}
-                            {!selectedHost && (
-                              <span className="text-sm font-bold text-brand-700 w-20 flex-shrink-0 truncate pt-0.5">
-                                {slot.profiles?.full_name || '?'}
-                              </span>
-                            )}
-                            {/* Brand · Platform · Room · Details */}
-                            <div className="flex-1 min-w-0">
-                              {slot.brand && (
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="text-sm font-bold text-gray-900">{slot.brand}</span>
-                                  {slot.platform && (
-                                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${PLATFORM_COLORS[slot.platform] || PLATFORM_COLORS.Other}`}>
-                                      {slot.platform}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-                              <p className="text-xs text-gray-500 mt-0.5">{slot.rooms?.name}</p>
-                              {(slot.konsep || slot.background || slot.kostum || slot.gimmick) && (
-                                <p className="text-[11px] text-gray-400 mt-0.5">
-                                  {[slot.konsep, slot.background, slot.kostum, slot.gimmick].filter(Boolean).join(' · ')}
-                                </p>
-                              )}
+                          <div key={slot.id} className="px-4 py-3">
+                            {/* Mobile: time + status on their own row, so brand text never has to compete for width */}
+                            <div className="flex items-center justify-between gap-2 mb-1.5 sm:hidden">
+                              <span className="font-mono text-xs text-gray-500">{slotTimeLabel(slot)}</span>
+                              {badge}
                             </div>
-                            {/* Report badge */}
-                            <div className="flex items-center gap-2 flex-shrink-0 pt-0.5">
-                              {report ? (
-                                <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold">
-                                  Laporan ✓
-                                </span>
-                              ) : (
-                                <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">
-                                  No report
+                            <div className="flex items-start gap-3">
+                              {/* Time (desktop only — shown above on mobile) */}
+                              <span className="hidden sm:block font-mono text-xs text-gray-500 w-28 flex-shrink-0 pt-0.5">
+                                {slotTimeLabel(slot)}
+                              </span>
+                              {/* Host name */}
+                              {!selectedHost && (
+                                <span className="text-sm font-bold text-brand-700 w-24 sm:w-20 flex-shrink-0 truncate pt-0.5">
+                                  {slot.profiles?.full_name || '?'}
                                 </span>
                               )}
+                              {/* Brand · Platform · Room · Details */}
+                              <div className="flex-1 min-w-0">
+                                {slot.brand && (
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-sm font-bold text-gray-900 truncate">{slot.brand}</span>
+                                    {slot.platform && (
+                                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${PLATFORM_COLORS[slot.platform] || PLATFORM_COLORS.Other}`}>
+                                        {slot.platform}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                <p className="text-xs text-gray-500 mt-0.5 truncate">{slot.rooms?.name}</p>
+                                {(slot.konsep || slot.background || slot.kostum || slot.gimmick) && (
+                                  <p className="text-[11px] text-gray-400 mt-0.5 truncate">
+                                    {[slot.konsep, slot.background, slot.kostum, slot.gimmick].filter(Boolean).join(' · ')}
+                                  </p>
+                                )}
+                              </div>
+                              {/* Report badge (desktop only — shown above on mobile) */}
+                              <div className="hidden sm:flex items-center gap-2 flex-shrink-0 pt-0.5">
+                                {badge}
+                              </div>
                             </div>
                           </div>
                         )

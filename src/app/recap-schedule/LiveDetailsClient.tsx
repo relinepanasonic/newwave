@@ -9,10 +9,10 @@ import LookApprovalLogTab from './LookApprovalLogTab'
 
 type Tab = 'recap' | 'report' | 'looklog'
 
-const TABS: { key: Tab; label: string; icon: any }[] = [
-  { key: 'recap',   label: 'Recap Schedule',    icon: CalendarDays },
-  { key: 'report',  label: 'Live Report Detail', icon: BarChart2 },
-  { key: 'looklog', label: 'Look Approval Log',  icon: Camera },
+const TABS: { key: Tab; label: string; shortLabel: string; icon: any }[] = [
+  { key: 'recap',   label: 'Recap Schedule',    shortLabel: 'Recap',    icon: CalendarDays },
+  { key: 'report',  label: 'Live Report Detail', shortLabel: 'Report',  icon: BarChart2 },
+  { key: 'looklog', label: 'Look Approval Log',  shortLabel: 'Look Log', icon: Camera },
 ]
 
 export default function LiveDetailsClient({ profile }: { profile: any }) {
@@ -20,7 +20,7 @@ export default function LiveDetailsClient({ profile }: { profile: any }) {
 
   return (
     <AppShell role={profile.role as any} userName={profile.full_name}>
-      <div className="p-6 max-w-5xl mx-auto">
+      <div className="p-4 sm:p-6 max-w-5xl mx-auto">
 
         {/* Header */}
         <div className="mb-5">
@@ -29,14 +29,16 @@ export default function LiveDetailsClient({ profile }: { profile: any }) {
         </div>
 
         {/* Tab switcher */}
-        <div className="flex gap-1 mb-6 border-b border-gray-200">
-          {TABS.map(({ key, label, icon: Icon }) => (
+        <div className="flex gap-1 mb-6 border-b border-gray-200 overflow-x-auto">
+          {TABS.map(({ key, label, shortLabel, icon: Icon }) => (
             <button key={key} onClick={() => setTab(key)}
-              className={cn('flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors',
+              className={cn('flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap flex-shrink-0',
                 tab === key
                   ? 'border-brand-600 text-brand-700'
                   : 'border-transparent text-gray-400 hover:text-gray-600')}>
-              <Icon size={15}/> {label}
+              <Icon size={15} className="flex-shrink-0"/>
+              <span className="sm:hidden">{shortLabel}</span>
+              <span className="hidden sm:inline">{label}</span>
             </button>
           ))}
         </div>
