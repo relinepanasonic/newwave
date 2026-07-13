@@ -29,6 +29,7 @@ interface Host {
   target_hours?: number
   is_active?: boolean
   created_at: string
+  role?: string
 }
 
 interface PayRow {
@@ -66,8 +67,8 @@ function HostListTab() {
   useEffect(() => {
     const supabase = createClient()
     supabase.from('profiles')
-      .select('id, full_name, username, phone, alamat, nik_id, ktp_photo_url, gdrive_ktp_url, gdrive_folder_url, tipe_host, target_hours, is_active, created_at')
-      .eq('role', 'host')
+      .select('id, full_name, username, phone, alamat, nik_id, ktp_photo_url, gdrive_ktp_url, gdrive_folder_url, tipe_host, target_hours, is_active, created_at, role')
+      .in('role', ['host', 'host_manager'])
       .order('full_name')
       .then(({ data }) => {
         setHosts(data || [])
@@ -229,7 +230,12 @@ function HostListTab() {
                     <tr key={host.id} className={`hover:bg-gray-50/60 transition-colors ${isBlocked ? 'opacity-60' : ''}`}>
                       <td className="px-4 py-3 text-xs text-gray-400">{idx + 1}</td>
                       <td className="px-4 py-3">
-                        <p className="font-semibold text-gray-900">{host.full_name}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-semibold text-gray-900">{host.full_name}</p>
+                          {host.role === 'host_manager' && (
+                            <span className="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide">Manager</span>
+                          )}
+                        </div>
                         {host.phone && <p className="text-[10px] text-gray-400">{host.phone}</p>}
                       </td>
                       <td className="px-4 py-3 text-xs">
@@ -627,7 +633,7 @@ function KasbonTab() {
   function load() {
     const supabase = createClient()
     Promise.all([
-      supabase.from('profiles').select('id, full_name').eq('role', 'host').order('full_name'),
+      supabase.from('profiles').select('id, full_name').in('role', ['host', 'host_manager']).order('full_name'),
       supabase.from('kasbon').select('*').order('created_at', { ascending: false }),
     ]).then(([h, k]) => {
       setHosts(h.data || [])
