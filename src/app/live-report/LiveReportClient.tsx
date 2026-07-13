@@ -8,6 +8,7 @@ import { Upload, X, CheckCircle2, Camera, TrendingUp, ChevronDown, ChevronUp, Pl
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
 import TimeInput from '@/components/TimeInput'
+import CurrencyInput from '@/components/CurrencyInput'
 
 // ── ProductsSection (expandable per-report) ──────────────────────────────────
 interface Product {
@@ -121,9 +122,16 @@ function ProductsSection({ reportId, hostId, brand, reportDate }: { reportId: st
                 {([['product_klik','Product Klik'],['item_sold','Item Sold'],['total','Total (Rp)']] as const).map(([k, lbl]) => (
                   <div key={k}>
                     <label className="text-[10px] text-gray-400 font-medium block mb-1">{lbl}</label>
-                    <input type="number" min="0" value={(newProduct as any)[k]}
-                      onChange={e => setNewProduct(p => ({ ...p, [k]: parseInt(e.target.value) || 0 }))}
-                      className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"/>
+                    {k === 'total' ? (
+                      <CurrencyInput value={(newProduct as any)[k] || 0}
+                        onChange={v => setNewProduct(p => ({ ...p, [k]: v }))}
+                        wrapperClassName="flex items-center bg-white border border-gray-200 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-brand-400"
+                        className="w-full min-w-0 px-2.5 py-1.5 text-xs focus:outline-none"/>
+                    ) : (
+                      <input type="number" min="0" value={(newProduct as any)[k]}
+                        onChange={e => setNewProduct(p => ({ ...p, [k]: parseInt(e.target.value) || 0 }))}
+                        className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"/>
+                    )}
                   </div>
                 ))}
               </div>
@@ -734,10 +742,17 @@ export default function LiveReportClient({ profile }: { profile: any }) {
                   ] as const).map(({ key, label, emoji }) => (
                     <div key={key} className="bg-gray-50 rounded-xl p-2.5">
                       <p className="text-xs text-gray-400 mb-1">{emoji} {label}</p>
-                      <input type="number" min="0" value={(form as any)[key] || ''}
-                        onChange={e => setForm(f => ({ ...f, [key]: parseInt(e.target.value) || 0 }))}
-                        placeholder="0"
-                        className="w-full bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                      {key === 'gmv' ? (
+                        <CurrencyInput value={(form as any)[key] || 0}
+                          onChange={v => setForm(f => ({ ...f, [key]: v }))}
+                          wrapperClassName="flex items-center bg-white border border-gray-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-brand-400"
+                          className="w-full min-w-0 px-2 py-1.5 text-sm font-semibold text-gray-900 focus:outline-none"/>
+                      ) : (
+                        <input type="number" min="0" value={(form as any)[key] || ''}
+                          onChange={e => setForm(f => ({ ...f, [key]: parseInt(e.target.value) || 0 }))}
+                          placeholder="0"
+                          className="w-full bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                      )}
                     </div>
                   ))}
                 </div>

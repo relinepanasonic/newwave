@@ -6,6 +6,7 @@ import {
   Filter, Download, Package, TrendingUp, FileText,
   ChevronDown, ChevronUp, Pencil, Trash2, X, Save, Plus, Upload, AlertCircle,
 } from 'lucide-react'
+import CurrencyInput from '@/components/CurrencyInput'
 
 interface ReportRow {
   id: string; report_date: string; brand: string | null; platform: string | null
@@ -695,8 +696,13 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
                 ] as { label: string; key: keyof typeof form }[]).map(({ label, key }) => (
                   <div key={key}>
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{label}</label>
-                    <input type="number" min="0" value={form[key] as number} onChange={ff(key)}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                    {key === 'gmv' ? (
+                      <CurrencyInput value={Number(form[key]) || 0}
+                        onChange={v => setForm(prev => ({ ...prev, [key]: v }))}/>
+                    ) : (
+                      <input type="number" min="0" value={form[key] as number} onChange={ff(key)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                    )}
                   </div>
                 ))}
               </div>

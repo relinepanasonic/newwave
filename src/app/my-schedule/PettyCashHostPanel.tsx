@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
 import { Wallet, Plus, Trash2, Upload, ExternalLink, X, Check } from 'lucide-react'
+import CurrencyInput from '@/components/CurrencyInput'
 
 interface PC {
   id: string; cash_id: string; amount: number; notes: string | null
@@ -34,7 +35,7 @@ export default function PettyCashHostPanel({ profile }: { profile: any }) {
 
   // Add new item
   const [addingTo, setAddingTo] = useState<string | null>(null)
-  const [newRow, setNewRow] = useState({ tanggal: todayStr(), remark: '', cash_out: '' })
+  const [newRow, setNewRow] = useState({ tanggal: todayStr(), remark: '', cash_out: 0 })
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
   const [savingRow, setSavingRow] = useState(false)
   const [rowError, setRowError] = useState('')
@@ -82,8 +83,8 @@ export default function PettyCashHostPanel({ profile }: { profile: any }) {
   }
 
   async function addItem(pc: PC) {
-    const cashOut = Number(newRow.cash_out)
-    if (!newRow.tanggal || isNaN(cashOut) || cashOut <= 0) {
+    const cashOut = newRow.cash_out
+    if (!newRow.tanggal || cashOut <= 0) {
       setRowError('Isi tanggal dan jumlah pengeluaran'); return
     }
     setSavingRow(true); setRowError(''); setUploadProgress('')
@@ -142,7 +143,7 @@ export default function PettyCashHostPanel({ profile }: { profile: any }) {
       setPcs(prev => prev.map(p => p.id === pc.id ? { ...p, status: 'closed' } : p))
     }
 
-    setNewRow({ tanggal: todayStr(), remark: '', cash_out: '' })
+    setNewRow({ tanggal: todayStr(), remark: '', cash_out: 0 })
     setReceiptFile(null)
     setAddingTo(null)
     setSavingRow(false)
@@ -275,10 +276,10 @@ export default function PettyCashHostPanel({ profile }: { profile: any }) {
                       </div>
                       <div>
                         <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Cash Out (Rp) *</label>
-                        <input type="number" min="1" value={newRow.cash_out}
-                          onChange={e => setNewRow(r => ({ ...r, cash_out: e.target.value }))}
-                          placeholder="50000"
-                          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"/>
+                        <CurrencyInput value={newRow.cash_out}
+                          onChange={v => setNewRow(r => ({ ...r, cash_out: v }))}
+                          placeholder="50.000"
+                          className="flex-1 min-w-0 px-3 py-2 text-xs focus:outline-none"/>
                       </div>
                     </div>
                     <div>
@@ -318,7 +319,7 @@ export default function PettyCashHostPanel({ profile }: { profile: any }) {
                   </div>
                 ) : (
                   <div className="px-4 py-3 border-t border-gray-50">
-                    <button onClick={() => { setAddingTo(pc.id); setNewRow({ tanggal: todayStr(), remark: '', cash_out: '' }); setRowError(''); setReceiptFile(null) }}
+                    <button onClick={() => { setAddingTo(pc.id); setNewRow({ tanggal: todayStr(), remark: '', cash_out: 0 }); setRowError(''); setReceiptFile(null) }}
                       className="flex items-center gap-1.5 text-xs text-emerald-700 font-semibold hover:text-emerald-900 transition-colors">
                       <Plus size={13}/> Tambah Pengeluaran
                     </button>

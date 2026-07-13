@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Plus, X, Pencil, Trash2, Package } from 'lucide-react'
+import CurrencyInput from '@/components/CurrencyInput'
 
 const TIPE_LIVE = ['Regular', 'Silver', 'Gold', 'Platinum', 'Rubi', 'UGC', 'Pre Content', 'Background Design', 'Other']
 
@@ -220,12 +221,8 @@ export default function ServicePackagePanel() {
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Harga / Jam</label>
-                  <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-brand-400">
-                    <span className="px-2 py-2.5 bg-gray-50 text-[10px] text-gray-400 border-r border-gray-200 font-semibold">Rp</span>
-                    <input type="number" min="0" value={form.price_per_jam}
-                      onChange={e => setForm(f => ({ ...f, price_per_jam: parseInt(e.target.value) || 0 }))}
-                      className="flex-1 w-0 px-2 py-2.5 text-sm focus:outline-none"/>
-                  </div>
+                  <CurrencyInput value={form.price_per_jam}
+                    onChange={v => setForm(f => ({ ...f, price_per_jam: v }))}/>
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Urutan</label>

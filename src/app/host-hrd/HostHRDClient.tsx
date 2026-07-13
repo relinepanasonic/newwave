@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, getPayPeriod } from '@/lib/utils'
 import { Clock, Wallet, CreditCard, Plus, X, AlertCircle, CheckCircle, XCircle, Timer } from 'lucide-react'
 import PettyCashHostPanel from '@/app/my-schedule/PettyCashHostPanel'
+import CurrencyInput from '@/components/CurrencyInput'
 
 type Tab = 'gaji' | 'kasbon' | 'pettycash'
 
@@ -152,7 +153,7 @@ function KasbonTab({ profile }: { profile: any }) {
   const [kasbons, setKasbons] = useState<KasbonRow[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ amount: '', reason: '' })
+  const [form, setForm] = useState({ amount: 0, reason: '' })
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
@@ -166,7 +167,7 @@ function KasbonTab({ profile }: { profile: any }) {
   useEffect(() => { load() }, [load])
 
   async function submitRequest() {
-    const amt = Number(form.amount)
+    const amt = form.amount
     if (!amt || amt <= 0) { setFormError('Isi nominal kasbon'); return }
     setSaving(true); setFormError('')
     const { error } = await createClient().from('kasbon').insert({
@@ -180,7 +181,7 @@ function KasbonTab({ profile }: { profile: any }) {
     })
     setSaving(false)
     if (error) { setFormError(error.message); return }
-    setShowForm(false); setForm({ amount: '', reason: '' }); load()
+    setShowForm(false); setForm({ amount: 0, reason: '' }); load()
   }
 
   const totalUnpaid = kasbons
@@ -226,9 +227,8 @@ function KasbonTab({ profile }: { profile: any }) {
           </div>
           <div>
             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Nominal yang Diajukan (Rp) *</label>
-            <input type="number" min="10000" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-              placeholder="500000"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+            <CurrencyInput value={form.amount} onChange={v => setForm(f => ({ ...f, amount: v }))}
+              placeholder="500.000"/>
           </div>
           <div>
             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Keperluan / Alasan</label>

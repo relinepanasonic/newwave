@@ -6,6 +6,7 @@ import { formatCurrency, cn } from '@/lib/utils'
 import { Plus, X, Save, Pencil, Link2, Copy, Check, Clock, GripVertical, Trash2 } from 'lucide-react'
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
+import CurrencyInput from '@/components/CurrencyInput'
 
 const TIPE_HOST = ['Regular', 'Silver', 'Gold', 'Platinum', 'Rubi']
 const ROOM_GROUPS = ['Jakarta Puan', 'Luar Puan']
@@ -561,9 +562,8 @@ export default function HostsClient({ profile }: { profile: any }) {
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Harga / Jam</label>
-                  <input type="number" min="0" step="1000" value={pkgForm.price_per_jam}
-                    onChange={e => setPkgForm(f => ({ ...f, price_per_jam: parseFloat(e.target.value) || 0 }))}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                  <CurrencyInput value={pkgForm.price_per_jam}
+                    onChange={v => setPkgForm(f => ({ ...f, price_per_jam: v }))}/>
                 </div>
               </div>
               <div>
@@ -674,13 +674,9 @@ export default function HostsClient({ profile }: { profile: any }) {
                   {inviteForm.role !== 'operator' && (
                     <div>
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Fee per Jam</label>
-                      <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-brand-400">
-                        <span className="px-3 py-2.5 bg-gray-50 text-sm font-semibold text-gray-500 border-r border-gray-200">Rp</span>
-                        <input type="number" min="0" step="5000" value={inviteForm.hourly_rate || ''}
-                          onChange={e => setInviteForm(f => ({...f, hourly_rate: Number(e.target.value)}))}
-                          placeholder="50000"
-                          className="flex-1 px-3 py-2.5 text-sm focus:outline-none"/>
-                      </div>
+                      <CurrencyInput value={inviteForm.hourly_rate}
+                        onChange={v => setInviteForm(f => ({...f, hourly_rate: v}))}
+                        placeholder="50.000"/>
                     </div>
                   )}
                   {inviteError && <p className="text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2">{inviteError}</p>}
@@ -725,12 +721,8 @@ export default function HostsClient({ profile }: { profile: any }) {
                   </div>
                   <div>
                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Fee per Jam</label>
-                    <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-brand-400">
-                      <span className="px-3 py-2.5 bg-gray-50 text-sm font-semibold text-gray-500 border-r border-gray-200">Rp</span>
-                      <input type="number" value={editForm.hourly_rate || ''}
-                        onChange={e => setEditForm(f => ({...f, hourly_rate: Number(e.target.value)}))}
-                        className="flex-1 px-3 py-2.5 text-sm focus:outline-none"/>
-                    </div>
+                    <CurrencyInput value={editForm.hourly_rate}
+                      onChange={v => setEditForm(f => ({...f, hourly_rate: v}))}/>
                   </div>
                   <div>
                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Target Live (jam)</label>

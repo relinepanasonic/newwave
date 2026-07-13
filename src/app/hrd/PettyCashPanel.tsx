@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
 import { Plus, X, ChevronDown, ChevronUp, ExternalLink, Lock, Unlock, Trash2 } from 'lucide-react'
+import CurrencyInput from '@/components/CurrencyInput'
 
 interface PC {
   id: string; cash_id: string; host_id: string; amount: number; notes: string | null
@@ -52,13 +53,13 @@ export default function PettyCashPanel() {
 
   // Create form
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ host_id: '', amount: '', notes: '' })
+  const [form, setForm] = useState({ host_id: '', amount: 0, notes: '' })
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
   // Edit item (superadmin can always edit)
   const [editItem, setEditItem] = useState<PCItem | null>(null)
-  const [editItemForm, setEditItemForm] = useState({ tanggal: '', remark: '', cash_out: '' })
+  const [editItemForm, setEditItemForm] = useState({ tanggal: '', remark: '', cash_out: 0 })
   const [savingItem, setSavingItem] = useState(false)
 
   // Confirm close
@@ -93,7 +94,7 @@ export default function PettyCashPanel() {
   }
 
   async function createPC() {
-    if (!form.host_id || !form.amount || Number(form.amount) <= 0) {
+    if (!form.host_id || !form.amount || form.amount <= 0) {
       setFormError('Pilih host dan isi nominal'); return
     }
     setSaving(true); setFormError('')
@@ -102,12 +103,12 @@ export default function PettyCashPanel() {
     const cashId = nextCashId(allIds)
     const { data: me } = await supabase.auth.getUser()
     const { error } = await supabase.from('petty_cash').insert({
-      cash_id: cashId, host_id: form.host_id, amount: Number(form.amount),
+      cash_id: cashId, host_id: form.host_id, amount: form.amount,
       notes: form.notes || null, status: 'pending', created_by: me.user?.id,
     })
     setSaving(false)
     if (error) { setFormError(error.message); return }
-    setShowForm(false); setForm({ host_id: '', amount: '', notes: '' }); load()
+    setShowForm(false); setForm({ host_id: '', amount: 0, notes: '' }); load()
   }
 
   async function closePC(id: string) {
@@ -134,7 +135,7 @@ export default function PettyCashPanel() {
     setSavingItem(true)
     const { error } = await createClient().from('petty_cash_items').update({
       tanggal: editItemForm.tanggal, remark: editItemForm.remark || null,
-      cash_out: Number(editItemForm.cash_out) || 0,
+      cash_out: editItemForm.cash_out || 0,
     }).eq('id', editItem.id)
     setSavingItem(false)
     if (error) return
@@ -142,7 +143,7 @@ export default function PettyCashPanel() {
       ...prev,
       [editItem.petty_cash_id]: (prev[editItem.petty_cash_id] || []).map(i =>
         i.id === editItem.id
-          ? { ...i, tanggal: editItemForm.tanggal, remark: editItemForm.remark, cash_out: Number(editItemForm.cash_out) }
+          ? { ...i, tanggal: editItemForm.tanggal, remark: editItemForm.remark, cash_out: editItemForm.cash_out }
           : i
       ),
     }))
@@ -189,9 +190,8 @@ export default function PettyCashPanel() {
             </div>
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Nominal (Rp) *</label>
-              <input type="number" min="1000" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-                placeholder="500000"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+              <CurrencyInput value={form.amount} onChange={v => setForm(f => ({ ...f, amount: v }))}
+                placeholder="500.000"/>
             </div>
           </div>
           <div>
@@ -358,7 +358,7 @@ export default function PettyCashPanel() {
                                     <div className="flex items-center gap-0.5 justify-end">
                                       <button onClick={() => {
                                         setEditItem(item)
-                                        setEditItemForm({ tanggal: item.tanggal, remark: item.remark || '', cash_out: String(item.cash_out) })
+                                        setEditItemForm({ tanggal: item.tanggal, remark: item.remark || '', cash_out: item.cash_out })
                                       }} className="p-1 rounded text-gray-300 hover:text-brand-600 transition-colors">
                                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                       </button>
@@ -403,8 +403,7 @@ export default function PettyCashPanel() {
               </div>
               <div>
                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Cash Out (Rp)</label>
-                <input type="number" min="0" value={editItemForm.cash_out} onChange={e => setEditItemForm(f => ({ ...f, cash_out: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                <CurrencyInput value={editItemForm.cash_out} onChange={v => setEditItemForm(f => ({ ...f, cash_out: v }))}/>
               </div>
             </div>
             <div className="flex gap-2 mt-4">

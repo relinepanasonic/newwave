@@ -7,6 +7,7 @@ import { formatCurrency, getPayPeriod } from '@/lib/utils'
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
 import PettyCashPanel from './PettyCashPanel'
+import CurrencyInput from '@/components/CurrencyInput'
 
 type Tab = 'hosts' | 'gaji' | 'kasbon' | 'pettycash'
 
@@ -739,13 +740,11 @@ function KasbonTab() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <div className="flex items-center gap-1.5 flex-1 min-w-0">
                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">ACC Nominal:</span>
-                    <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden flex-1 min-w-0">
-                      <span className="px-2 text-xs text-gray-400 bg-gray-50 border-r border-gray-200 py-2 flex-shrink-0">Rp</span>
-                      <input type="number" min="1000"
-                        value={approveAmounts[k.id] ?? String(k.requested_amount ?? k.amount)}
-                        onChange={e => setApproveAmounts(a => ({ ...a, [k.id]: e.target.value }))}
-                        className="px-2 py-2 text-sm flex-1 min-w-0 focus:outline-none focus:ring-2 focus:ring-brand-400 rounded-r-xl"/>
-                    </div>
+                    <CurrencyInput
+                      value={Number(approveAmounts[k.id] ?? k.requested_amount ?? k.amount)}
+                      onChange={v => setApproveAmounts(a => ({ ...a, [k.id]: String(v) }))}
+                      wrapperClassName="flex items-center border border-gray-200 rounded-xl overflow-hidden flex-1 min-w-0 focus-within:ring-2 focus-within:ring-brand-400"
+                      className="px-2 py-2 text-sm flex-1 min-w-0 focus:outline-none rounded-r-xl"/>
                   </div>
                   <button onClick={() => approveRequest(k)} disabled={actioningId === k.id}
                     className="flex items-center gap-1 bg-emerald-600 text-white text-xs font-bold px-3 py-2 rounded-xl hover:bg-emerald-700 disabled:opacity-60 flex-shrink-0">
@@ -803,9 +802,8 @@ function KasbonTab() {
             </div>
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Jumlah (Rp)</label>
-              <input type="number" min="0" value={form.amount || ''} onChange={e => setForm(f => ({ ...f, amount: parseInt(e.target.value) || 0 }))}
-                placeholder="500000"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+              <CurrencyInput value={form.amount} onChange={v => setForm(f => ({ ...f, amount: v }))}
+                placeholder="500.000"/>
             </div>
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Keterangan</label>

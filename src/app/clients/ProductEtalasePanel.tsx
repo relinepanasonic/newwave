@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from 'react'
 import * as XLSX from 'xlsx'
 import { createClient } from '@/lib/supabase/client'
 import { Plus, Save, X, Pencil, Trash2, Package, Search, Upload } from 'lucide-react'
+import CurrencyInput from '@/components/CurrencyInput'
 
 type Platform = 'Shopee' | 'TikTok'
 
@@ -351,9 +352,8 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
             </div>
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Harga (Rp)</label>
-              <input type="number" min="0" value={form.price}
-                onChange={e => setForm(f => ({ ...f, price: parseInt(e.target.value) || 0 }))}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+              <CurrencyInput value={form.price}
+                onChange={v => setForm(f => ({ ...f, price: v }))}/>
             </div>
           </div>
           {error && (

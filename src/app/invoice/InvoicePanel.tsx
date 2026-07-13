@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Plus, X, Save, ChevronDown, ChevronUp, FileText, CheckCircle, Pencil, Trash2, Printer } from 'lucide-react'
 import { printInvoice } from './printInvoice'
+import CurrencyInput from '@/components/CurrencyInput'
 
 const PROONE_URL = process.env.NEXT_PUBLIC_PROONE_API_URL ?? 'https://prooneaccounting.vercel.app/api/v1'
 const PROONE_KEY = process.env.NEXT_PUBLIC_PROONE_API_KEY ?? ''
@@ -406,12 +407,9 @@ export default function InvoicePanel({ profile }: { profile: any }) {
                   </div>
                   <div>
                     <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Harga/Jam</label>
-                    <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-brand-400 bg-white">
-                      <span className="px-1.5 py-2 bg-gray-50 text-[10px] text-gray-400 border-r border-gray-200 font-semibold">Rp</span>
-                      <input type="number" min="0" value={item.price} disabled={item.is_free}
-                        onChange={e => updateItem(idx, 'price', parseInt(e.target.value) || 0)}
-                        className="flex-1 w-0 px-1.5 py-2 text-xs focus:outline-none disabled:bg-gray-50"/>
-                    </div>
+                    <CurrencyInput value={item.price} disabled={item.is_free}
+                      onChange={v => updateItem(idx, 'price', v)}
+                      className="flex-1 min-w-0 w-0 px-1.5 py-2 text-xs focus:outline-none disabled:bg-gray-50"/>
                   </div>
                   <div>
                     <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Amount</label>
