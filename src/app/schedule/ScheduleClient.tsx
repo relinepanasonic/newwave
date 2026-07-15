@@ -6,7 +6,6 @@ import { SESSION_LABELS, PLATFORM_COLORS, getWeekDates, toLocalDateStr, cn } fro
 import { ChevronLeft, ChevronRight, ChevronDown, X, Save, Plus, Trash2, Copy } from 'lucide-react'
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
-import TimeInput from '@/components/TimeInput'
 
 const DAYS_ID = ['Senin','Selasa','Rabu','Kamis','Jumat','Sabtu','Minggu']
 const DAYS_EN = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
@@ -762,29 +761,19 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                 </div>
               </div>
 
-              {/* Jam Mulai + Durasi */}
+              {/* Durasi (start time comes from the session slot clicked in the grid) */}
               <div>
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Live Durasi</label>
-                <div className="flex items-center gap-2">
-                  {/* Start time */}
-                  <TimeInput
-                    value={form.jamMulai}
-                    onChange={v => setForm(f => ({ ...f, jamMulai: v }))}
-                    className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50"
-                  />
-                  <span className="text-gray-400 text-sm font-medium flex-shrink-0">+</span>
-                  {/* Duration stepper */}
-                  <div className="flex items-center gap-1 border border-gray-200 rounded-xl bg-gray-50 px-1">
-                    <button type="button"
-                      onClick={() => setForm(f => ({ ...f, durasi: Math.max(0, +(f.durasi - 0.5).toFixed(1)) }))}
-                      className="w-7 h-8 flex items-center justify-center text-gray-500 hover:text-brand-700 text-base font-bold">−</button>
-                    <span className="text-sm font-bold text-gray-800 min-w-[36px] text-center">
-                      {form.durasi > 0 ? `${form.durasi}j` : '—'}
-                    </span>
-                    <button type="button"
-                      onClick={() => setForm(f => ({ ...f, durasi: Math.min(12, +(f.durasi + 0.5).toFixed(1)) }))}
-                      className="w-7 h-8 flex items-center justify-center text-gray-500 hover:text-brand-700 text-base font-bold">+</button>
-                  </div>
+                <div className="flex items-center gap-1 border border-gray-200 rounded-xl bg-gray-50 px-1 w-fit">
+                  <button type="button"
+                    onClick={() => setForm(f => ({ ...f, durasi: Math.max(0, +(f.durasi - 0.5).toFixed(1)) }))}
+                    className="w-7 h-8 flex items-center justify-center text-gray-500 hover:text-brand-700 text-base font-bold">−</button>
+                  <span className="text-sm font-bold text-gray-800 min-w-[36px] text-center">
+                    {form.durasi > 0 ? `${form.durasi}j` : '—'}
+                  </span>
+                  <button type="button"
+                    onClick={() => setForm(f => ({ ...f, durasi: Math.min(12, +(f.durasi + 0.5).toFixed(1)) }))}
+                    className="w-7 h-8 flex items-center justify-center text-gray-500 hover:text-brand-700 text-base font-bold">+</button>
                 </div>
                 {/* Quick presets */}
                 <div className="flex gap-1.5 mt-2">
@@ -799,15 +788,18 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                     </button>
                   ))}
                 </div>
-                {/* Auto end time preview */}
-                {form.jamMulai && form.durasi > 0 && (
-                  <div className="mt-2 flex items-center gap-2 bg-brand-50 border border-brand-100 rounded-xl px-3 py-2">
-                    <span className="text-xs text-brand-500 font-medium">Waktu Live:</span>
-                    <span className="text-sm font-bold text-brand-700">
-                      {form.jamMulai} – {calcJamSelesai(form.jamMulai, form.durasi)}
-                    </span>
-                  </div>
-                )}
+                {/* Auto end time preview — start defaults to the clicked session's hour */}
+                {form.durasi > 0 && editSlot && (() => {
+                  const effectiveStart = form.jamMulai || `${String(editSlot.session - 1).padStart(2, '0')}:00`
+                  return (
+                    <div className="mt-2 flex items-center gap-2 bg-brand-50 border border-brand-100 rounded-xl px-3 py-2">
+                      <span className="text-xs text-brand-500 font-medium">Waktu Live:</span>
+                      <span className="text-sm font-bold text-brand-700">
+                        {effectiveStart} – {calcJamSelesai(effectiveStart, form.durasi)}
+                      </span>
+                    </div>
+                  )
+                })()}
                 {/* Live blackout warning — shows as soon as brand conflicts with session time */}
                 {editSlot && form.brand && (() => {
                   const { startMin, endMin } = slotTimeRange(editSlot.session, form.jamMulai, form.durasi)
