@@ -471,8 +471,15 @@ function GajiTab() {
   }, [])
 
   const periods = useMemo(() => {
-    const ps = Array.from(new Set(summary.map((r: PayRow) => r.period_start.slice(0, 7))))
-    if (!ps.includes(selectedPeriod)) ps.unshift(selectedPeriod)
+    // Always offer the last 12 pay periods regardless of whether payroll_summary
+    // has rows yet for them — otherwise a period with no data can never be selected.
+    const now = new Date()
+    const generated = Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 21)
+      return getPayPeriod(d).start.toISOString().split('T')[0].slice(0, 7)
+    })
+    const fromSummary = summary.map((r: PayRow) => r.period_start.slice(0, 7))
+    const ps = Array.from(new Set([...generated, ...fromSummary, selectedPeriod]))
     return ps.sort().reverse()
   }, [summary, selectedPeriod])
 
