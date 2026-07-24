@@ -2,7 +2,7 @@
 import { useState, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, PLATFORM_COLORS } from '@/lib/utils'
-import { Upload, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react'
+import { Upload, AlertTriangle, CheckCircle2, XCircle, Link2, X } from 'lucide-react'
 
 const MONTH_ID: Record<string, number> = {
   jan:1,feb:2,mar:3,apr:4,may:5,mei:5,jun:6,jul:7,aug:8,agu:8,sep:9,oct:10,okt:10,nov:11,dec:12,des:12,
@@ -82,9 +82,11 @@ type Metric = 'gmv' | 'impression' | 'viewer' | 'trans' | 'comment'
 
 interface CompareRow {
   csv: CsvRow
+  csvIdx: number
   app: AppReport | null
   mismatches: Set<Metric>
   status: 'match' | 'mismatch' | 'missing_in_app'
+  isManual: boolean
 }
 
 function MetricCell({ csvVal, appVal, mismatch, fmt }: { csvVal: number; appVal?: number; mismatch: boolean; fmt: (n: number) => string }) {
@@ -104,6 +106,9 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
   const [fileName, setFileName] = useState('')
   const [loading, setLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState<'all' | 'mismatch' | 'missing_in_app'>('all')
+  // Session-only manual matches: csv row index -> app report id. Resets on new upload.
+  const [manualMatches, setManualMatches] = useState<Record<number, string>>({})
+  const [pickingIdx, setPickingIdx] = useState<number | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -135,6 +140,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     }).filter(r => r.tanggal)
 
     setCsvRows(parsed)
+    setManualMatches({})
     e.target.value = ''
     if (!parsed.length) return
 
@@ -163,6 +169,12 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     return map
   }, [hosts])
 
+  const appById = useMemo(() => {
+    const map: Record<string, AppReport> = {}
+    appReports.forEach(r => { map[r.id] = r })
+    return map
+  }, [appReports])
+
   const compareRows: CompareRow[] = useMemo(() => {
     if (!csvRows.length) return []
     const byDateHost: Record<string, AppReport[]> = {}
@@ -170,12 +182,21 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
       const key = `${r.report_date}|${r.host_id}`
       ;(byDateHost[key] ||= []).push(r)
     })
-    return csvRows.map(csv => {
-      const hostId = hostMap[csv.host.toLowerCase()] || hostMap[csv.host.split(' ')[0].toLowerCase()]
+    const usedByAuto = new Set<string>()
+    return csvRows.map((csv, csvIdx) => {
+      const manualId = manualMatches[csvIdx]
       let app: AppReport | null = null
-      if (hostId) {
-        const candidates = byDateHost[`${csv.tanggal}|${hostId}`] || []
-        app = candidates.find(c => c.start_time?.slice(0, 5) === csv.startSesi) || (candidates.length === 1 ? candidates[0] : null)
+      let isManual = false
+      if (manualId) {
+        app = appById[manualId] || null
+        isManual = !!app
+      } else {
+        const hostId = hostMap[csv.host.toLowerCase()] || hostMap[csv.host.split(' ')[0].toLowerCase()]
+        if (hostId) {
+          const candidates = (byDateHost[`${csv.tanggal}|${hostId}`] || []).filter(c => !usedByAuto.has(c.id))
+          app = candidates.find(c => c.start_time?.slice(0, 5) === csv.startSesi) || (candidates.length === 1 ? candidates[0] : null)
+          if (app) usedByAuto.add(app.id)
+        }
       }
       const mismatches = new Set<Metric>()
       if (app) {
@@ -186,14 +207,33 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
         if (Number(app.comment_count) !== csv.comment) mismatches.add('comment')
       }
       const status: CompareRow['status'] = !app ? 'missing_in_app' : mismatches.size > 0 ? 'mismatch' : 'match'
-      return { csv, app, mismatches, status }
+      return { csv, csvIdx, app, mismatches, status, isManual }
     })
-  }, [csvRows, appReports, hostMap])
+  }, [csvRows, appReports, hostMap, manualMatches, appById])
 
-  const extraAppReports = useMemo(() => {
-    const used = new Set(compareRows.filter(r => r.app).map(r => r.app!.id))
-    return appReports.filter(r => !used.has(r.id))
-  }, [compareRows, appReports])
+  const usedAppIds = useMemo(() => new Set(compareRows.filter(r => r.app).map(r => r.app!.id)), [compareRows])
+
+  const extraAppReports = useMemo(() =>
+    appReports.filter(r => !usedAppIds.has(r.id)).sort((a, b) => a.report_date.localeCompare(b.report_date)),
+    [appReports, usedAppIds])
+
+  // Candidates offered in the manual-match picker for a given CSV row: same date first, then the rest.
+  function candidatesFor(csv: CsvRow) {
+    return [...extraAppReports].sort((a, b) => {
+      const aSame = a.report_date === csv.tanggal ? 0 : 1
+      const bSame = b.report_date === csv.tanggal ? 0 : 1
+      if (aSame !== bSame) return aSame - bSame
+      return a.report_date.localeCompare(b.report_date)
+    })
+  }
+
+  function setManualMatch(csvIdx: number, appId: string) {
+    setManualMatches(prev => ({ ...prev, [csvIdx]: appId }))
+    setPickingIdx(null)
+  }
+  function clearManualMatch(csvIdx: number) {
+    setManualMatches(prev => { const n = { ...prev }; delete n[csvIdx]; return n })
+  }
 
   const totalMatch = compareRows.filter(r => r.status === 'match').length
   const totalMismatch = compareRows.filter(r => r.status === 'mismatch').length
@@ -202,7 +242,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
   const visibleRows = compareRows.filter(r => statusFilter === 'all' ? true : r.status === statusFilter)
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="w-full">
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-5">
         <p className="text-sm font-bold text-gray-900 mb-1">Upload CSV Rekonsiliasi</p>
         <p className="text-xs text-gray-500 mb-3">
@@ -243,7 +283,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                 <thead>
                   <tr className="text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
                     <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Tanggal</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">Jam</th>
+                    <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Jam Mulai</th>
                     <th className="px-3 py-2.5 text-left font-semibold">Host</th>
                     <th className="px-3 py-2.5 text-left font-semibold">Brand (CSV)</th>
                     <th className="px-3 py-2.5 text-left font-semibold">Platform</th>
@@ -253,13 +293,14 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                     <th className="px-3 py-2.5 text-right font-semibold">Trans</th>
                     <th className="px-3 py-2.5 text-right font-semibold">Komentar</th>
                     <th className="px-3 py-2.5 text-center font-semibold">Status</th>
+                    <th className="px-3 py-2.5 text-center font-semibold">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {visibleRows.map((r, idx) => (
                     <tr key={idx} className={r.status === 'missing_in_app' ? 'bg-red-50/50' : ''}>
                       <td className="px-3 py-2 whitespace-nowrap text-gray-600">{fmtDate(r.csv.tanggal)}</td>
-                      <td className="px-3 py-2 text-gray-500">{r.csv.startSesi}</td>
+                      <td className="px-3 py-2 whitespace-nowrap"><span className="font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded-lg">{r.csv.startSesi}</span></td>
                       <td className="px-3 py-2 font-medium text-gray-800 whitespace-nowrap">{r.csv.host}</td>
                       <td className="px-3 py-2 text-gray-600 max-w-[160px] truncate">{r.csv.brand}</td>
                       <td className="px-3 py-2">
@@ -273,9 +314,41 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                       <MetricCell csvVal={r.csv.trans} appVal={r.app ? Number(r.app.trans) : undefined} mismatch={r.mismatches.has('trans')} fmt={fmtNum}/>
                       <MetricCell csvVal={r.csv.comment} appVal={r.app ? Number(r.app.comment_count) : undefined} mismatch={r.mismatches.has('comment')} fmt={fmtNum}/>
                       <td className="px-3 py-2 text-center">
-                        {r.status === 'match' && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Cocok</span>}
-                        {r.status === 'mismatch' && <span className="text-[10px] bg-pink-100 text-pink-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Berbeda</span>}
-                        {r.status === 'missing_in_app' && <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Tak Ada di App</span>}
+                        <div className="flex items-center justify-center gap-1 flex-wrap">
+                          {r.status === 'match' && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Cocok</span>}
+                          {r.status === 'mismatch' && <span className="text-[10px] bg-pink-100 text-pink-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Berbeda</span>}
+                          {r.status === 'missing_in_app' && <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Tak Ada di App</span>}
+                          {r.isManual && <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Manual</span>}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {r.isManual ? (
+                          <button onClick={() => clearManualMatch(r.csvIdx)}
+                            className="inline-flex items-center gap-1 text-[10px] text-gray-400 hover:text-red-500 border border-gray-200 hover:border-red-200 rounded-lg px-2 py-1 transition-colors">
+                            <X size={10}/> Batalkan
+                          </button>
+                        ) : r.status === 'missing_in_app' ? (
+                          pickingIdx === r.csvIdx ? (
+                            <select autoFocus defaultValue=""
+                              onChange={e => { if (e.target.value) setManualMatch(r.csvIdx, e.target.value) }}
+                              onBlur={() => setPickingIdx(null)}
+                              className="text-[10px] border border-brand-300 rounded-lg px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white max-w-[220px]">
+                              <option value="">— Pilih laporan app —</option>
+                              {candidatesFor(r.csv).map(c => (
+                                <option key={c.id} value={c.id}>
+                                  {fmtDate(c.report_date)} · {c.start_time?.slice(0,5) || '—'} · {(c.profiles as any)?.full_name || '—'} · {c.brand || '—'}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <button onClick={() => setPickingIdx(r.csvIdx)}
+                              className="inline-flex items-center gap-1 text-[10px] text-brand-600 hover:text-brand-800 border border-brand-200 rounded-lg px-2 py-1 hover:bg-brand-50 transition-colors whitespace-nowrap">
+                              <Link2 size={10}/> Match Manual
+                            </button>
+                          )
+                        ) : (
+                          <span className="text-gray-300 text-[10px]">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
