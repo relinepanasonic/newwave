@@ -147,6 +147,9 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
   // Session-only manual matches: csv row index -> app report id / schedule slot id. Resets on new upload.
   const [manualMatches, setManualMatches] = useState<Record<number, string>>({})
   const [notReportedMatches, setNotReportedMatches] = useState<Record<number, string>>({})
+  const [notReportedReportIds, setNotReportedReportIds] = useState<Record<number, string>>({})
+  const [savingNotReportedIdx, setSavingNotReportedIdx] = useState<number | null>(null)
+  const [notReportedError, setNotReportedError] = useState('')
   const [pickingIdx, setPickingIdx] = useState<number | null>(null)
   const [pickingScheduleIdx, setPickingScheduleIdx] = useState<number | null>(null)
   const [detailRow, setDetailRow] = useState<CompareRow | null>(null)
@@ -191,6 +194,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     setCsvRows(parsed)
     setManualMatches({})
     setNotReportedMatches({})
+    setNotReportedReportIds({})
     setFixedLog({})
     e.target.value = ''
     if (!parsed.length) return
@@ -272,7 +276,10 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
       }
       let status: CompareRow['status'] = !app ? 'missing_in_app' : mismatches.size > 0 ? 'mismatch' : 'match'
       let notReportedSlot: ScheduleSlotRow | null = null
-      if (!app && notReportedMatches[csvIdx]) {
+      if (notReportedMatches[csvIdx]) {
+        // Once confirmed, the row now has a real (freshly-inserted) app match
+        // too -- keep it tagged "not reported" rather than falling back to a
+        // plain "Cocok", since the report only exists because CSV filled it in.
         notReportedSlot = scheduleById[notReportedMatches[csvIdx]] || null
         if (notReportedSlot) status = 'not_reported_confirmed'
       }
@@ -331,12 +338,39 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     })
   }
 
-  function setNotReportedMatch(csvIdx: number, slotId: string) {
-    setNotReportedMatches(prev => ({ ...prev, [csvIdx]: slotId }))
-    setPickingScheduleIdx(null)
+  // Confirming "Tidak Lapor" now actually creates the live_report using the
+  // CSV's own numbers, linked to the chosen schedule slot -- so it becomes a
+  // real record (counted in payroll hours, recap, etc.), not just a UI tag.
+  async function setNotReportedMatch(csvIdx: number, slotId: string) {
+    const csv = csvRows[csvIdx]
+    const slot = scheduleById[slotId]
+    if (!csv || !slot) return
+    setSavingNotReportedIdx(csvIdx); setNotReportedError('')
+    const { data, error } = await createClient().from('live_reports').insert({
+      slot_id: slot.id, host_id: slot.host_id, report_date: csv.tanggal,
+      brand: csv.brand || slot.brand, platform: csv.platform || slot.platform,
+      start_time: csv.startSesi || slot.jam_mulai, duration_hours: csv.totalJam || slot.durasi,
+      gmv: csv.gmv, impression: csv.impression, viewer: csv.viewer, trans: csv.trans, comment_count: csv.comment,
+      notes: 'CSV',
+    }).select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, profiles:host_id(full_name, username)').single()
+    setSavingNotReportedIdx(null)
+    if (error) { setNotReportedError(error.message); return }
+    if (data) {
+      setAppReports(prev => [...prev, data as any])
+      setNotReportedMatches(prev => ({ ...prev, [csvIdx]: slotId }))
+      setNotReportedReportIds(prev => ({ ...prev, [csvIdx]: (data as any).id }))
+      setPickingScheduleIdx(null)
+    }
   }
-  function clearNotReportedMatch(csvIdx: number) {
+
+  async function clearNotReportedMatch(csvIdx: number) {
+    const reportId = notReportedReportIds[csvIdx]
+    if (reportId) {
+      await createClient().from('live_reports').delete().eq('id', reportId)
+      setAppReports(prev => prev.filter(a => a.id !== reportId))
+    }
     setNotReportedMatches(prev => { const n = { ...prev }; delete n[csvIdx]; return n })
+    setNotReportedReportIds(prev => { const n = { ...prev }; delete n[csvIdx]; return n })
   }
 
   const hostNameById = useMemo(() => {
@@ -427,6 +461,13 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
             ))}
           </div>
 
+          {notReportedError && (
+            <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-2.5 mb-4 flex items-center justify-between gap-3">
+              <p className="text-xs text-red-600">Gagal menyimpan: {notReportedError}</p>
+              <button onClick={() => setNotReportedError('')} className="text-red-400 hover:text-red-600 flex-shrink-0"><X size={14}/></button>
+            </div>
+          )}
+
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-6">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -480,7 +521,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                           {r.isManual && <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Manual</span>}
                         </div>
                         {r.status === 'not_reported_confirmed' && (
-                          <p className="text-[9px] text-purple-400 italic mt-0.5">Host tidak lapor — data dari CSV</p>
+                          <p className="text-[9px] text-purple-400 italic mt-0.5">CSV</p>
                         )}
                       </td>
                       <td className="px-3 py-2 text-center">
@@ -511,6 +552,8 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                                 )
                               })}
                             </select>
+                          ) : savingNotReportedIdx === r.csvIdx ? (
+                            <span className="text-[10px] text-purple-500 whitespace-nowrap">Menyimpan...</span>
                           ) : pickingScheduleIdx === r.csvIdx ? (
                             <select autoFocus defaultValue=""
                               onChange={e => { if (e.target.value) setNotReportedMatch(r.csvIdx, e.target.value) }}
