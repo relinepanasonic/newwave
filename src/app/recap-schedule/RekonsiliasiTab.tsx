@@ -83,6 +83,12 @@ function shiftDate(dateStr: string, days: number): string {
   dt.setDate(dt.getDate() + days)
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
 }
+// Schedule slots without a manually-set jam_mulai default to their session
+// number's hour (session 1 = 00:00, session 18 = 17:00, etc.) — same
+// fallback the Schedule page itself uses.
+function slotTime(s: { jam_mulai: string | null; session_no: number }): string {
+  return s.jam_mulai ? s.jam_mulai.slice(0, 5) : `${String(s.session_no - 1).padStart(2, '0')}:00`
+}
 
 interface CsvRow {
   _line: number
@@ -497,7 +503,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                               <option value="">— Pilih jadwal —</option>
                               {scheduleCandidatesFor(r.csv).map(s => (
                                 <option key={s.id} value={s.id}>
-                                  {fmtDate(s.slot_date)} · {s.jam_mulai?.slice(0,5) || '—'} · {hostNameById[s.host_id] || '—'} · {s.brand || '—'}
+                                  {fmtDate(s.slot_date)} · {slotTime(s)} · {hostNameById[s.host_id] || '—'} · {s.brand || '—'}
                                 </option>
                               ))}
                             </select>
