@@ -9,6 +9,8 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 
 function fmtGMV(n: number) {
   if (n >= 1_000_000) return `Rp${(n / 1_000_000).toFixed(1)}jt`
@@ -42,6 +44,7 @@ function getMonthOptions() {
 }
 
 export default function HostDashboard({ profile }: { profile: any }) {
+  const { lang } = useLang()
   const [periodHours, setPeriodHours] = useState(0)
   const [todaySlots, setTodaySlots] = useState<any[]>([])
   const [reportMap, setReportMap] = useState<Record<string, any>>({})
@@ -131,18 +134,22 @@ export default function HostDashboard({ profile }: { profile: any }) {
       for (const slot of todaySlots) {
         if (slot.status !== 'cancelled') {
           const diff = (slot.session_no - 1) * 60 - nowMins
-          if (diff > 0 && diff <= 15 && (!nearest || diff < nearest.diff))
-            nearest = { msg: `Sesi ${SESSION_LABELS[slot.session_no]} di ${slot.rooms?.name || 'Room'} mulai dalam ${diff} menit!`, diff }
+          if (diff > 0 && diff <= 15 && (!nearest || diff < nearest.diff)) {
+            const msg = lang === 'id'
+              ? `Sesi ${SESSION_LABELS[slot.session_no]} di ${slot.rooms?.name || 'Room'} mulai dalam ${diff} menit!`
+              : `Session ${SESSION_LABELS[slot.session_no]} at ${slot.rooms?.name || 'Room'} starts in ${diff} minutes!`
+            nearest = { msg, diff }
+          }
         }
       }
       setAlarmMsg(nearest ? nearest.msg : null)
       if (nearest && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted')
-        new Notification('⏰ Jadwal Live Segera!', { body: nearest.msg })
+        new Notification(tr('scheduleSoon', lang), { body: nearest.msg })
     }
     check()
     const t = setInterval(check, 60_000)
     return () => clearInterval(t)
-  }, [todaySlots])
+  }, [todaySlots, lang])
 
   async function requestNotif() {
     if (typeof window !== 'undefined' && 'Notification' in window)
@@ -167,7 +174,7 @@ export default function HostDashboard({ profile }: { profile: any }) {
         {/* Header */}
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-lg font-bold text-gray-900">Halo, {profile.full_name.split(' ')[0]} 👋</h1>
+            <h1 className="text-lg font-bold text-gray-900">{tr('greeting', lang)}, {profile.full_name.split(' ')[0]} 👋</h1>
             <p className="text-xs text-gray-500 mt-0.5">{today}</p>
           </div>
           <button onClick={requestNotif}
@@ -177,7 +184,7 @@ export default function HostDashboard({ profile }: { profile: any }) {
                 : 'bg-gray-50 border-gray-200 text-gray-600'
             }`}>
             {notifPerm === 'granted' ? <Bell size={12} /> : <BellOff size={12} />}
-            {notifPerm === 'granted' ? 'Alarm On' : 'Alarm'}
+            {notifPerm === 'granted' ? tr('alarmOn', lang) : tr('alarm', lang)}
           </button>
         </div>
 
@@ -186,7 +193,7 @@ export default function HostDashboard({ profile }: { profile: any }) {
           <div className="bg-amber-500 text-white rounded-2xl px-4 py-3 flex items-center gap-3">
             <Bell size={18} className="flex-shrink-0 animate-bounce" />
             <div>
-              <p className="font-bold text-sm">⏰ Jadwal Segera!</p>
+              <p className="font-bold text-sm">{tr('scheduleSoon', lang)}</p>
               <p className="text-amber-100 text-xs">{alarmMsg}</p>
             </div>
           </div>
@@ -195,7 +202,7 @@ export default function HostDashboard({ profile }: { profile: any }) {
         {/* Month filter + stats */}
         <div>
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-xs text-gray-500 font-medium">Bulan:</span>
+            <span className="text-xs text-gray-500 font-medium">{tr('month', lang)}:</span>
             <select value={chartMonthIdx} onChange={e => setChartMonthIdx(Number(e.target.value))}
               className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white">
               {monthOptions.map((m, i) => <option key={i} value={i}>{m.label}</option>)}
@@ -203,10 +210,10 @@ export default function HostDashboard({ profile }: { profile: any }) {
           </div>
           <div className="grid grid-cols-2 gap-2.5">
             {[
-              { label: 'Total Live', value: totalLive, sub: 'sesi bulan ini', ib: 'bg-blue-50', ic: 'text-blue-500', icon: Bell },
-              { label: 'Live Sukses', value: liveSucceed, sub: `${successPct}% laporan`, ib: 'bg-emerald-50', ic: 'text-emerald-500', icon: Target },
-              { label: 'Target Jam', value: `${trimH(periodHours)}j`, sub: `dari ${targetHours} jam`, ib: 'bg-brand-50', ic: 'text-brand-500', icon: Target },
-              { label: 'Total GMV', value: fmtGMV(totalGmv), sub: 'bulan ini', ib: 'bg-purple-50', ic: 'text-purple-500', icon: Bell },
+              { label: tr('totalLive', lang), value: totalLive, sub: tr('sessionsThisMonth', lang), ib: 'bg-blue-50', ic: 'text-blue-500', icon: Bell },
+              { label: tr('liveSuccess', lang), value: liveSucceed, sub: `${successPct}% ${tr('reportsPct', lang)}`, ib: 'bg-emerald-50', ic: 'text-emerald-500', icon: Target },
+              { label: tr('targetHours', lang), value: `${trimH(periodHours)}j`, sub: `${tr('fromTargetHours', lang)} ${targetHours} ${tr('hoursShort', lang)}`, ib: 'bg-brand-50', ic: 'text-brand-500', icon: Target },
+              { label: tr('totalGmv', lang), value: fmtGMV(totalGmv), sub: tr('thisMonthShort', lang), ib: 'bg-purple-50', ic: 'text-purple-500', icon: Bell },
             ].map(({ label, value, sub, ib, ic, icon: Icon }) => (
               <div key={label} className="bg-white rounded-2xl border border-gray-100 p-3.5 hover:shadow-sm transition-shadow">
                 <div className="flex items-start justify-between mb-2">
@@ -224,10 +231,10 @@ export default function HostDashboard({ profile }: { profile: any }) {
 
         {/* GMV chart — PROMINENT (full width, top focal point) */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-          <h2 className="font-bold text-gray-900 text-sm">GMV per Hari</h2>
-          <p className="text-xs text-gray-400 mb-3">Pendapatan dari laporan live</p>
+          <h2 className="font-bold text-gray-900 text-sm">{tr('gmvPerDay', lang)}</h2>
+          <p className="text-xs text-gray-400 mb-3">{tr('gmvPerDayDesc', lang)}</p>
           {emptyChart ? (
-            <div className="h-[130px] flex items-center justify-center text-sm text-gray-300">Belum ada laporan bulan ini</div>
+            <div className="h-[130px] flex items-center justify-center text-sm text-gray-300">{tr('noReportsThisMonth', lang)}</div>
           ) : (
             <ResponsiveContainer width="100%" height={180}>
               <LineChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
@@ -245,10 +252,10 @@ export default function HostDashboard({ profile }: { profile: any }) {
         {/* Traffic + success gauge (smaller, below GMV) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-            <h2 className="font-bold text-gray-900 text-sm">Traffic per Hari</h2>
-            <p className="text-xs text-gray-400 mb-2">Impresi · Penonton · Komentar</p>
+            <h2 className="font-bold text-gray-900 text-sm">{tr('trafficPerDay', lang)}</h2>
+            <p className="text-xs text-gray-400 mb-2">{tr('trafficPerDayDesc', lang)}</p>
             {emptyChart ? (
-              <div className="h-[110px] flex items-center justify-center text-xs text-gray-300">Belum ada data</div>
+              <div className="h-[110px] flex items-center justify-center text-xs text-gray-300">{tr('noDataYet', lang)}</div>
             ) : (
               <ResponsiveContainer width="100%" height={130}>
                 <LineChart data={chartData} margin={{ top: 5, right: 5, left: -10, bottom: 5 }}>
@@ -257,16 +264,16 @@ export default function HostDashboard({ profile }: { profile: any }) {
                   <YAxis tickFormatter={(v: any) => fmtNum(Number(v))} tick={{ fontSize: 9, fill: '#9ca3af' }} tickLine={false} axisLine={false} width={32}/>
                   <Tooltip labelFormatter={(l: any) => fmtShortDate(String(l))} contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}/>
                   <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 9 }}/>
-                  <Line type="monotone" dataKey="impression" name="Impresi" stroke="#3b82f6" strokeWidth={2} dot={false}/>
-                  <Line type="monotone" dataKey="viewer" name="Penonton" stroke="#10b981" strokeWidth={2} dot={false}/>
-                  <Line type="monotone" dataKey="comment" name="Komentar" stroke="#f59e0b" strokeWidth={2} dot={false}/>
+                  <Line type="monotone" dataKey="impression" name={tr('impressions', lang)} stroke="#3b82f6" strokeWidth={2} dot={false}/>
+                  <Line type="monotone" dataKey="viewer" name={tr('viewers', lang)} stroke="#10b981" strokeWidth={2} dot={false}/>
+                  <Line type="monotone" dataKey="comment" name={tr('comments', lang)} stroke="#f59e0b" strokeWidth={2} dot={false}/>
                 </LineChart>
               </ResponsiveContainer>
             )}
           </div>
 
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-            <h2 className="font-bold text-gray-900 text-sm">Tingkat Sukses</h2>
+            <h2 className="font-bold text-gray-900 text-sm">{tr('successRate', lang)}</h2>
             <div className="relative">
               <ResponsiveContainer width="100%" height={130}>
                 <PieChart>
@@ -279,7 +286,7 @@ export default function HostDashboard({ profile }: { profile: any }) {
               </ResponsiveContainer>
               <div className="absolute inset-x-0 bottom-1 flex flex-col items-center pointer-events-none">
                 <span className="text-2xl font-bold text-brand-700">{liveSucceed}/{totalLive}</span>
-                <span className="text-[10px] text-gray-400">{successPct}% sukses</span>
+                <span className="text-[10px] text-gray-400">{successPct}% {tr('successPct', lang)}</span>
               </div>
             </div>
           </div>
@@ -290,17 +297,17 @@ export default function HostDashboard({ profile }: { profile: any }) {
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <Target size={14} className="text-brand-600"/>
-              <span className="font-bold text-gray-900 text-sm">Target Jam Live</span>
+              <span className="font-bold text-gray-900 text-sm">{tr('targetHours', lang)}</span>
             </div>
-            <span className="text-sm font-bold text-brand-700">{trimH(periodHours)} / {targetHours} jam</span>
+            <span className="text-sm font-bold text-brand-700">{trimH(periodHours)} / {targetHours} {tr('hoursShort', lang)}</span>
           </div>
           <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
             <div className="h-full bg-gradient-to-r from-brand-500 to-brand-600 rounded-full transition-all duration-700"
               style={{ width: `${progress}%` }}/>
           </div>
           <div className="flex justify-between text-[10px] text-gray-400 mt-1">
-            <span>{trimH(progress)}% tercapai</span>
-            <span>{trimH(Math.max(targetHours - periodHours, 0))} jam lagi · {payPeriod.label}</span>
+            <span>{trimH(progress)}% {tr('achieved', lang)}</span>
+            <span>{trimH(Math.max(targetHours - periodHours, 0))} {tr('hoursLeft', lang)} · {payPeriod.label}</span>
           </div>
         </div>
 
@@ -308,8 +315,8 @@ export default function HostDashboard({ profile }: { profile: any }) {
         {todaySlots.length > 0 && (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="font-bold text-gray-900 text-sm">Jadwal Hari Ini</h2>
-              <Link href="/my-schedule" className="text-xs text-brand-600 font-medium">Semua →</Link>
+              <h2 className="font-bold text-gray-900 text-sm">{tr('todaySchedule', lang)}</h2>
+              <Link href="/my-schedule" className="text-xs text-brand-600 font-medium">{tr('all', lang)}</Link>
             </div>
             <div className="divide-y divide-gray-50">
               {todaySlots.map(slot => {
@@ -326,7 +333,7 @@ export default function HostDashboard({ profile }: { profile: any }) {
                     ) : (
                       <Link href={`/live-report?slot=${slot.id}`}
                         className="text-[10px] bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-semibold hover:bg-amber-200 flex-shrink-0">
-                        Report
+                        {tr('report', lang)}
                       </Link>
                     )}
                   </div>
@@ -340,15 +347,15 @@ export default function HostDashboard({ profile }: { profile: any }) {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <div>
-              <h2 className="font-bold text-gray-900 text-sm">Status Laporan</h2>
-              <p className="text-[10px] text-gray-400">Cek live yang belum dilaporan</p>
+              <h2 className="font-bold text-gray-900 text-sm">{tr('reportStatus', lang)}</h2>
+              <p className="text-[10px] text-gray-400">{tr('checkUnreported', lang)}</p>
             </div>
             {missingReports.length > 0 && (
-              <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">{missingReports.length} belum</span>
+              <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">{missingReports.length} {tr('notYet', lang)}</span>
             )}
           </div>
           {monthSlots.length === 0 ? (
-            <div className="px-4 py-6 text-center text-xs text-gray-400">Tidak ada jadwal bulan ini</div>
+            <div className="px-4 py-6 text-center text-xs text-gray-400">{tr('noScheduleThisMonth', lang)}</div>
           ) : (
             <div className="divide-y divide-gray-50 max-h-80 overflow-y-auto">
               {monthSlots.map(slot => {
@@ -365,11 +372,11 @@ export default function HostDashboard({ profile }: { profile: any }) {
                       {slot.brand && <p className="text-[10px] text-gray-400 truncate">{slot.brand}</p>}
                     </div>
                     {hasReport ? (
-                      <span className="text-[10px] text-emerald-600 font-semibold flex-shrink-0">✓ Terlapor</span>
+                      <span className="text-[10px] text-emerald-600 font-semibold flex-shrink-0">{tr('reported', lang)}</span>
                     ) : (
                       <Link href={`/live-report?slot=${slot.id}`}
                         className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold hover:bg-red-200 flex-shrink-0">
-                        + Lapor
+                        {tr('reportAction', lang)}
                       </Link>
                     )}
                   </div>

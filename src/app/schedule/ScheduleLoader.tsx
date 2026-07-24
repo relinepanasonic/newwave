@@ -2,8 +2,11 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import ScheduleClient from './ScheduleClient'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 
 export default function ScheduleLoader({ profile }: { profile: any }) {
+  const { lang } = useLang()
   const [data, setData] = useState<{ rooms: any[]; hosts: any[]; brands: string[] } | null>(null)
 
   useEffect(() => {
@@ -23,7 +26,7 @@ export default function ScheduleLoader({ profile }: { profile: any }) {
 
   if (!data) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <p className="text-sm text-gray-400">Memuat jadwal...</p>
+      <p className="text-sm text-gray-400">{tr('loadingSchedule', lang)}</p>
     </div>
   )
 

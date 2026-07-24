@@ -219,9 +219,9 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
         return startMin < sE && endMin > sS
       })
       if (roomConflict) {
-        const cHost = getHost(roomConflict.host_id)?.username || getHost(roomConflict.host_id)?.full_name || roomConflict.brand || 'sesi lain'
+        const cHost = getHost(roomConflict.host_id)?.username || getHost(roomConflict.host_id)?.full_name || roomConflict.brand || tr('otherSession', lang)
         const cStart = roomConflict.jam_mulai ? roomConflict.jam_mulai.slice(0, 5) : SESSION_LABELS[roomConflict.session_no]
-        setSaveError(`⛔ Ruangan ini sudah dipakai (${cHost}) pada ${cStart}. Waktu tidak boleh bentrok.`)
+        setSaveError(`${tr('roomConflict', lang)} (${cHost}) ${tr('roomConflictAt', lang)} ${cStart}. ${tr('roomConflictNote', lang)}`)
         return
       }
     }
@@ -238,7 +238,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
       })
       if (hostConflict) {
         const hostName = getHost(form.hostId)?.full_name || ''
-        setSaveError(`⚠️ ${hostName} sudah dijadwalkan di sesi ${SESSION_LABELS[hostConflict.session_no]} pada tanggal ini`)
+        setSaveError(`⚠️ ${hostName} ${tr('hostConflict', lang)} ${SESSION_LABELS[hostConflict.session_no]} ${tr('onThisDate', lang)}`)
         return
       }
     }
@@ -255,7 +255,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
         return startMin < sE && endMin > sS
       })
       if (bpConflict) {
-        setSaveError(`⚠️ ${form.brand} (${form.platform}) sudah ada di sesi ${SESSION_LABELS[bpConflict.session_no]} pada tanggal ini`)
+        setSaveError(`⚠️ ${form.brand} (${form.platform}) ${tr('brandConflict', lang)} ${SESSION_LABELS[bpConflict.session_no]} ${tr('onThisDate', lang)}`)
         return
       }
     }
@@ -341,8 +341,8 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
       return startMin < sE && endMin > sS
     })
     if (conflict) {
-      const cName = getHost(conflict.host_id)?.username || getHost(conflict.host_id)?.full_name || conflict.brand || 'sesi lain'
-      setMoveError(`⛔ Tidak bisa pindah — bentrok dengan ${cName} di ruangan tujuan`)
+      const cName = getHost(conflict.host_id)?.username || getHost(conflict.host_id)?.full_name || conflict.brand || tr('otherSession', lang)
+      setMoveError(`${tr('moveConflict', lang)} ${cName} ${tr('atTargetRoom', lang)}`)
       setTimeout(() => setMoveError(''), 4000)
       return
     }
@@ -352,7 +352,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
       .update({ session_no: targetSession, room_id: targetRoomId, jam_mulai: newJam })
       .eq('id', slotId)
     if (error) {
-      setMoveError('Gagal memindahkan: ' + error.message)
+      setMoveError(`${tr('moveFailed', lang)} ` + error.message)
       setTimeout(() => setMoveError(''), 4000)
       return
     }
@@ -377,7 +377,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
       .in('slot_date', dupSourceDays).not('host_id', 'is', null)
 
     if (!sourceSlots?.length) {
-      setDupResult('Tidak ada jadwal di hari sumber yang dipilih.')
+      setDupResult(tr('noSourceSchedule', lang))
       setDuplicating(false); return
     }
 
@@ -399,7 +399,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
     if (error) {
       setDupResult('Error: ' + error.message)
     } else {
-      setDupResult(`✓ ${toInsert.length} sesi berhasil diduplikasi ke ${dupTargetDays.length} hari!`)
+      setDupResult(`✓ ${toInsert.length} ${tr('duplicateSuccess', lang)} ${dupTargetDays.length} ${tr('daysWord', lang)}`)
       setShowDupModal(false)
       setDupSourceDays([]); setDupTargetDays([])
       fetchSlots()
@@ -584,19 +584,19 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
         {/* Top bar */}
         <div className="bg-white border-b border-gray-100 px-4 py-2.5 flex items-center gap-2 flex-shrink-0 flex-wrap">
           <h1 className="font-bold text-gray-900 text-sm">{tr('schedule', lang)}</h1>
-          <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{totalThisWeek} sesi</span>
+          <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{totalThisWeek} {tr('sessionsCount', lang)}</span>
           {isAdmin && (
-            <span className="text-[10px] text-gray-400 hidden sm:inline">· seret kartu untuk pindah jam/ruangan</span>
+            <span className="text-[10px] text-gray-400 hidden sm:inline">{tr('dragHint', lang)}</span>
           )}
           <div className="flex items-center gap-1 ml-auto">
             <button onClick={() => setBaseDate(new Date())}
               className="text-xs bg-brand-50 text-brand-700 border border-brand-200 px-2.5 py-1.5 rounded-lg font-medium hover:bg-brand-100">
-              Hari Ini
+              {tr('today', lang)}
             </button>
             {isAdmin && (
               <button onClick={() => { setDupSourceDays([]); setDupTargetDays([]); setShowDupModal(true) }}
                 className="flex items-center gap-1.5 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1.5 rounded-lg font-medium hover:bg-emerald-100">
-                <Copy size={12}/> Duplikasi Jadwal
+                <Copy size={12}/> {tr('duplicateSchedule', lang)}
               </button>
             )}
           </div>
@@ -640,12 +640,12 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
         {/* Grid */}
         <div className="flex-1 overflow-auto bg-gray-50">
           {loading ? (
-            <div className="flex items-center justify-center h-full text-sm text-gray-400">Memuat...</div>
+            <div className="flex items-center justify-center h-full text-sm text-gray-400">{tr('loading', lang)}</div>
           ) : (
             <div className="min-w-max h-full flex flex-col">
               {/* Column headers */}
               <div className="sticky top-0 z-20 bg-white border-b border-gray-200 flex shadow-sm flex-shrink-0">
-                <div className="w-20 flex-shrink-0 px-2 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-r border-gray-100 flex items-end pb-2">Sesi</div>
+                <div className="w-20 flex-shrink-0 px-2 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-r border-gray-100 flex items-end pb-2">{tr('sessionCol', lang)}</div>
                 {groups.map(group => {
                   const gr = rooms.filter(r => r.group_name === group)
                   return (
@@ -685,10 +685,10 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                         <span className="text-xs font-bold text-pink-700 uppercase tracking-wide">{group.label}</span>
                         <span className="text-[10px] text-pink-400 font-mono">{group.sub}</span>
                         {count > 0 && (
-                          <span className="text-[9px] bg-pink-500 text-white px-1.5 py-0.5 rounded-full font-semibold">{count} sesi</span>
+                          <span className="text-[9px] bg-pink-500 text-white px-1.5 py-0.5 rounded-full font-semibold">{count} {tr('sessionsCount', lang)}</span>
                         )}
                         <span className="ml-auto text-[10px] text-pink-400 font-medium">
-                          {isCollapsed ? 'Tampilkan' : 'Sembunyikan'}
+                          {isCollapsed ? tr('showGroup', lang) : tr('hideGroup', lang)}
                         </span>
                       </div>
                     </div>
@@ -720,23 +720,23 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">{tr('host', lang)}</label>
                 <select value={form.hostId} onChange={e => setForm(f => ({...f, hostId: e.target.value}))}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50">
-                  <option value="">— Tidak ada —</option>
+                  <option value="">{tr('none', lang)}</option>
                   {hosts.map(h => <option key={h.id} value={h.id}>{h.full_name}</option>)}
                 </select>
               </div>
 
               {/* Brand */}
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Brand</label>
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">{tr('brand', lang)}</label>
                 {brands.length > 0 ? (
                   <select value={form.brand} onChange={e => setForm(f => ({...f, brand: e.target.value}))}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50">
-                    <option value="">— Pilih brand —</option>
+                    <option value="">{tr('chooseBrand', lang)}</option>
                     {brands.map(b => <option key={b} value={b}>{b}</option>)}
                   </select>
                 ) : (
                   <div className="border border-dashed border-gray-300 rounded-xl px-3 py-2.5 text-sm text-gray-400 bg-gray-50">
-                    Belum ada brand — tambah Client di Onboarding
+                    {tr('noBrandYet', lang)}
                   </div>
                 )}
               </div>
@@ -744,7 +744,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
               {/* Platform + Tipe Live */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Platform</label>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">{tr('platform', lang)}</label>
                   <select value={form.platform} onChange={e => setForm(f => ({...f, platform: e.target.value}))}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50">
                     <option value="">—</option>
@@ -752,7 +752,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Tipe Live</label>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">{tr('liveType', lang)}</label>
                   <select value={form.tipeLive} onChange={e => setForm(f => ({...f, tipeLive: e.target.value}))}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50">
                     <option value="">—</option>
@@ -763,7 +763,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
 
               {/* Durasi (start time comes from the session slot clicked in the grid) */}
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Live Durasi</label>
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">{tr('liveDuration', lang)}</label>
                 <div className="flex items-center gap-1 border border-gray-200 rounded-xl bg-gray-50 px-1 w-fit">
                   <button type="button"
                     onClick={() => setForm(f => ({ ...f, durasi: Math.max(0, +(f.durasi - 0.5).toFixed(1)) }))}
@@ -793,7 +793,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                   const effectiveStart = form.jamMulai || `${String(editSlot.session - 1).padStart(2, '0')}:00`
                   return (
                     <div className="mt-2 flex items-center gap-2 bg-brand-50 border border-brand-100 rounded-xl px-3 py-2">
-                      <span className="text-xs text-brand-500 font-medium">Waktu Live:</span>
+                      <span className="text-xs text-brand-500 font-medium">{tr('liveTime', lang)}</span>
                       <span className="text-sm font-bold text-brand-700">
                         {effectiveStart} – {calcJamSelesai(effectiveStart, form.durasi)}
                       </span>
@@ -809,9 +809,9 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                     <div className="mt-2 flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
                       <span className="text-base leading-none mt-0.5">⛔</span>
                       <div>
-                        <p className="text-xs font-bold text-red-700">{form.brand} diblokir jam ini</p>
+                        <p className="text-xs font-bold text-red-700">{form.brand} {tr('blockedThisHour', lang)}</p>
                         <p className="text-[11px] text-red-500 mt-0.5">
-                          {c.platform || 'Semua platform'} · {c.start_time.slice(0,5)}–{c.end_time.slice(0,5)}
+                          {c.platform || tr('allPlatformsWord', lang)} · {c.start_time.slice(0,5)}–{c.end_time.slice(0,5)}
                           {c.reason ? ` · ${c.reason}` : ''}
                         </p>
                       </div>
@@ -822,7 +822,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
 
               {/* Konsep Live */}
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Konsep Live</label>
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">{tr('liveConcept', lang)}</label>
                 <input value={form.konsep} onChange={e => setForm(f => ({...f, konsep: e.target.value}))}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50"
                   placeholder="e.g. Flash sale kompor"/>
@@ -830,7 +830,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
 
               {/* Background */}
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Background</label>
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">{tr('background', lang)}</label>
                 <input value={form.background} onChange={e => setForm(f => ({...f, background: e.target.value}))}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50"
                   placeholder="e.g. Dapur minimalis putih"/>
@@ -838,7 +838,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
 
               {/* Kostum */}
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Kostum</label>
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">{tr('costume', lang)}</label>
                 <input value={form.kostum} onChange={e => setForm(f => ({...f, kostum: e.target.value}))}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50"
                   placeholder="e.g. Apron hitam"/>
@@ -846,7 +846,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
 
               {/* Gimmick */}
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Gimmick</label>
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">{tr('gimmick', lang)}</label>
                 <input value={form.gimmick} onChange={e => setForm(f => ({...f, gimmick: e.target.value}))}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50"
                   placeholder="e.g. Spin wheel hadiah"/>
@@ -855,7 +855,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
               {/* Duplicate to other days in this week */}
               <div className="pt-1">
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">
-                  Duplikasi ke hari lain minggu ini
+                  {tr('duplicateToOtherDays', lang)}
                 </label>
                 <div className="grid grid-cols-3 gap-1.5">
                   {otherDays.map((d, i) => {
@@ -877,7 +877,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                 </div>
                 {dupDays.length > 0 && (
                   <p className="text-xs text-brand-600 mt-1.5 font-medium">
-                    + Akan diduplikasi ke {dupDays.length} hari lain
+                    + {tr('willDuplicateTo', lang)} {dupDays.length} {tr('otherDaysWord', lang)}
                   </p>
                 )}
               </div>
@@ -889,16 +889,16 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
               {editSlot.existing?.id && (
                 <button onClick={deleteSlot} disabled={saving}
                   className="px-3 py-2.5 text-sm text-red-600 border border-red-200 rounded-xl hover:bg-red-50 disabled:opacity-50 flex items-center gap-1.5">
-                  <Trash2 size={13}/> Hapus
+                  <Trash2 size={13}/> {tr('delete', lang)}
                 </button>
               )}
               <button onClick={() => setEditSlot(null)}
                 className="flex-1 px-4 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600">
-                Batal
+                {tr('cancel', lang)}
               </button>
               <button onClick={saveSlot} disabled={saving}
                 className="flex-1 px-4 py-2.5 text-sm bg-brand-600 text-white rounded-xl hover:bg-brand-700 flex items-center justify-center gap-2 disabled:opacity-60 font-semibold">
-                <Save size={14}/>{saving ? 'Menyimpan...' : 'Simpan'}
+                <Save size={14}/>{saving ? tr('saving', lang) : tr('save', lang)}
               </button>
             </div>
           </div>
@@ -941,8 +941,8 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
               <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between"
                 style={{ background: 'linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%)' }}>
                 <div>
-                  <h3 className="font-bold text-emerald-900 text-sm">Duplikasi Jadwal</h3>
-                  <p className="text-[10px] text-emerald-600 mt-0.5">Pilih hari sumber dan hari tujuan</p>
+                  <h3 className="font-bold text-emerald-900 text-sm">{tr('duplicateSchedule', lang)}</h3>
+                  <p className="text-[10px] text-emerald-600 mt-0.5">{tr('duplicateScheduleDesc', lang)}</p>
                 </div>
                 <button onClick={() => setShowDupModal(false)} className="p-1.5 rounded-lg hover:bg-emerald-100 transition-colors">
                   <X size={16} className="text-emerald-500"/>
@@ -953,7 +953,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                 {/* Source days — current week only */}
                 <div>
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">
-                    Sumber — Pilih hari yang ingin diduplikasi
+                    {tr('sourcePickDays', lang)}
                   </p>
                   <div className="grid grid-cols-7 gap-1.5">
                     {weekDates.map((d, i) => {
@@ -984,10 +984,10 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                 {/* Target days — current week + next week */}
                 <div>
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">
-                    Tujuan — Pilih hari tujuan
+                    {tr('targetPickDays', lang)}
                   </p>
                   {/* Current week */}
-                  <p className="text-[10px] text-gray-400 mb-1.5 font-medium">Minggu ini ({thisWeekStrs[0].slice(5)} – {thisWeekStrs[6].slice(5)})</p>
+                  <p className="text-[10px] text-gray-400 mb-1.5 font-medium">{tr('thisWeek', lang)} ({thisWeekStrs[0].slice(5)} – {thisWeekStrs[6].slice(5)})</p>
                   <div className="grid grid-cols-7 gap-1.5 mb-3">
                     {weekDates.map((d, i) => {
                       const ds = toLocalDateStr(d)
@@ -1009,7 +1009,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                     })}
                   </div>
                   {/* Next week */}
-                  <p className="text-[10px] text-gray-400 mb-1.5 font-medium">Minggu depan ({nextWeekStrs[0].slice(5)} – {nextWeekStrs[6].slice(5)})</p>
+                  <p className="text-[10px] text-gray-400 mb-1.5 font-medium">{tr('nextWeek', lang)} ({nextWeekStrs[0].slice(5)} – {nextWeekStrs[6].slice(5)})</p>
                   <div className="grid grid-cols-7 gap-1.5">
                     {nextWeek.map((d, i) => {
                       const ds = toLocalDateStr(d)
@@ -1031,12 +1031,12 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                 {/* Summary */}
                 {(dupSourceDays.length > 0 || dupTargetDays.length > 0) && (
                   <div className="bg-emerald-50 rounded-xl px-4 py-3 text-xs text-emerald-700">
-                    {dupSourceDays.length === 0 && <span className="opacity-70">Pilih hari sumber dahulu</span>}
-                    {dupTargetDays.length === 0 && dupSourceDays.length > 0 && <span className="opacity-70">Pilih hari tujuan</span>}
+                    {dupSourceDays.length === 0 && <span className="opacity-70">{tr('pickSourceFirst', lang)}</span>}
+                    {dupTargetDays.length === 0 && dupSourceDays.length > 0 && <span className="opacity-70">{tr('pickTargetDay', lang)}</span>}
                     {dupSourceDays.length > 0 && dupTargetDays.length > 0 && (
                       <span className="font-semibold">
-                        {srcSlotCount} sesi dari {dupSourceDays.length} hari → {dupTargetDays.length} hari tujuan
-                        {totalEstimate > 0 && ` = ~${totalEstimate} slot baru`}
+                        {srcSlotCount} {tr('fromDaysToDays', lang)} {dupSourceDays.length} {tr('daysToTargetDays', lang)} {dupTargetDays.length} {tr('targetDaysWord', lang)}
+                        {totalEstimate > 0 && ` = ~${totalEstimate} ${tr('newSlotsEst', lang)}`}
                       </span>
                     )}
                   </div>
@@ -1046,12 +1046,12 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
               <div className="px-5 pb-5 flex gap-3">
                 <button onClick={() => setShowDupModal(false)} disabled={duplicating}
                   className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">
-                  Batal
+                  {tr('cancel', lang)}
                 </button>
                 <button onClick={duplicateSelected}
                   disabled={duplicating || dupSourceDays.length === 0 || dupTargetDays.length === 0}
                   className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors">
-                  {duplicating ? 'Menduplikasi...' : `Duplikasi${totalEstimate > 0 ? ` (${totalEstimate})` : ''}`}
+                  {duplicating ? tr('duplicating', lang) : `${tr('duplicateWord', lang)}${totalEstimate > 0 ? ` (${totalEstimate})` : ''}`}
                 </button>
               </div>
             </div>

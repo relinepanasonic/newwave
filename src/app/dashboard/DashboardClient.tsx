@@ -44,7 +44,7 @@ export default function DashboardClient({ profile, slotsToday, slotsThisMonth, a
       iconColor: 'text-emerald-600',
     },
     {
-      label: 'Live Sekarang',
+      label: tr('liveNow', lang),
       value: liveNow.length,
       icon: Activity,
       color: 'bg-red-100 text-red-700',
@@ -92,16 +92,16 @@ export default function DashboardClient({ profile, slotsToday, slotsThisMonth, a
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
             <h2 className="font-semibold text-gray-900 text-sm">
-              {lang === 'id' ? 'Jadwal Hari Ini' : "Today's Schedule"}
+              {tr('scheduleToday', lang)}
             </h2>
             <a href="/schedule" className="text-xs text-brand-600 hover:underline font-medium">
-              {lang === 'id' ? 'Lihat Semua →' : 'View All →'}
+              {tr('viewAll', lang)}
             </a>
           </div>
 
           {filledToday.length === 0 ? (
             <div className="px-5 py-10 text-center text-sm text-gray-400">
-              {lang === 'id' ? 'Belum ada sesi hari ini' : 'No sessions scheduled today'}
+              {tr('noSessionsToday', lang)}
             </div>
           ) : (
             <div className="overflow-x-auto">
