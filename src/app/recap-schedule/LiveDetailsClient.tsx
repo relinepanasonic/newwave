@@ -22,7 +22,7 @@ export default function LiveDetailsClient({ profile }: { profile: any }) {
 
   return (
     <AppShell role={profile.role as any} userName={profile.full_name}>
-      <div className={cn('p-4 sm:p-6 mx-auto', tab === 'rekonsiliasi' ? 'max-w-full' : 'max-w-5xl')}>
+      <div className={cn('p-4 sm:p-6 mx-auto', tab === 'rekonsiliasi' || tab === 'report' ? 'max-w-full' : 'max-w-5xl')}>
 
         {/* Header */}
         <div className="mb-5">

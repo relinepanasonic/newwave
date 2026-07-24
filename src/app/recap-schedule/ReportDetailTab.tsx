@@ -418,7 +418,7 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="w-full">
       {/* Hidden file input for CSV */}
       <input ref={csvRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleCsvFile}/>
 
