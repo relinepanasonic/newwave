@@ -34,7 +34,7 @@ interface Host {
 }
 
 interface PayRow {
-  host_id: string; full_name: string; hourly_rate: number
+  host_id: string; full_name: string; username: string | null; hourly_rate: number
   scheduledHours: number; forecastSalary: number
   reportedHours: number; actualSalary: number
   tunjangan: number; bonus: number; kasbonDibayar: number; pinalti: number
@@ -497,7 +497,7 @@ function GajiTab() {
     const periodEnd = toLocalDateStr(period.end)
 
     const [hostsRes, slotsRes, reportsRes, kasbonRes, exclRes, adjRes] = await Promise.all([
-      supabase.from('profiles').select('id, full_name, hourly_rate').in('role', ['host', 'host_manager']).order('full_name'),
+      supabase.from('profiles').select('id, full_name, username, hourly_rate').in('role', ['host', 'host_manager']).order('full_name'),
       supabase.from('schedule_slots').select('host_id, durasi').gte('slot_date', periodStart).lte('slot_date', periodEnd).not('host_id', 'is', null),
       supabase.from('live_reports').select('host_id, duration_hours').gte('report_date', periodStart).lte('report_date', periodEnd),
       supabase.from('kasbon').select('host_id, amount, paid_amount').eq('status', 'unpaid'),
@@ -535,7 +535,7 @@ function GajiTab() {
         const actualSalary = reportedHours * Number(h.hourly_rate || 0)
         const adj = adjMap[h.id] || { tunjangan: 0, bonus: 0, kasbonDibayar: 0, pinalti: 0 }
         return {
-          host_id: h.id, full_name: h.full_name, hourly_rate: Number(h.hourly_rate) || 0,
+          host_id: h.id, full_name: h.full_name, username: h.username || null, hourly_rate: Number(h.hourly_rate) || 0,
           scheduledHours, forecastSalary: scheduledHours * Number(h.hourly_rate || 0),
           reportedHours, actualSalary,
           tunjangan: adj.tunjangan, bonus: adj.bonus, kasbonDibayar: adj.kasbonDibayar, pinalti: adj.pinalti,
@@ -594,30 +594,79 @@ function GajiTab() {
     const { default: autoTable } = await import('jspdf-autotable')
     const doc = new jsPDF()
     doc.setFontSize(18)
-    doc.text('New Wave Live Specialist', 14, 20)
-    doc.setFontSize(11)
-    doc.text('Slip Gaji / Payslip', 14, 30)
-    doc.text(`Nama: ${host.full_name}`, 14, 42)
-    doc.text(`Periode: ${periodLabel(periodStartStr)}`, 14, 50)
-    doc.text(`Tarif/Jam: ${formatCurrency(host.hourly_rate)}`, 14, 58)
-    const body: [string, string][] = [
-      ['Jam Terjadwal (Forecast)', `${Number(host.scheduledHours).toFixed(2)} jam — ${formatCurrency(host.forecastSalary)}`],
-      ['Jam Dilaporkan (Aktual)', `${Number(host.reportedHours).toFixed(2)} jam`],
-      ['Tarif per Jam', formatCurrency(host.hourly_rate)],
-      ['Total Gaji (Bruto)', formatCurrency(host.actualSalary)],
-    ]
-    if (host.tunjangan > 0) body.push(['Tunjangan', `+ ${formatCurrency(host.tunjangan)}`])
-    if (host.bonus > 0) body.push(['Bonus', `+ ${formatCurrency(host.bonus)}`])
-    if (host.kasbonDibayar > 0) body.push(['Bayar Kasbon', `- ${formatCurrency(host.kasbonDibayar)}`])
-    if (host.pinalti > 0) body.push(['Pinalti', `- ${formatCurrency(host.pinalti)}`])
-    body.push(['Gaji Bersih (Netto)', formatCurrency(host.netSalary)])
+    doc.text('New Wave Live Specialist', 14, 18)
+    doc.setFontSize(12)
+    doc.text('Slip Gaji', 14, 27)
+
+    // Header info — no colored header row, just label/value pairs
     autoTable(doc, {
-      startY: 68,
-      head: [['Keterangan', 'Nilai']],
-      body,
+      startY: 34,
+      body: [
+        ['Periode', periodLabel(periodStartStr)],
+        ['Nama', host.full_name],
+        ['ID Host', host.username || '—'],
+        ['Based Jam', formatCurrency(host.hourly_rate)],
+        ['Based Content', formatCurrency(0)],
+      ],
       theme: 'grid',
-      headStyles: { fillColor: [109, 40, 217] },
+      styles: { fontSize: 10, cellPadding: 4 },
+      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 55 } },
     })
+
+    // Live — based on actual reported hours/sessions only, not the schedule plan
+    autoTable(doc, {
+      startY: (doc as any).lastAutoTable.finalY,
+      body: [
+        ['Live Total', `${Number(host.reportedHours).toFixed(2)} jam`],
+        ['Konten Total', '0'],
+        [{ content: 'Live Fee', styles: { fontStyle: 'bold' } }, { content: formatCurrency(host.actualSalary), styles: { fontStyle: 'bold' } }],
+      ],
+      theme: 'grid',
+      styles: { fontSize: 10, cellPadding: 4 },
+      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 55 } },
+      didParseCell: (data: any) => {
+        if (data.row.index === 2) data.cell.styles.fillColor = [219, 234, 254]
+      },
+    })
+
+    // Bonus & Tunjangan
+    autoTable(doc, {
+      startY: (doc as any).lastAutoTable.finalY + 6,
+      head: [[{ content: 'Bonus & Tunjangan', colSpan: 2 }]],
+      body: [
+        ['Bonus Live', formatCurrency(host.bonus)],
+        ['Tunjangan', formatCurrency(host.tunjangan)],
+      ],
+      theme: 'grid',
+      styles: { fontSize: 10, cellPadding: 4 },
+      headStyles: { fillColor: [219, 234, 254], textColor: [30, 64, 175], fontStyle: 'bold' },
+      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 55 } },
+    })
+
+    // Kasbon
+    autoTable(doc, {
+      startY: (doc as any).lastAutoTable.finalY + 6,
+      head: [[{ content: 'Kasbon', colSpan: 2 }]],
+      body: [
+        ['Kasbon', formatCurrency(host.kasbonDibayar)],
+        ['Potongan Lain', formatCurrency(host.pinalti)],
+      ],
+      theme: 'grid',
+      styles: { fontSize: 10, cellPadding: 4 },
+      headStyles: { fillColor: [254, 226, 226], textColor: [185, 28, 28], fontStyle: 'bold' },
+      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 55 } },
+    })
+
+    // Nett Take Home Pay
+    autoTable(doc, {
+      startY: (doc as any).lastAutoTable.finalY + 6,
+      body: [[{ content: 'Nett Take Home Pay', styles: { fontStyle: 'bold', fontSize: 12 } },
+              { content: formatCurrency(host.netSalary), styles: { fontStyle: 'bold', fontSize: 12 } }]],
+      theme: 'grid',
+      styles: { cellPadding: 5 },
+      columnStyles: { 0: { cellWidth: 55 } },
+    })
+
     doc.save(`Payslip_${host.full_name.replace(' ', '_')}_${selectedPeriod}.pdf`)
   }
 
