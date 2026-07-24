@@ -2,7 +2,14 @@
 import { useState, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, PLATFORM_COLORS } from '@/lib/utils'
-import { Upload, AlertTriangle, CheckCircle2, XCircle, Link2, X, CalendarSearch, ExternalLink } from 'lucide-react'
+import {
+  Upload, AlertTriangle, CheckCircle2, XCircle, Link2, X, CalendarSearch, ExternalLink,
+  Pencil, FileSpreadsheet, Save, Sparkles,
+} from 'lucide-react'
+import CurrencyInput from '@/components/CurrencyInput'
+import TimeInput from '@/components/TimeInput'
+
+const PLATFORMS = ['TikTok', 'Shopee', 'Instagram', 'YouTube', 'Other']
 
 const MONTH_ID: Record<string, number> = {
   jan:1,feb:2,mar:3,apr:4,may:5,mei:5,jun:6,jul:7,aug:8,agu:8,sep:9,oct:10,okt:10,nov:11,dec:12,des:12,
@@ -133,6 +140,12 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
   const [pickingIdx, setPickingIdx] = useState<number | null>(null)
   const [pickingScheduleIdx, setPickingScheduleIdx] = useState<number | null>(null)
   const [detailRow, setDetailRow] = useState<CompareRow | null>(null)
+  const [editForm, setEditForm] = useState<{
+    host_id: string; start_time: string; platform: string
+    gmv: number; impression: number; viewer: number; trans: number; comment_count: number
+  } | null>(null)
+  const [savingDetail, setSavingDetail] = useState(false)
+  const [detailSaveError, setDetailSaveError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -326,6 +339,43 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
 
   const visibleRows = compareRows.filter(r => statusFilter === 'all' ? true : r.status === statusFilter)
 
+  function openDetail(r: CompareRow) {
+    setDetailRow(r)
+    setDetailSaveError('')
+    setEditForm(r.app ? {
+      host_id: r.app.host_id, start_time: r.app.start_time?.slice(0, 5) || '', platform: r.app.platform || '',
+      gmv: Number(r.app.gmv) || 0, impression: Number(r.app.impression) || 0, viewer: Number(r.app.viewer) || 0,
+      trans: Number(r.app.trans) || 0, comment_count: Number(r.app.comment_count) || 0,
+    } : null)
+  }
+
+  function closeDetail() {
+    setDetailRow(null)
+    setEditForm(null)
+    setDetailSaveError('')
+  }
+
+  async function saveDetailEdit() {
+    if (!detailRow?.app || !editForm) return
+    setSavingDetail(true); setDetailSaveError('')
+    const supabase = createClient()
+    const { data, error } = await supabase.from('live_reports').update({
+      host_id: editForm.host_id,
+      start_time: editForm.start_time || null,
+      platform: editForm.platform || null,
+      gmv: editForm.gmv, impression: editForm.impression, viewer: editForm.viewer,
+      trans: editForm.trans, comment_count: editForm.comment_count,
+    }).eq('id', detailRow.app.id)
+      .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, profiles:host_id(full_name, username)')
+      .single()
+    setSavingDetail(false)
+    if (error) { setDetailSaveError(error.message); return }
+    if (data) {
+      setAppReports(prev => prev.map(a => a.id === (data as any).id ? (data as any) : a))
+      closeDetail()
+    }
+  }
+
   return (
     <div className="w-full">
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-5">
@@ -464,7 +514,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                             </div>
                           )
                         ) : r.status === 'mismatch' ? (
-                          <button onClick={() => setDetailRow(r)}
+                          <button onClick={() => openDetail(r)}
                             className="inline-flex items-center gap-1 text-[10px] text-pink-600 hover:text-pink-800 border border-pink-200 rounded-lg px-2 py-1 hover:bg-pink-50 transition-colors whitespace-nowrap">
                             <ExternalLink size={10}/> Detail
                           </button>
@@ -496,78 +546,181 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
         </>
       )}
 
-      {/* Mismatch detail: App vs CSV side by side, with the app's screenshot */}
-      {detailRow && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setDetailRow(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[88vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
-              <div>
-                <h3 className="font-bold text-gray-900 text-sm">Detail Perbandingan</h3>
-                <p className="text-xs text-gray-400">{detailRow.csv.host} · {fmtDate(detailRow.csv.tanggal)} · {detailRow.csv.startSesi} · {detailRow.csv.brand}</p>
-              </div>
-              <button onClick={() => setDetailRow(null)} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={18} className="text-gray-400"/></button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-100">
-              {/* App side */}
-              <div className="p-5">
-                <p className="text-[10px] font-bold text-brand-500 uppercase tracking-widest mb-3">Data Aplikasi</p>
-                {detailRow.app?.screenshot_url ? (
-                  <button onClick={() => window.open(detailRow.app!.screenshot_url!, '_blank')} className="block w-full mb-3">
-                    <img src={detailRow.app.screenshot_url} alt="Screenshot laporan"
-                      className="w-full max-h-56 object-contain rounded-xl border border-gray-200 hover:border-brand-300 transition-colors"/>
-                  </button>
-                ) : (
-                  <div className="w-full h-28 rounded-xl border border-dashed border-gray-200 flex items-center justify-center text-xs text-gray-300 mb-3">
-                    Tidak ada screenshot
+      {/* Mismatch detail: App (editable) vs CSV (reference) side by side, with the app's screenshot */}
+      {detailRow && (() => {
+        const live = editForm ? {
+          gmv: editForm.gmv !== detailRow.csv.gmv,
+          impression: editForm.impression !== detailRow.csv.impression,
+          viewer: editForm.viewer !== detailRow.csv.viewer,
+          trans: editForm.trans !== detailRow.csv.trans,
+          comment: editForm.comment_count !== detailRow.csv.comment,
+        } : { gmv: false, impression: false, viewer: false, trans: false, comment: false }
+
+        return (
+          <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={closeDetail}>
+            <div className="bg-white rounded-3xl shadow-2xl ring-1 ring-brand-100 w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+              {/* Header */}
+              <div className="px-6 py-5 flex items-center justify-between flex-shrink-0"
+                style={{ background: 'linear-gradient(135deg,#f5f3ff 0%,#ede9fe 60%,#fdf2f8 100%)' }}>
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-2xl bg-white/70 flex items-center justify-center shadow-sm flex-shrink-0">
+                    <Sparkles size={16} className="text-brand-600"/>
                   </div>
-                )}
-                <div className="space-y-1.5 text-xs">
-                  <DetailField label="Host" value={detailRow.app?.profiles?.full_name || '—'}/>
-                  <DetailField label="Tanggal" value={detailRow.app ? fmtDate(detailRow.app.report_date) : '—'}/>
-                  <DetailField label="Jam" value={detailRow.app?.start_time?.slice(0,5) || '—'}/>
-                  <DetailField label="Durasi" value={detailRow.app?.duration_hours ? `${detailRow.app.duration_hours} jam` : '—'}/>
-                  <DetailField label="Brand" value={detailRow.app?.brand || '—'}/>
-                  <DetailField label="Platform" value={detailRow.app?.platform || '—'}/>
-                  <DetailField label="GMV" value={detailRow.app ? formatCurrency(Number(detailRow.app.gmv)) : '—'} highlight={detailRow.mismatches.has('gmv')}/>
-                  <DetailField label="Impresi" value={detailRow.app ? fmtNum(Number(detailRow.app.impression)) : '—'} highlight={detailRow.mismatches.has('impression')}/>
-                  <DetailField label="Penonton" value={detailRow.app ? fmtNum(Number(detailRow.app.viewer)) : '—'} highlight={detailRow.mismatches.has('viewer')}/>
-                  <DetailField label="Trans" value={detailRow.app ? fmtNum(Number(detailRow.app.trans)) : '—'} highlight={detailRow.mismatches.has('trans')}/>
-                  <DetailField label="Komentar" value={detailRow.app ? fmtNum(Number(detailRow.app.comment_count)) : '—'} highlight={detailRow.mismatches.has('comment')}/>
+                  <div>
+                    <h3 className="font-bold text-brand-900 text-base">Detail Perbandingan</h3>
+                    <p className="text-xs text-brand-600/80 mt-0.5">
+                      {detailRow.csv.host} · {fmtDate(detailRow.csv.tanggal)} · {detailRow.csv.startSesi} · {detailRow.csv.brand}
+                    </p>
+                  </div>
+                </div>
+                <button onClick={closeDetail} className="p-2 rounded-xl hover:bg-white/60 transition-colors flex-shrink-0">
+                  <X size={18} className="text-brand-400"/>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-100 overflow-y-auto">
+                {/* App side — editable */}
+                <div className="p-6 bg-white">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-6 h-6 rounded-lg bg-brand-100 flex items-center justify-center">
+                      <Pencil size={11} className="text-brand-600"/>
+                    </div>
+                    <p className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">Data Aplikasi</p>
+                    <span className="text-[9px] bg-brand-50 text-brand-500 border border-brand-100 px-1.5 py-0.5 rounded-full font-semibold ml-auto">Bisa Diedit</span>
+                  </div>
+
+                  {detailRow.app?.screenshot_url ? (
+                    <button onClick={() => window.open(detailRow.app!.screenshot_url!, '_blank')} className="block w-full mb-4 group">
+                      <img src={detailRow.app.screenshot_url} alt="Screenshot laporan"
+                        className="w-full max-h-56 object-contain rounded-2xl border border-gray-200 group-hover:border-brand-300 group-hover:shadow-md transition-all"/>
+                    </button>
+                  ) : (
+                    <div className="w-full h-28 rounded-2xl border border-dashed border-gray-200 flex items-center justify-center text-xs text-gray-300 mb-4">
+                      Tidak ada screenshot
+                    </div>
+                  )}
+
+                  {editForm ? (
+                    <div className="space-y-1">
+                      <EditRow label="Host">
+                        <select value={editForm.host_id} onChange={e => setEditForm(f => f && ({ ...f, host_id: e.target.value }))}
+                          className="text-xs font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400 max-w-[160px]">
+                          {hosts.map(h => <option key={h.id} value={h.id}>{h.full_name}</option>)}
+                        </select>
+                      </EditRow>
+                      <ReadRow label="Tanggal" value={fmtDate(detailRow.app!.report_date)}/>
+                      <EditRow label="Jam">
+                        <div className="w-24">
+                          <TimeInput value={editForm.start_time} onChange={v => setEditForm(f => f && ({ ...f, start_time: v }))}
+                            className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-gray-50 focus:outline-none focus:ring-1 focus:ring-brand-400"/>
+                        </div>
+                      </EditRow>
+                      <ReadRow label="Durasi" value={detailRow.app!.duration_hours ? `${detailRow.app!.duration_hours} jam` : '—'}/>
+                      <ReadRow label="Brand" value={detailRow.app!.brand || '—'}/>
+                      <EditRow label="Platform">
+                        <select value={editForm.platform} onChange={e => setEditForm(f => f && ({ ...f, platform: e.target.value }))}
+                          className="text-xs font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400">
+                          <option value="">—</option>
+                          {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                      </EditRow>
+                      <EditRow label="GMV" highlight={live.gmv}>
+                        <CurrencyInput value={editForm.gmv} onChange={v => setEditForm(f => f && ({ ...f, gmv: v }))}
+                          wrapperClassName="flex items-center border border-gray-200 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-brand-400 bg-white"
+                          prefixClassName="px-2 py-1.5 bg-gray-50 text-[10px] font-semibold text-gray-400 flex-shrink-0"
+                          className="w-24 min-w-0 px-2 py-1.5 text-xs text-right focus:outline-none"/>
+                      </EditRow>
+                      <EditRow label="Impresi" highlight={live.impression}>
+                        <input type="number" value={editForm.impression} onChange={e => setEditForm(f => f && ({ ...f, impression: Number(e.target.value) || 0 }))}
+                          className="w-24 text-xs text-right font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"/>
+                      </EditRow>
+                      <EditRow label="Penonton" highlight={live.viewer}>
+                        <input type="number" value={editForm.viewer} onChange={e => setEditForm(f => f && ({ ...f, viewer: Number(e.target.value) || 0 }))}
+                          className="w-24 text-xs text-right font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"/>
+                      </EditRow>
+                      <EditRow label="Trans" highlight={live.trans}>
+                        <input type="number" value={editForm.trans} onChange={e => setEditForm(f => f && ({ ...f, trans: Number(e.target.value) || 0 }))}
+                          className="w-24 text-xs text-right font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"/>
+                      </EditRow>
+                      <EditRow label="Komentar" highlight={live.comment}>
+                        <input type="number" value={editForm.comment_count} onChange={e => setEditForm(f => f && ({ ...f, comment_count: Number(e.target.value) || 0 }))}
+                          className="w-24 text-xs text-right font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"/>
+                      </EditRow>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-300 text-center py-6">Tidak ada data aplikasi</p>
+                  )}
+                </div>
+
+                {/* CSV side — read-only reference */}
+                <div className="p-6 bg-gray-50/50">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-6 h-6 rounded-lg bg-gray-200 flex items-center justify-center">
+                      <FileSpreadsheet size={11} className="text-gray-500"/>
+                    </div>
+                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Data CSV</p>
+                    <span className="text-[9px] bg-gray-100 text-gray-400 border border-gray-200 px-1.5 py-0.5 rounded-full font-semibold ml-auto">Referensi</span>
+                  </div>
+                  <div className="w-full h-28 rounded-2xl border border-dashed border-gray-200 flex items-center justify-center text-xs text-gray-300 mb-4">
+                    CSV tidak memiliki gambar
+                  </div>
+                  <div className="space-y-1">
+                    <ReadRow label="Host" value={detailRow.csv.host}/>
+                    <ReadRow label="Tanggal" value={fmtDate(detailRow.csv.tanggal)}/>
+                    <ReadRow label="Jam" value={detailRow.csv.startSesi}/>
+                    <ReadRow label="Durasi" value={`${detailRow.csv.totalJam} jam`}/>
+                    <ReadRow label="Brand" value={detailRow.csv.brand}/>
+                    <ReadRow label="Platform" value={detailRow.csv.platform}/>
+                    <ReadRow label="GMV" value={formatCurrency(detailRow.csv.gmv)} highlight={live.gmv}/>
+                    <ReadRow label="Impresi" value={fmtNum(detailRow.csv.impression)} highlight={live.impression}/>
+                    <ReadRow label="Penonton" value={fmtNum(detailRow.csv.viewer)} highlight={live.viewer}/>
+                    <ReadRow label="Trans" value={fmtNum(detailRow.csv.trans)} highlight={live.trans}/>
+                    <ReadRow label="Komentar" value={fmtNum(detailRow.csv.comment)} highlight={live.comment}/>
+                  </div>
                 </div>
               </div>
-              {/* CSV side */}
-              <div className="p-5">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Data CSV</p>
-                <div className="w-full h-28 rounded-xl border border-dashed border-gray-200 flex items-center justify-center text-xs text-gray-300 mb-3">
-                  CSV tidak memiliki gambar
+
+              {/* Footer */}
+              {editForm && (
+                <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between gap-3 flex-shrink-0 bg-white">
+                  {detailSaveError
+                    ? <p className="text-xs text-red-600">{detailSaveError}</p>
+                    : <p className="text-[11px] text-gray-400">Perubahan disimpan langsung ke laporan live host.</p>}
+                  <div className="flex gap-2 flex-shrink-0">
+                    <button onClick={closeDetail} disabled={savingDetail}
+                      className="px-4 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-500 hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                      Batal
+                    </button>
+                    <button onClick={saveDetailEdit} disabled={savingDetail}
+                      className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white rounded-xl shadow-sm hover:shadow-md disabled:opacity-60 transition-all"
+                      style={{ background: 'linear-gradient(135deg,#7c3aed 0%,#6d28d9 100%)' }}>
+                      <Save size={14}/> {savingDetail ? 'Menyimpan...' : 'Simpan Perubahan'}
+                    </button>
+                  </div>
                 </div>
-                <div className="space-y-1.5 text-xs">
-                  <DetailField label="Host" value={detailRow.csv.host}/>
-                  <DetailField label="Tanggal" value={fmtDate(detailRow.csv.tanggal)}/>
-                  <DetailField label="Jam" value={detailRow.csv.startSesi}/>
-                  <DetailField label="Durasi" value={`${detailRow.csv.totalJam} jam`}/>
-                  <DetailField label="Brand" value={detailRow.csv.brand}/>
-                  <DetailField label="Platform" value={detailRow.csv.platform}/>
-                  <DetailField label="GMV" value={formatCurrency(detailRow.csv.gmv)} highlight={detailRow.mismatches.has('gmv')}/>
-                  <DetailField label="Impresi" value={fmtNum(detailRow.csv.impression)} highlight={detailRow.mismatches.has('impression')}/>
-                  <DetailField label="Penonton" value={fmtNum(detailRow.csv.viewer)} highlight={detailRow.mismatches.has('viewer')}/>
-                  <DetailField label="Trans" value={fmtNum(detailRow.csv.trans)} highlight={detailRow.mismatches.has('trans')}/>
-                  <DetailField label="Komentar" value={fmtNum(detailRow.csv.comment)} highlight={detailRow.mismatches.has('comment')}/>
-                </div>
-              </div>
+              )}
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
 
-function DetailField({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function ReadRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg ${highlight ? 'bg-pink-50' : ''}`}>
-      <span className="text-gray-400 font-medium">{label}</span>
+    <div className={`flex items-center justify-between px-3 py-2 rounded-xl transition-colors ${highlight ? 'bg-pink-50' : ''}`}>
+      <span className={`font-medium ${highlight ? 'text-pink-500' : 'text-gray-400'}`}>{label}</span>
       <span className={`font-semibold ${highlight ? 'text-pink-700' : 'text-gray-800'}`}>{value}</span>
+    </div>
+  )
+}
+
+function EditRow({ label, highlight, children }: { label: string; highlight?: boolean; children: React.ReactNode }) {
+  return (
+    <div className={`flex items-center justify-between gap-3 px-3 py-1.5 rounded-xl transition-colors ${highlight ? 'bg-pink-50' : ''}`}>
+      <span className={`font-medium flex-shrink-0 ${highlight ? 'text-pink-500' : 'text-gray-400'}`}>{label}</span>
+      {children}
     </div>
   )
 }
