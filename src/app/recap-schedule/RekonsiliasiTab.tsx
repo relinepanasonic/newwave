@@ -107,6 +107,7 @@ interface AppReport {
   gmv: number; impression: number; viewer: number; trans: number; comment_count: number
   screenshot_url: string | null
   notes: string | null
+  slot_id: string | null
   profiles: { full_name: string; username: string | null } | null
 }
 
@@ -209,7 +210,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     const supabase = createClient()
     const [reportsRes, slotsRes, hostsRes] = await Promise.all([
       supabase.from('live_reports')
-        .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, profiles:host_id(full_name, username)')
+        .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, profiles:host_id(full_name, username)')
         .gte('report_date', fetchStart).lte('report_date', fetchEnd),
       supabase.from('schedule_slots')
         .select('id, slot_date, session_no, jam_mulai, durasi, brand, platform, host_id')
@@ -303,6 +304,13 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     appReports.filter(r => !usedAppIds.has(r.id)).sort((a, b) => a.report_date.localeCompare(b.report_date)),
     [appReports, usedAppIds])
 
+  // Schedule slots that already have a live_report tied to them (whether
+  // reported normally or confirmed via "Tidak Lapor") -- hide these from the
+  // "Tidak Lapor" picker so a slot can't be picked twice.
+  const usedSlotIds = useMemo(() =>
+    new Set(appReports.filter(r => r.slot_id).map(r => r.slot_id as string)),
+    [appReports])
+
   // Candidates offered in the manual-match picker for a given CSV row: only
   // yesterday/today/tomorrow relative to the CSV row's date (sessions that
   // cross midnight can land on the day before/after), same date sorted first.
@@ -338,6 +346,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     const base = scheduleSlots
       .filter(s => s.slot_date === prev || s.slot_date === csv.tanggal || s.slot_date === next)
       .filter(s => !hostId || s.host_id === hostId)
+      .filter(s => !usedSlotIds.has(s.id))
     const withBrand = base.filter(s => brandsMatch(s.brand || '', csv.brand))
     const pool = withBrand.length > 0 ? withBrand : base
     return pool.sort((a, b) => {
@@ -362,7 +371,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
       start_time: csv.startSesi || slot.jam_mulai, duration_hours: csv.totalJam || slot.durasi,
       gmv: csv.gmv, impression: csv.impression, viewer: csv.viewer, trans: csv.trans, comment_count: csv.comment,
       notes: 'CSV',
-    }).select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, profiles:host_id(full_name, username)').single()
+    }).select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, profiles:host_id(full_name, username)').single()
     setSavingNotReportedIdx(null)
     if (error) { setNotReportedError(error.message); return }
     if (data) {
@@ -423,7 +432,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
       gmv: editForm.gmv, impression: editForm.impression, viewer: editForm.viewer,
       trans: editForm.trans, comment_count: editForm.comment_count,
     }).eq('id', detailRow.app.id)
-      .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, profiles:host_id(full_name, username)')
+      .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, profiles:host_id(full_name, username)')
       .single()
     setSavingDetail(false)
     if (error) { setDetailSaveError(error.message); return }
