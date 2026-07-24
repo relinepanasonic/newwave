@@ -37,6 +37,8 @@ interface PayRow {
   host_id: string; full_name: string; hourly_rate: number
   scheduledHours: number; forecastSalary: number
   reportedHours: number; actualSalary: number
+  tunjangan: number; bonus: number; kasbonDibayar: number; pinalti: number
+  netSalary: number
 }
 
 function periodLabel(start: string): string {
@@ -456,9 +458,9 @@ function GajiTab() {
   const currentPeriod = getPayPeriod()
   const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod.start.toISOString().split('T')[0].slice(0, 7))
 
-  // Edit hourly rate
+  // Edit hourly rate + this period's adjustments
   const [editHost, setEditHost] = useState<PayRow | null>(null)
-  const [editRate, setEditRate] = useState(0)
+  const [editForm, setEditForm] = useState({ hourly_rate: 0, tunjangan: 0, bonus: 0, kasbon_dibayar: 0, pinalti: 0 })
   const [savingRate, setSavingRate] = useState(false)
 
   // Exclude (delete) from this period
@@ -477,12 +479,13 @@ function GajiTab() {
     const periodStart = toLocalDateStr(period.start)
     const periodEnd = toLocalDateStr(period.end)
 
-    const [hostsRes, slotsRes, reportsRes, kasbonRes, exclRes] = await Promise.all([
+    const [hostsRes, slotsRes, reportsRes, kasbonRes, exclRes, adjRes] = await Promise.all([
       supabase.from('profiles').select('id, full_name, hourly_rate').in('role', ['host', 'host_manager']).order('full_name'),
       supabase.from('schedule_slots').select('host_id, durasi').gte('slot_date', periodStart).lte('slot_date', periodEnd).not('host_id', 'is', null),
       supabase.from('live_reports').select('host_id, duration_hours').gte('report_date', periodStart).lte('report_date', periodEnd),
       supabase.from('kasbon').select('host_id, amount').eq('status', 'unpaid'),
       supabase.from('payroll_exclusions').select('host_id').eq('period_start', periodStart),
+      supabase.from('payroll_adjustments').select('host_id, tunjangan, bonus, kasbon_dibayar, pinalti').eq('period_start', periodStart),
     ])
 
     const scheduledMap: Record<string, number> = {}
@@ -495,19 +498,31 @@ function GajiTab() {
     ;(kasbonRes.data || []).forEach((k: any) => { kasbonMap[k.host_id] = (kasbonMap[k.host_id] || 0) + Number(k.amount) })
     setKasbonByHost(kasbonMap)
 
+    const adjMap: Record<string, { tunjangan: number; bonus: number; kasbonDibayar: number; pinalti: number }> = {}
+    ;(adjRes.data || []).forEach((a: any) => {
+      adjMap[a.host_id] = {
+        tunjangan: Number(a.tunjangan) || 0, bonus: Number(a.bonus) || 0,
+        kasbonDibayar: Number(a.kasbon_dibayar) || 0, pinalti: Number(a.pinalti) || 0,
+      }
+    })
+
     const excludedIds = new Set((exclRes.data || []).map((e: any) => e.host_id))
 
     const allRows: PayRow[] = (hostsRes.data || [])
       .map((h: any) => {
         const scheduledHours = scheduledMap[h.id] || 0
         const reportedHours = reportedMap[h.id] || 0
+        const actualSalary = reportedHours * Number(h.hourly_rate || 0)
+        const adj = adjMap[h.id] || { tunjangan: 0, bonus: 0, kasbonDibayar: 0, pinalti: 0 }
         return {
           host_id: h.id, full_name: h.full_name, hourly_rate: Number(h.hourly_rate) || 0,
           scheduledHours, forecastSalary: scheduledHours * Number(h.hourly_rate || 0),
-          reportedHours, actualSalary: reportedHours * Number(h.hourly_rate || 0),
+          reportedHours, actualSalary,
+          tunjangan: adj.tunjangan, bonus: adj.bonus, kasbonDibayar: adj.kasbonDibayar, pinalti: adj.pinalti,
+          netSalary: actualSalary + adj.tunjangan + adj.bonus - adj.kasbonDibayar - adj.pinalti,
         }
       })
-      .filter(r => r.scheduledHours > 0 || r.reportedHours > 0)
+      .filter(r => r.scheduledHours > 0 || r.reportedHours > 0 || r.tunjangan > 0 || r.bonus > 0 || r.kasbonDibayar > 0 || r.pinalti > 0)
 
     setRows(allRows.filter(r => !excludedIds.has(r.host_id)))
     setExcludedRows(allRows.filter(r => excludedIds.has(r.host_id)))
@@ -529,6 +544,7 @@ function GajiTab() {
 
   const totalReportedHours = rows.reduce((s, r) => s + r.reportedHours, 0)
   const totalActualSalary = rows.reduce((s, r) => s + r.actualSalary, 0)
+  const totalNetSalary = rows.reduce((s, r) => s + r.netSalary, 0)
   const totalKasbon = rows.reduce((s, r) => s + (kasbonByHost[r.host_id] || 0), 0)
 
   async function exportExcel() {
@@ -540,7 +556,12 @@ function GajiTab() {
       'Forecast Gaji': r.forecastSalary,
       'Jam Dilaporkan': Number(r.reportedHours).toFixed(2),
       'Gaji Aktual': r.actualSalary,
-      'Kasbon': kasbonByHost[r.host_id] || 0,
+      'Tunjangan': r.tunjangan,
+      'Bonus': r.bonus,
+      'Bayar Kasbon': r.kasbonDibayar,
+      'Pinalti': r.pinalti,
+      'Gaji Bersih': r.netSalary,
+      'Sisa Kasbon Belum Lunas': kasbonByHost[r.host_id] || 0,
       'Periode': periodLabel(periodStartStr),
     })))
     const wb = utils.book_new()
@@ -559,33 +580,52 @@ function GajiTab() {
     doc.text(`Nama: ${host.full_name}`, 14, 42)
     doc.text(`Periode: ${periodLabel(periodStartStr)}`, 14, 50)
     doc.text(`Tarif/Jam: ${formatCurrency(host.hourly_rate)}`, 14, 58)
-    const kasbon = kasbonByHost[host.host_id] || 0
+    const body: [string, string][] = [
+      ['Jam Terjadwal (Forecast)', `${Number(host.scheduledHours).toFixed(2)} jam — ${formatCurrency(host.forecastSalary)}`],
+      ['Jam Dilaporkan (Aktual)', `${Number(host.reportedHours).toFixed(2)} jam`],
+      ['Tarif per Jam', formatCurrency(host.hourly_rate)],
+      ['Total Gaji (Bruto)', formatCurrency(host.actualSalary)],
+    ]
+    if (host.tunjangan > 0) body.push(['Tunjangan', `+ ${formatCurrency(host.tunjangan)}`])
+    if (host.bonus > 0) body.push(['Bonus', `+ ${formatCurrency(host.bonus)}`])
+    if (host.kasbonDibayar > 0) body.push(['Bayar Kasbon', `- ${formatCurrency(host.kasbonDibayar)}`])
+    if (host.pinalti > 0) body.push(['Pinalti', `- ${formatCurrency(host.pinalti)}`])
+    body.push(['Gaji Bersih (Netto)', formatCurrency(host.netSalary)])
     autoTable(doc, {
       startY: 68,
       head: [['Keterangan', 'Nilai']],
-      body: [
-        ['Jam Terjadwal (Forecast)', `${Number(host.scheduledHours).toFixed(2)} jam — ${formatCurrency(host.forecastSalary)}`],
-        ['Jam Dilaporkan (Aktual)', `${Number(host.reportedHours).toFixed(2)} jam`],
-        ['Tarif per Jam', formatCurrency(host.hourly_rate)],
-        ['Total Gaji (Bruto)', formatCurrency(host.actualSalary)],
-        ['Potongan Kasbon', `- ${formatCurrency(kasbon)}`],
-        ['Gaji Bersih (Netto)', formatCurrency(host.actualSalary - kasbon)],
-      ],
+      body,
       theme: 'grid',
       headStyles: { fillColor: [109, 40, 217] },
     })
     doc.save(`Payslip_${host.full_name.replace(' ', '_')}_${selectedPeriod}.pdf`)
   }
 
-  async function saveRate() {
+  async function saveEdit() {
     if (!editHost) return
     setSavingRate(true)
-    const { error } = await createClient().from('profiles').update({ hourly_rate: editRate }).eq('id', editHost.host_id)
+    const supabase = createClient()
+    const [{ error: rateErr }, { error: adjErr }] = await Promise.all([
+      supabase.from('profiles').update({ hourly_rate: editForm.hourly_rate }).eq('id', editHost.host_id),
+      supabase.from('payroll_adjustments').upsert({
+        host_id: editHost.host_id, period_start: periodStartStr,
+        tunjangan: editForm.tunjangan, bonus: editForm.bonus,
+        kasbon_dibayar: editForm.kasbon_dibayar, pinalti: editForm.pinalti,
+      }, { onConflict: 'host_id,period_start' }),
+    ])
     setSavingRate(false)
-    if (error) return
-    const patch = (r: PayRow) => r.host_id === editHost.host_id
-      ? { ...r, hourly_rate: editRate, forecastSalary: r.scheduledHours * editRate, actualSalary: r.reportedHours * editRate }
-      : r
+    if (rateErr || adjErr) return
+    const patch = (r: PayRow) => {
+      if (r.host_id !== editHost.host_id) return r
+      const actualSalary = r.reportedHours * editForm.hourly_rate
+      return {
+        ...r, hourly_rate: editForm.hourly_rate,
+        forecastSalary: r.scheduledHours * editForm.hourly_rate, actualSalary,
+        tunjangan: editForm.tunjangan, bonus: editForm.bonus,
+        kasbonDibayar: editForm.kasbon_dibayar, pinalti: editForm.pinalti,
+        netSalary: actualSalary + editForm.tunjangan + editForm.bonus - editForm.kasbon_dibayar - editForm.pinalti,
+      }
+    }
     setRows(prev => prev.map(patch))
     setExcludedRows(prev => prev.map(patch))
     setEditHost(null)
@@ -628,12 +668,13 @@ function GajiTab() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {[
           { label: 'Total Host', value: `${rows.length}` },
           { label: 'Total Jam Dilaporkan', value: `${Number(totalReportedHours.toFixed(1))} jam` },
           { label: 'Total Gaji Aktual', value: formatCurrency(totalActualSalary) },
-          { label: 'Total Kasbon', value: formatCurrency(totalKasbon) },
+          { label: 'Total Gaji Bersih', value: formatCurrency(totalNetSalary) },
+          { label: 'Sisa Kasbon Belum Lunas', value: formatCurrency(totalKasbon) },
         ].map(({ label, value }) => (
           <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
             <p className="text-xs text-gray-500 font-medium mb-1">{label}</p>
@@ -668,6 +709,11 @@ function GajiTab() {
                 <th className="px-4 py-3 text-right font-semibold">Forecast Gaji</th>
                 <th className="px-4 py-3 text-right font-semibold">Jam Dilaporkan</th>
                 <th className="px-4 py-3 text-right font-semibold">Gaji Aktual</th>
+                <th className="px-4 py-3 text-right font-semibold">Tunjangan</th>
+                <th className="px-4 py-3 text-right font-semibold">Bonus</th>
+                <th className="px-4 py-3 text-right font-semibold">Bayar Kasbon</th>
+                <th className="px-4 py-3 text-right font-semibold">Pinalti</th>
+                <th className="px-4 py-3 text-right font-semibold">Gaji Bersih</th>
                 <th className="px-4 py-3 text-center font-semibold w-40">Aksi</th>
               </tr>
             </thead>
@@ -679,7 +725,12 @@ function GajiTab() {
                   <td className="px-4 py-3 text-right text-gray-600">{row.scheduledHours.toFixed(2)}</td>
                   <td className="px-4 py-3 text-right text-gray-500">{formatCurrency(row.forecastSalary)}</td>
                   <td className="px-4 py-3 text-right text-gray-600">{row.reportedHours.toFixed(2)}</td>
-                  <td className="px-4 py-3 text-right font-bold text-gray-900 whitespace-nowrap">{formatCurrency(row.actualSalary)}</td>
+                  <td className="px-4 py-3 text-right text-gray-900 whitespace-nowrap">{formatCurrency(row.actualSalary)}</td>
+                  <td className="px-4 py-3 text-right text-emerald-600 whitespace-nowrap">{row.tunjangan > 0 ? `+ ${formatCurrency(row.tunjangan)}` : '—'}</td>
+                  <td className="px-4 py-3 text-right text-emerald-600 whitespace-nowrap">{row.bonus > 0 ? `+ ${formatCurrency(row.bonus)}` : '—'}</td>
+                  <td className="px-4 py-3 text-right text-red-500 whitespace-nowrap">{row.kasbonDibayar > 0 ? `- ${formatCurrency(row.kasbonDibayar)}` : '—'}</td>
+                  <td className="px-4 py-3 text-right text-red-500 whitespace-nowrap">{row.pinalti > 0 ? `- ${formatCurrency(row.pinalti)}` : '—'}</td>
+                  <td className="px-4 py-3 text-right font-bold text-gray-900 whitespace-nowrap">{formatCurrency(row.netSalary)}</td>
                   <td className="px-4 py-3">
                     {confirmExcludeId === row.host_id ? (
                       <div className="flex items-center justify-center gap-1">
@@ -691,7 +742,7 @@ function GajiTab() {
                       </div>
                     ) : (
                       <div className="flex items-center justify-center gap-1">
-                        <button onClick={() => { setEditHost(row); setEditRate(row.hourly_rate) }} title="Edit Tarif/Jam"
+                        <button onClick={() => { setEditHost(row); setEditForm({ hourly_rate: row.hourly_rate, tunjangan: row.tunjangan, bonus: row.bonus, kasbon_dibayar: row.kasbonDibayar, pinalti: row.pinalti }) }} title="Edit Gaji"
                           className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors">
                           <Edit2 size={13}/>
                         </button>
@@ -714,19 +765,46 @@ function GajiTab() {
         )}
       </div>
 
-      {/* Edit hourly rate modal */}
+      {/* Edit rate + this period's adjustments */}
       {editHost && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setEditHost(null)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <p className="font-bold text-gray-900 text-sm">Edit Tarif/Jam — {editHost.full_name}</p>
+              <p className="font-bold text-gray-900 text-sm">Edit Gaji — {editHost.full_name}</p>
               <button onClick={() => setEditHost(null)}><X size={16} className="text-gray-400"/></button>
             </div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Tarif per Jam (Rp)</label>
-            <CurrencyInput value={editRate} onChange={setEditRate}/>
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Tarif per Jam (Rp)</label>
+                <CurrencyInput value={editForm.hourly_rate} onChange={v => setEditForm(f => ({ ...f, hourly_rate: v }))}/>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest block mb-1.5">Tunjangan</label>
+                  <CurrencyInput value={editForm.tunjangan} onChange={v => setEditForm(f => ({ ...f, tunjangan: v }))}/>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest block mb-1.5">Bonus</label>
+                  <CurrencyInput value={editForm.bonus} onChange={v => setEditForm(f => ({ ...f, bonus: v }))}/>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-red-500 uppercase tracking-widest block mb-1.5">Bayar Kasbon</label>
+                  <CurrencyInput value={editForm.kasbon_dibayar} onChange={v => setEditForm(f => ({ ...f, kasbon_dibayar: v }))}/>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-red-500 uppercase tracking-widest block mb-1.5">Pinalti</label>
+                  <CurrencyInput value={editForm.pinalti} onChange={v => setEditForm(f => ({ ...f, pinalti: v }))}/>
+                </div>
+              </div>
+              {(kasbonByHost[editHost.host_id] || 0) > 0 && (
+                <p className="text-[11px] text-gray-400">
+                  Sisa kasbon belum lunas: <span className="font-semibold text-gray-600">{formatCurrency(kasbonByHost[editHost.host_id])}</span>
+                </p>
+              )}
+            </div>
             <div className="flex gap-2 mt-4">
               <button onClick={() => setEditHost(null)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500">Batal</button>
-              <button onClick={saveRate} disabled={savingRate}
+              <button onClick={saveEdit} disabled={savingRate}
                 className="flex-1 bg-brand-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-brand-700 disabled:opacity-60">
                 {savingRate ? 'Menyimpan...' : 'Simpan'}
               </button>
