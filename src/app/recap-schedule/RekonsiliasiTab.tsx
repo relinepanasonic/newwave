@@ -106,6 +106,7 @@ interface AppReport {
   start_time: string | null; duration_hours: number | null
   gmv: number; impression: number; viewer: number; trans: number; comment_count: number
   screenshot_url: string | null
+  notes: string | null
   profiles: { full_name: string; username: string | null } | null
 }
 
@@ -208,7 +209,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     const supabase = createClient()
     const [reportsRes, slotsRes, hostsRes] = await Promise.all([
       supabase.from('live_reports')
-        .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, profiles:host_id(full_name, username)')
+        .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, profiles:host_id(full_name, username)')
         .gte('report_date', fetchStart).lte('report_date', fetchEnd),
       supabase.from('schedule_slots')
         .select('id, slot_date, session_no, jam_mulai, durasi, brand, platform, host_id')
@@ -227,6 +228,10 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
       map[h.full_name.toLowerCase()] = h.id
       const first = h.full_name.split(' ')[0].toLowerCase()
       if (!map[first]) map[first] = h.id
+      if (h.username) {
+        const u = h.username.toLowerCase()
+        if (!map[u]) map[u] = h.id
+      }
     })
     return map
   }, [hosts])
@@ -282,6 +287,11 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
         // plain "Cocok", since the report only exists because CSV filled it in.
         notReportedSlot = scheduleById[notReportedMatches[csvIdx]] || null
         if (notReportedSlot) status = 'not_reported_confirmed'
+      } else if (app?.notes === 'CSV') {
+        // Session state (notReportedMatches) resets on every re-upload/reload,
+        // but the DB row itself is tagged notes='CSV' -- use that as the
+        // durable source of truth so the badge survives a page revisit.
+        status = 'not_reported_confirmed'
       }
       return { csv, csvIdx, app, mismatches, status, isManual, notReportedSlot }
     })
@@ -352,7 +362,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
       start_time: csv.startSesi || slot.jam_mulai, duration_hours: csv.totalJam || slot.durasi,
       gmv: csv.gmv, impression: csv.impression, viewer: csv.viewer, trans: csv.trans, comment_count: csv.comment,
       notes: 'CSV',
-    }).select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, profiles:host_id(full_name, username)').single()
+    }).select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, profiles:host_id(full_name, username)').single()
     setSavingNotReportedIdx(null)
     if (error) { setNotReportedError(error.message); return }
     if (data) {
@@ -363,8 +373,8 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     }
   }
 
-  async function clearNotReportedMatch(csvIdx: number) {
-    const reportId = notReportedReportIds[csvIdx]
+  async function clearNotReportedMatch(csvIdx: number, fallbackReportId?: string) {
+    const reportId = notReportedReportIds[csvIdx] || fallbackReportId
     if (reportId) {
       await createClient().from('live_reports').delete().eq('id', reportId)
       setAppReports(prev => prev.filter(a => a.id !== reportId))
@@ -413,7 +423,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
       gmv: editForm.gmv, impression: editForm.impression, viewer: editForm.viewer,
       trans: editForm.trans, comment_count: editForm.comment_count,
     }).eq('id', detailRow.app.id)
-      .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, profiles:host_id(full_name, username)')
+      .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, profiles:host_id(full_name, username)')
       .single()
     setSavingDetail(false)
     if (error) { setDetailSaveError(error.message); return }
@@ -531,7 +541,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                             <X size={10}/> Batalkan
                           </button>
                         ) : r.status === 'not_reported_confirmed' ? (
-                          <button onClick={() => clearNotReportedMatch(r.csvIdx)}
+                          <button onClick={() => clearNotReportedMatch(r.csvIdx, r.app?.id)}
                             className="inline-flex items-center gap-1 text-[10px] text-gray-400 hover:text-red-500 border border-gray-200 hover:border-red-200 rounded-lg px-2 py-1 transition-colors">
                             <X size={10}/> Batalkan
                           </button>
