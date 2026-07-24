@@ -77,6 +77,10 @@ function fmtDate(dateStr: string) {
   return new Date(y, m - 1, d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 function fmtNum(n: number) { return n.toLocaleString('id-ID') }
+function fmtFixedDate(iso: string) {
+  return new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
+    + ' ' + new Date(iso).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+}
 function shiftDate(dateStr: string, days: number): string {
   const [y, m, d] = dateStr.split('-').map(Number)
   const dt = new Date(y, m - 1, d)
@@ -152,6 +156,8 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
   } | null>(null)
   const [savingDetail, setSavingDetail] = useState(false)
   const [detailSaveError, setDetailSaveError] = useState('')
+  // Session-only log of rows corrected via the detail popup: csv row index -> ISO timestamp fixed.
+  const [fixedLog, setFixedLog] = useState<Record<number, string>>({})
   const fileRef = useRef<HTMLInputElement>(null)
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -185,6 +191,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     setCsvRows(parsed)
     setManualMatches({})
     setNotReportedMatches({})
+    setFixedLog({})
     e.target.value = ''
     if (!parsed.length) return
 
@@ -378,6 +385,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     if (error) { setDetailSaveError(error.message); return }
     if (data) {
       setAppReports(prev => prev.map(a => a.id === (data as any).id ? (data as any) : a))
+      setFixedLog(prev => ({ ...prev, [detailRow.csvIdx]: new Date().toISOString() }))
       closeDetail()
     }
   }
@@ -457,7 +465,15 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                       <MetricCell csvVal={r.csv.comment} appVal={r.app ? Number(r.app.comment_count) : undefined} mismatch={r.mismatches.has('comment')} fmt={fmtNum}/>
                       <td className="px-3 py-2 text-center">
                         <div className="flex items-center justify-center gap-1 flex-wrap">
-                          {r.status === 'match' && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Cocok</span>}
+                          {r.status === 'match' && (
+                            fixedLog[r.csvIdx] ? (
+                              <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">
+                                Fixed · {fmtFixedDate(fixedLog[r.csvIdx])}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Cocok</span>
+                            )
+                          )}
                           {r.status === 'mismatch' && <span className="text-[10px] bg-pink-100 text-pink-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Berbeda</span>}
                           {r.status === 'missing_in_app' && <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Tak Ada di App</span>}
                           {r.status === 'not_reported_confirmed' && <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Tidak Lapor (CSV)</span>}
