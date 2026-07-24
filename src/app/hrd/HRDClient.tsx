@@ -41,6 +41,17 @@ interface PayRow {
   netSalary: number
 }
 
+interface SessionDetailRow {
+  slot_id: string; date: string; time: string; hour: number
+  brand: string; platform: string; hasReport: boolean
+  gmv: number; impression: number; viewer: number; trans: number; comment_count: number
+}
+
+function fmtShortDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
+}
+
 function periodLabel(start: string): string {
   const s = new Date(start)
   const e = new Date(s)
@@ -458,17 +469,23 @@ function GajiTab() {
   const currentPeriod = getPayPeriod()
   const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod.start.toISOString().split('T')[0].slice(0, 7))
 
-  // Edit hourly rate + this period's adjustments
+  // Edit hourly rate
   const [editHost, setEditHost] = useState<PayRow | null>(null)
-  const [editForm, setEditForm] = useState({ hourly_rate: 0, tunjangan: 0, bonus: 0, kasbon_dibayar: 0, pinalti: 0 })
+  const [editRate, setEditRate] = useState(0)
   const [savingRate, setSavingRate] = useState(false)
 
   // Exclude (delete) from this period
   const [confirmExcludeId, setConfirmExcludeId] = useState<string | null>(null)
 
-  const periodStartStr = useMemo(() => {
+  // Session detail popup
+  const [detailHost, setDetailHost] = useState<PayRow | null>(null)
+  const [detailRows, setDetailRows] = useState<SessionDetailRow[]>([])
+  const [detailLoading, setDetailLoading] = useState(false)
+
+  const { periodStartStr, periodEndStr } = useMemo(() => {
     const [y, m] = selectedPeriod.split('-').map(Number)
-    return toLocalDateStr(getPayPeriod(new Date(y, m - 1, 21)).start)
+    const p = getPayPeriod(new Date(y, m - 1, 21))
+    return { periodStartStr: toLocalDateStr(p.start), periodEndStr: toLocalDateStr(p.end) }
   }, [selectedPeriod])
 
   const load = useCallback(async () => {
@@ -483,7 +500,7 @@ function GajiTab() {
       supabase.from('profiles').select('id, full_name, hourly_rate').in('role', ['host', 'host_manager']).order('full_name'),
       supabase.from('schedule_slots').select('host_id, durasi').gte('slot_date', periodStart).lte('slot_date', periodEnd).not('host_id', 'is', null),
       supabase.from('live_reports').select('host_id, duration_hours').gte('report_date', periodStart).lte('report_date', periodEnd),
-      supabase.from('kasbon').select('host_id, amount').eq('status', 'unpaid'),
+      supabase.from('kasbon').select('host_id, amount, paid_amount').eq('status', 'unpaid'),
       supabase.from('payroll_exclusions').select('host_id').eq('period_start', periodStart),
       supabase.from('payroll_adjustments').select('host_id, tunjangan, bonus, kasbon_dibayar, pinalti').eq('period_start', periodStart),
     ])
@@ -495,7 +512,10 @@ function GajiTab() {
     ;(reportsRes.data || []).forEach((r: any) => { if (r.host_id) reportedMap[r.host_id] = (reportedMap[r.host_id] || 0) + Number(r.duration_hours || 0) })
 
     const kasbonMap: Record<string, number> = {}
-    ;(kasbonRes.data || []).forEach((k: any) => { kasbonMap[k.host_id] = (kasbonMap[k.host_id] || 0) + Number(k.amount) })
+    ;(kasbonRes.data || []).forEach((k: any) => {
+      const remaining = Number(k.amount) - Number(k.paid_amount || 0)
+      kasbonMap[k.host_id] = (kasbonMap[k.host_id] || 0) + Math.max(0, remaining)
+    })
     setKasbonByHost(kasbonMap)
 
     const adjMap: Record<string, { tunjangan: number; bonus: number; kasbonDibayar: number; pinalti: number }> = {}
@@ -601,34 +621,135 @@ function GajiTab() {
     doc.save(`Payslip_${host.full_name.replace(' ', '_')}_${selectedPeriod}.pdf`)
   }
 
-  async function saveEdit() {
+  async function saveRate() {
     if (!editHost) return
     setSavingRate(true)
-    const supabase = createClient()
-    const [{ error: rateErr }, { error: adjErr }] = await Promise.all([
-      supabase.from('profiles').update({ hourly_rate: editForm.hourly_rate }).eq('id', editHost.host_id),
-      supabase.from('payroll_adjustments').upsert({
-        host_id: editHost.host_id, period_start: periodStartStr,
-        tunjangan: editForm.tunjangan, bonus: editForm.bonus,
-        kasbon_dibayar: editForm.kasbon_dibayar, pinalti: editForm.pinalti,
-      }, { onConflict: 'host_id,period_start' }),
-    ])
+    const { error } = await createClient().from('profiles').update({ hourly_rate: editRate }).eq('id', editHost.host_id)
     setSavingRate(false)
-    if (rateErr || adjErr) return
+    if (error) return
     const patch = (r: PayRow) => {
       if (r.host_id !== editHost.host_id) return r
-      const actualSalary = r.reportedHours * editForm.hourly_rate
+      const actualSalary = r.reportedHours * editRate
       return {
-        ...r, hourly_rate: editForm.hourly_rate,
-        forecastSalary: r.scheduledHours * editForm.hourly_rate, actualSalary,
-        tunjangan: editForm.tunjangan, bonus: editForm.bonus,
-        kasbonDibayar: editForm.kasbon_dibayar, pinalti: editForm.pinalti,
-        netSalary: actualSalary + editForm.tunjangan + editForm.bonus - editForm.kasbon_dibayar - editForm.pinalti,
+        ...r, hourly_rate: editRate, forecastSalary: r.scheduledHours * editRate, actualSalary,
+        netSalary: actualSalary + r.tunjangan + r.bonus - r.kasbonDibayar - r.pinalti,
       }
     }
     setRows(prev => prev.map(patch))
     setExcludedRows(prev => prev.map(patch))
     setEditHost(null)
+  }
+
+  // Update a row's Tunjangan/Bonus/Bayar Kasbon/Pinalti locally as the admin
+  // types, recomputing Gaji Bersih immediately. Persisted on blur.
+  function updateAdjField(hostId: string, field: 'tunjangan' | 'bonus' | 'kasbonDibayar' | 'pinalti', value: number) {
+    const patch = (r: PayRow) => {
+      if (r.host_id !== hostId) return r
+      const next = { ...r, [field]: value }
+      next.netSalary = next.actualSalary + next.tunjangan + next.bonus - next.kasbonDibayar - next.pinalti
+      return next
+    }
+    setRows(prev => prev.map(patch))
+    setExcludedRows(prev => prev.map(patch))
+  }
+
+  // Re-allocates this period's Bayar Kasbon amount across the host's
+  // outstanding kasbon records (oldest first), undoing this period's prior
+  // allocation first so edits stay consistent. Returns the amount actually
+  // applied (capped at what's genuinely owed).
+  async function applyKasbonPayment(hostId: string, amount: number): Promise<number> {
+    const supabase = createClient()
+
+    const { data: prevPayments } = await supabase.from('payroll_kasbon_payments')
+      .select('id, kasbon_id, amount').eq('host_id', hostId).eq('period_start', periodStartStr)
+    for (const p of prevPayments || []) {
+      const { data: k } = await supabase.from('kasbon').select('amount, paid_amount').eq('id', p.kasbon_id).single()
+      if (k) {
+        const restored = Math.max(0, Number(k.paid_amount) - Number(p.amount))
+        // Other periods' payments may have already covered it fully on their own.
+        await supabase.from('kasbon').update({ paid_amount: restored, status: restored >= Number(k.amount) ? 'paid' : 'unpaid' }).eq('id', p.kasbon_id)
+      }
+    }
+    await supabase.from('payroll_kasbon_payments').delete().eq('host_id', hostId).eq('period_start', periodStartStr)
+
+    if (amount <= 0) return 0
+
+    const { data: outstanding } = await supabase.from('kasbon')
+      .select('id, amount, paid_amount').eq('host_id', hostId).eq('status', 'unpaid').order('created_at')
+
+    let remaining = amount
+    const newPayments: { host_id: string; period_start: string; kasbon_id: string; amount: number }[] = []
+    for (const k of outstanding || []) {
+      if (remaining <= 0) break
+      const owed = Number(k.amount) - Number(k.paid_amount)
+      const pay = Math.min(owed, remaining)
+      if (pay <= 0) continue
+      const newPaidAmount = Number(k.paid_amount) + pay
+      const fullyPaid = newPaidAmount >= Number(k.amount)
+      await supabase.from('kasbon').update({
+        paid_amount: newPaidAmount, status: fullyPaid ? 'paid' : 'unpaid',
+        ...(fullyPaid ? { paid_at: new Date().toISOString() } : {}),
+      }).eq('id', k.id)
+      newPayments.push({ host_id: hostId, period_start: periodStartStr, kasbon_id: k.id, amount: pay })
+      remaining -= pay
+    }
+    if (newPayments.length) await supabase.from('payroll_kasbon_payments').insert(newPayments)
+    return amount - remaining
+  }
+
+  async function persistRow(row: PayRow) {
+    await createClient().from('payroll_adjustments').upsert({
+      host_id: row.host_id, period_start: periodStartStr,
+      tunjangan: row.tunjangan, bonus: row.bonus, kasbon_dibayar: row.kasbonDibayar, pinalti: row.pinalti,
+    }, { onConflict: 'host_id,period_start' })
+
+    const applied = await applyKasbonPayment(row.host_id, row.kasbonDibayar)
+    if (applied !== row.kasbonDibayar) {
+      // Entered more than what was actually owed — clamp to what was applied and re-save.
+      updateAdjField(row.host_id, 'kasbonDibayar', applied)
+      await createClient().from('payroll_adjustments')
+        .update({ kasbon_dibayar: applied }).eq('host_id', row.host_id).eq('period_start', periodStartStr)
+    }
+    // Outstanding kasbon balances shifted — refresh the reference map.
+    const { data: kasbonRows } = await createClient().from('kasbon').select('host_id, amount, paid_amount').eq('status', 'unpaid')
+    const kasbonMap: Record<string, number> = {}
+    ;(kasbonRows || []).forEach((k: any) => {
+      const remaining = Number(k.amount) - Number(k.paid_amount || 0)
+      kasbonMap[k.host_id] = (kasbonMap[k.host_id] || 0) + Math.max(0, remaining)
+    })
+    setKasbonByHost(kasbonMap)
+  }
+
+  async function openDetail(row: PayRow) {
+    setDetailHost(row)
+    setDetailLoading(true)
+    const supabase = createClient()
+    const [slotsRes, reportsRes] = await Promise.all([
+      supabase.from('schedule_slots')
+        .select('id, slot_date, session_no, jam_mulai, durasi, brand, platform')
+        .eq('host_id', row.host_id).gte('slot_date', periodStartStr).lte('slot_date', periodEndStr)
+        .order('slot_date').order('session_no'),
+      supabase.from('live_reports')
+        .select('slot_id, gmv, impression, viewer, trans, comment_count')
+        .eq('host_id', row.host_id).gte('report_date', periodStartStr).lte('report_date', periodEndStr),
+    ])
+    const reportBySlot: Record<string, any> = {}
+    ;(reportsRes.data || []).forEach((r: any) => { if (r.slot_id) reportBySlot[r.slot_id] = r })
+
+    const detail: SessionDetailRow[] = (slotsRes.data || []).map((s: any) => {
+      const report = reportBySlot[s.id]
+      return {
+        slot_id: s.id, date: s.slot_date,
+        time: s.jam_mulai ? s.jam_mulai.slice(0, 5) : `${String(s.session_no - 1).padStart(2, '0')}:00`,
+        hour: Number(s.durasi) || 0, brand: s.brand || '—', platform: s.platform || '—',
+        hasReport: !!report,
+        gmv: Number(report?.gmv) || 0, impression: Number(report?.impression) || 0,
+        viewer: Number(report?.viewer) || 0, trans: Number(report?.trans) || 0,
+        comment_count: Number(report?.comment_count) || 0,
+      }
+    })
+    setDetailRows(detail)
+    setDetailLoading(false)
   }
 
   async function excludeHost(hostId: string) {
@@ -719,19 +840,39 @@ function GajiTab() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {rows.map(row => (
-                <tr key={row.host_id} className="hover:bg-gray-50 transition-colors">
+                <tr key={row.host_id} className="hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => openDetail(row)}>
                   <td className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap">{row.full_name}</td>
                   <td className="px-4 py-3 text-right text-gray-600 whitespace-nowrap">{formatCurrency(row.hourly_rate)}</td>
                   <td className="px-4 py-3 text-right text-gray-600">{row.scheduledHours.toFixed(2)}</td>
                   <td className="px-4 py-3 text-right text-gray-500">{formatCurrency(row.forecastSalary)}</td>
                   <td className="px-4 py-3 text-right text-gray-600">{row.reportedHours.toFixed(2)}</td>
                   <td className="px-4 py-3 text-right text-gray-900 whitespace-nowrap">{formatCurrency(row.actualSalary)}</td>
-                  <td className="px-4 py-3 text-right text-emerald-600 whitespace-nowrap">{row.tunjangan > 0 ? `+ ${formatCurrency(row.tunjangan)}` : '—'}</td>
-                  <td className="px-4 py-3 text-right text-emerald-600 whitespace-nowrap">{row.bonus > 0 ? `+ ${formatCurrency(row.bonus)}` : '—'}</td>
-                  <td className="px-4 py-3 text-right text-red-500 whitespace-nowrap">{row.kasbonDibayar > 0 ? `- ${formatCurrency(row.kasbonDibayar)}` : '—'}</td>
-                  <td className="px-4 py-3 text-right text-red-500 whitespace-nowrap">{row.pinalti > 0 ? `- ${formatCurrency(row.pinalti)}` : '—'}</td>
+                  <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
+                    <CurrencyInput value={row.tunjangan} showPrefix={false}
+                      onChange={v => updateAdjField(row.host_id, 'tunjangan', v)} onBlur={() => persistRow(row)}
+                      wrapperClassName="border border-transparent hover:border-gray-200 focus-within:border-brand-400 rounded-lg"
+                      className="w-24 px-1.5 py-1 text-xs text-right text-emerald-600 focus:outline-none bg-transparent"/>
+                  </td>
+                  <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
+                    <CurrencyInput value={row.bonus} showPrefix={false}
+                      onChange={v => updateAdjField(row.host_id, 'bonus', v)} onBlur={() => persistRow(row)}
+                      wrapperClassName="border border-transparent hover:border-gray-200 focus-within:border-brand-400 rounded-lg"
+                      className="w-24 px-1.5 py-1 text-xs text-right text-emerald-600 focus:outline-none bg-transparent"/>
+                  </td>
+                  <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
+                    <CurrencyInput value={row.kasbonDibayar} showPrefix={false}
+                      onChange={v => updateAdjField(row.host_id, 'kasbonDibayar', v)} onBlur={() => persistRow(row)}
+                      wrapperClassName="border border-transparent hover:border-gray-200 focus-within:border-brand-400 rounded-lg"
+                      className="w-24 px-1.5 py-1 text-xs text-right text-red-500 focus:outline-none bg-transparent"/>
+                  </td>
+                  <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
+                    <CurrencyInput value={row.pinalti} showPrefix={false}
+                      onChange={v => updateAdjField(row.host_id, 'pinalti', v)} onBlur={() => persistRow(row)}
+                      wrapperClassName="border border-transparent hover:border-gray-200 focus-within:border-brand-400 rounded-lg"
+                      className="w-24 px-1.5 py-1 text-xs text-right text-red-500 focus:outline-none bg-transparent"/>
+                  </td>
                   <td className="px-4 py-3 text-right font-bold text-gray-900 whitespace-nowrap">{formatCurrency(row.netSalary)}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                     {confirmExcludeId === row.host_id ? (
                       <div className="flex items-center justify-center gap-1">
                         <span className="text-[10px] text-gray-500">Sembunyikan?</span>
@@ -742,7 +883,7 @@ function GajiTab() {
                       </div>
                     ) : (
                       <div className="flex items-center justify-center gap-1">
-                        <button onClick={() => { setEditHost(row); setEditForm({ hourly_rate: row.hourly_rate, tunjangan: row.tunjangan, bonus: row.bonus, kasbon_dibayar: row.kasbonDibayar, pinalti: row.pinalti }) }} title="Edit Gaji"
+                        <button onClick={() => { setEditHost(row); setEditRate(row.hourly_rate) }} title="Edit Tarif/Jam"
                           className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors">
                           <Edit2 size={13}/>
                         </button>
@@ -765,49 +906,83 @@ function GajiTab() {
         )}
       </div>
 
-      {/* Edit rate + this period's adjustments */}
+      {/* Edit hourly rate */}
       {editHost && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setEditHost(null)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <p className="font-bold text-gray-900 text-sm">Edit Gaji — {editHost.full_name}</p>
+              <p className="font-bold text-gray-900 text-sm">Edit Tarif/Jam — {editHost.full_name}</p>
               <button onClick={() => setEditHost(null)}><X size={16} className="text-gray-400"/></button>
             </div>
-            <div className="space-y-3">
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Tarif per Jam (Rp)</label>
-                <CurrencyInput value={editForm.hourly_rate} onChange={v => setEditForm(f => ({ ...f, hourly_rate: v }))}/>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest block mb-1.5">Tunjangan</label>
-                  <CurrencyInput value={editForm.tunjangan} onChange={v => setEditForm(f => ({ ...f, tunjangan: v }))}/>
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest block mb-1.5">Bonus</label>
-                  <CurrencyInput value={editForm.bonus} onChange={v => setEditForm(f => ({ ...f, bonus: v }))}/>
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-red-500 uppercase tracking-widest block mb-1.5">Bayar Kasbon</label>
-                  <CurrencyInput value={editForm.kasbon_dibayar} onChange={v => setEditForm(f => ({ ...f, kasbon_dibayar: v }))}/>
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-red-500 uppercase tracking-widest block mb-1.5">Pinalti</label>
-                  <CurrencyInput value={editForm.pinalti} onChange={v => setEditForm(f => ({ ...f, pinalti: v }))}/>
-                </div>
-              </div>
-              {(kasbonByHost[editHost.host_id] || 0) > 0 && (
-                <p className="text-[11px] text-gray-400">
-                  Sisa kasbon belum lunas: <span className="font-semibold text-gray-600">{formatCurrency(kasbonByHost[editHost.host_id])}</span>
-                </p>
-              )}
-            </div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Tarif per Jam (Rp)</label>
+            <CurrencyInput value={editRate} onChange={setEditRate}/>
             <div className="flex gap-2 mt-4">
               <button onClick={() => setEditHost(null)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500">Batal</button>
-              <button onClick={saveEdit} disabled={savingRate}
+              <button onClick={saveRate} disabled={savingRate}
                 className="flex-1 bg-brand-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-brand-700 disabled:opacity-60">
                 {savingRate ? 'Menyimpan...' : 'Simpan'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Session detail popup */}
+      {detailHost && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setDetailHost(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-6xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+              <div>
+                <p className="font-bold text-gray-900 text-sm">{detailHost.full_name}</p>
+                <p className="text-xs text-gray-400">{periodLabel(periodStartStr)}</p>
+              </div>
+              <button onClick={() => setDetailHost(null)}><X size={18} className="text-gray-400"/></button>
+            </div>
+            <div className="overflow-auto">
+              {detailLoading ? (
+                <div className="p-10 text-center text-sm text-gray-400">Memuat...</div>
+              ) : detailRows.length === 0 ? (
+                <div className="p-10 text-center text-sm text-gray-400">Tidak ada sesi terjadwal pada periode ini</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-gray-50">
+                    <tr className="text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
+                      <th className="px-4 py-2.5 text-left font-semibold whitespace-nowrap">Tanggal</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Jam</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">Durasi</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Brand</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Platform</th>
+                      <th className="px-4 py-2.5 text-center font-semibold">Report</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">GMV</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">Impresi</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">Penonton</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">Transaksi</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">Komentar</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {detailRows.map(r => (
+                      <tr key={r.slot_id} className={!r.hasReport ? 'bg-red-50/30' : ''}>
+                        <td className="px-4 py-2.5 whitespace-nowrap text-gray-600">{fmtShortDate(r.date)}</td>
+                        <td className="px-4 py-2.5 text-gray-600">{r.time}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-600">{r.hour.toFixed(1)}j</td>
+                        <td className="px-4 py-2.5 font-medium text-gray-800">{r.brand}</td>
+                        <td className="px-4 py-2.5 text-gray-600">{r.platform}</td>
+                        <td className="px-4 py-2.5 text-center">
+                          {r.hasReport
+                            ? <span className="text-emerald-600 font-bold">✓</span>
+                            : <span className="text-red-400 font-bold">✕</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-emerald-700 whitespace-nowrap">{r.hasReport ? formatCurrency(r.gmv) : '—'}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-600">{r.hasReport ? r.impression : '—'}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-600">{r.hasReport ? r.viewer : '—'}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-600">{r.hasReport ? r.trans : '—'}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-600">{r.hasReport ? r.comment_count : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>
@@ -822,6 +997,7 @@ interface KasbonFull extends Kasbon {
   request_status?: string | null
   request_note?: string | null
   approved_at?: string | null
+  paid_amount?: number | null
 }
 
 function KasbonTab() {
@@ -911,7 +1087,7 @@ function KasbonTab() {
   const nonPending = kasbons.filter(k => k.request_status !== 'pending')
   const filtered = nonPending.filter(k => filter === 'all' ? true : k.status === filter)
   const totalUnpaid = nonPending.filter(k => k.status === 'unpaid' && k.request_status !== 'rejected')
-    .reduce((s, k) => s + Number(k.amount), 0)
+    .reduce((s, k) => s + Math.max(0, Number(k.amount) - Number(k.paid_amount || 0)), 0)
 
   if (loading) return <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">Memuat kasbon...</div>
 
@@ -1059,7 +1235,14 @@ function KasbonTab() {
                   <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
                     {new Date(k.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </td>
-                  <td className="px-4 py-3 text-right font-bold text-gray-900">{formatCurrency(Number(k.amount))}</td>
+                  <td className="px-4 py-3 text-right font-bold text-gray-900">
+                    {formatCurrency(Number(k.amount))}
+                    {k.status === 'unpaid' && Number(k.paid_amount || 0) > 0 && (
+                      <span className="block text-[10px] font-normal text-emerald-600">
+                        Terbayar {formatCurrency(Number(k.paid_amount))} · Sisa {formatCurrency(Number(k.amount) - Number(k.paid_amount || 0))}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-center">
                     {k.request_status !== 'rejected' && (
                       <button onClick={() => togglePaid(k)}
