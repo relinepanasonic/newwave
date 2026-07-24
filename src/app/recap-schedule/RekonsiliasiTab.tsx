@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, PLATFORM_COLORS } from '@/lib/utils'
 import {
   Upload, AlertTriangle, CheckCircle2, XCircle, Link2, X, CalendarSearch, ExternalLink,
-  Pencil, FileSpreadsheet, Save, Sparkles,
+  Pencil, FileSpreadsheet, Save, Sparkles, CalendarPlus,
 } from 'lucide-react'
 import CurrencyInput from '@/components/CurrencyInput'
 import TimeInput from '@/components/TimeInput'
@@ -87,6 +87,15 @@ function shiftDate(dateStr: string, days: number): string {
   dt.setDate(dt.getDate() + days)
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
 }
+// Picker labels are Host · Jam · Brand; when a candidate sits on the day
+// before/after the CSV row (midnight-crossing sessions) that has to be visible
+// too, otherwise two candidates read identically.
+function dayMarker(candDate: string, csvDate: string): string {
+  if (candDate === csvDate) return ''
+  if (candDate === shiftDate(csvDate, -1)) return ' · kemarin'
+  if (candDate === shiftDate(csvDate, 1)) return ' · besok'
+  return ` · ${fmtDate(candDate)}`
+}
 // Schedule slots without a manually-set jam_mulai default to their session
 // number's hour (session 1 = 00:00, session 18 = 17:00, etc.) — same
 // fallback the Schedule page itself uses.
@@ -143,6 +152,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
   const [appReports, setAppReports] = useState<AppReport[]>([])
   const [scheduleSlots, setScheduleSlots] = useState<ScheduleSlotRow[]>([])
   const [hosts, setHosts] = useState<{ id: string; full_name: string; username: string | null }[]>([])
+  const [rooms, setRooms] = useState<{ id: string; name: string }[]>([])
   const [fileName, setFileName] = useState('')
   const [loading, setLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState<'all' | 'mismatch' | 'missing_in_app' | 'not_reported_confirmed'>('all')
@@ -152,8 +162,14 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
   const [notReportedReportIds, setNotReportedReportIds] = useState<Record<number, string>>({})
   const [savingNotReportedIdx, setSavingNotReportedIdx] = useState<number | null>(null)
   const [notReportedError, setNotReportedError] = useState('')
+  // Schedule slots this tab created via "Buat Jadwal": csv row index -> slot id.
+  // Tracked so Batalkan can remove the slot it created, not just the report.
+  const [createdSlotIds, setCreatedSlotIds] = useState<Record<number, string>>({})
   const [pickingIdx, setPickingIdx] = useState<number | null>(null)
   const [pickingScheduleIdx, setPickingScheduleIdx] = useState<number | null>(null)
+  // Set when "Buat Jadwal" is clicked but the CSV host name can't be resolved
+  // to a profile -- the row then asks which host it was before creating.
+  const [pickingHostIdx, setPickingHostIdx] = useState<number | null>(null)
   const [detailRow, setDetailRow] = useState<CompareRow | null>(null)
   const [editForm, setEditForm] = useState<{
     host_id: string; start_time: string; platform: string
@@ -197,6 +213,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     setManualMatches({})
     setNotReportedMatches({})
     setNotReportedReportIds({})
+    setCreatedSlotIds({})
     setFixedLog({})
     e.target.value = ''
     if (!parsed.length) return
@@ -208,7 +225,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     const fetchStart = shiftDate(minDate, -1)
     const fetchEnd = shiftDate(maxDate, 1)
     const supabase = createClient()
-    const [reportsRes, slotsRes, hostsRes] = await Promise.all([
+    const [reportsRes, slotsRes, hostsRes, roomsRes] = await Promise.all([
       supabase.from('live_reports')
         .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, profiles:host_id(full_name, username)')
         .gte('report_date', fetchStart).lte('report_date', fetchEnd),
@@ -216,10 +233,12 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
         .select('id, slot_date, session_no, jam_mulai, durasi, brand, platform, host_id')
         .gte('slot_date', fetchStart).lte('slot_date', fetchEnd).not('host_id', 'is', null),
       supabase.from('profiles').select('id, full_name, username').in('role', ['host', 'host_manager']),
+      supabase.from('rooms').select('id, name').eq('is_active', true).order('sort_order'),
     ])
     setAppReports((reportsRes.data as any) || [])
     setScheduleSlots((slotsRes.data as any) || [])
     setHosts(hostsRes.data || [])
+    setRooms(roomsRes.data || [])
     setLoading(false)
   }
 
@@ -311,14 +330,23 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     new Set(appReports.filter(r => r.slot_id).map(r => r.slot_id as string)),
     [appReports])
 
+  function resolveHostId(csv: CsvRow): string | undefined {
+    return hostMap[csv.host.toLowerCase()] || hostMap[csv.host.split(' ')[0].toLowerCase()]
+  }
+
   // Candidates offered in the manual-match picker for a given CSV row: only
   // yesterday/today/tomorrow relative to the CSV row's date (sessions that
-  // cross midnight can land on the day before/after), same date sorted first.
+  // cross midnight can land on the day before/after), same date sorted first,
+  // and narrowed to the same host OR the same brand -- either signal alone is
+  // enough, so a host whose CSV spelling doesn't resolve is still narrowed by
+  // brand, and a brand spelled differently is still narrowed by host.
   function candidatesFor(csv: CsvRow) {
     const prev = shiftDate(csv.tanggal, -1)
     const next = shiftDate(csv.tanggal, 1)
+    const hostId = resolveHostId(csv)
     return extraAppReports
       .filter(r => r.report_date === prev || r.report_date === csv.tanggal || r.report_date === next)
+      .filter(r => (!!hostId && r.host_id === hostId) || brandsMatch(r.brand || '', csv.brand))
       .sort((a, b) => {
         const aSame = a.report_date === csv.tanggal ? 0 : 1
         const bSame = b.report_date === csv.tanggal ? 0 : 1
@@ -336,25 +364,22 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
   }
 
   // Candidates for "host tidak lapor" confirmation: schedule slots (not live
-  // reports) in the ±1 day window, same host if resolved, same brand if any
-  // slot in that window actually matches the brand (otherwise brand isn't
-  // used as a filter, since CSV/app brand spelling often differs).
+  // reports) in the ±1 day window that aren't already taken by a report,
+  // narrowed the same way as the manual-match picker: same host OR same brand.
   function scheduleCandidatesFor(csv: CsvRow) {
     const prev = shiftDate(csv.tanggal, -1)
     const next = shiftDate(csv.tanggal, 1)
-    const hostId = hostMap[csv.host.toLowerCase()] || hostMap[csv.host.split(' ')[0].toLowerCase()]
-    const base = scheduleSlots
+    const hostId = resolveHostId(csv)
+    return scheduleSlots
       .filter(s => s.slot_date === prev || s.slot_date === csv.tanggal || s.slot_date === next)
-      .filter(s => !hostId || s.host_id === hostId)
       .filter(s => !usedSlotIds.has(s.id))
-    const withBrand = base.filter(s => brandsMatch(s.brand || '', csv.brand))
-    const pool = withBrand.length > 0 ? withBrand : base
-    return pool.sort((a, b) => {
-      const aSame = a.slot_date === csv.tanggal ? 0 : 1
-      const bSame = b.slot_date === csv.tanggal ? 0 : 1
-      if (aSame !== bSame) return aSame - bSame
-      return a.slot_date.localeCompare(b.slot_date)
-    })
+      .filter(s => (!!hostId && s.host_id === hostId) || brandsMatch(s.brand || '', csv.brand))
+      .sort((a, b) => {
+        const aSame = a.slot_date === csv.tanggal ? 0 : 1
+        const bSame = b.slot_date === csv.tanggal ? 0 : 1
+        if (aSame !== bSame) return aSame - bSame
+        return a.slot_date.localeCompare(b.slot_date)
+      })
   }
 
   // Confirming "Tidak Lapor" now actually creates the live_report using the
@@ -384,12 +409,95 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
 
   async function clearNotReportedMatch(csvIdx: number, fallbackReportId?: string) {
     const reportId = notReportedReportIds[csvIdx] || fallbackReportId
+    const supabase = createClient()
     if (reportId) {
-      await createClient().from('live_reports').delete().eq('id', reportId)
+      await supabase.from('live_reports').delete().eq('id', reportId)
       setAppReports(prev => prev.filter(a => a.id !== reportId))
+    }
+    // If this row's slot was created here by "Buat Jadwal", undo that too --
+    // otherwise Batalkan would leave an empty slot behind on the Schedule page.
+    const slotId = createdSlotIds[csvIdx]
+    if (slotId) {
+      await supabase.from('schedule_slots').delete().eq('id', slotId)
+      setScheduleSlots(prev => prev.filter(s => s.id !== slotId))
+      setCreatedSlotIds(prev => { const n = { ...prev }; delete n[csvIdx]; return n })
     }
     setNotReportedMatches(prev => { const n = { ...prev }; delete n[csvIdx]; return n })
     setNotReportedReportIds(prev => { const n = { ...prev }; delete n[csvIdx]; return n })
+  }
+
+  // CSV rows whose session was never put on the schedule at all: create the
+  // schedule_slot from the CSV (so it shows up on the Schedule page), then
+  // attach the CSV's numbers to it as a live_report, same as "Tidak Lapor".
+  async function makeScheduleFor(csvIdx: number, hostIdOverride?: string) {
+    const csv = csvRows[csvIdx]
+    if (!csv) return
+    const hostId = hostIdOverride || resolveHostId(csv)
+    if (!hostId) { setPickingHostIdx(csvIdx); return }
+    if (!csv.startSesi) { setNotReportedError(`Baris ${csv._line}: jam mulai kosong, tidak bisa buat jadwal.`); return }
+
+    setSavingNotReportedIdx(csvIdx); setNotReportedError(''); setPickingHostIdx(null)
+    const supabase = createClient()
+    // session_no is the hour + 1 (session 1 = 00:00–01:00), matching the
+    // SESSION_LABELS mapping the Schedule page is built on.
+    const sessionNo = Number(csv.startSesi.slice(0, 2)) + 1
+    const slotPayload = {
+      slot_date: csv.tanggal, session_no: sessionNo,
+      host_id: hostId, brand: csv.brand || null, platform: csv.platform || null,
+      jam_mulai: csv.startSesi, durasi: csv.totalJam || null, status: 'scheduled',
+    }
+
+    // (slot_date, session_no, room_id) is unique, so the CSV's own room may
+    // already be occupied at that hour -- fall back through the other rooms
+    // rather than failing outright.
+    const preferred = resolveRoomId(csv.room)
+    const roomOrder = [preferred, ...rooms.map(r => r.id).filter(id => id !== preferred)].filter(Boolean) as string[]
+    let slot: ScheduleSlotRow | null = null
+    let lastErr = ''
+    for (const roomId of roomOrder) {
+      const { data, error } = await supabase.from('schedule_slots')
+        .insert({ ...slotPayload, room_id: roomId })
+        .select('id, slot_date, session_no, jam_mulai, durasi, brand, platform, host_id').single()
+      if (!error && data) { slot = data as any; break }
+      lastErr = error?.message || ''
+      if (!/duplicate|unique/i.test(lastErr)) break
+    }
+    if (!slot) {
+      setSavingNotReportedIdx(null)
+      setNotReportedError(lastErr || 'Gagal membuat jadwal.')
+      return
+    }
+
+    const { data: report, error: repErr } = await supabase.from('live_reports').insert({
+      slot_id: slot.id, host_id: hostId, report_date: csv.tanggal,
+      brand: csv.brand || null, platform: csv.platform || null,
+      start_time: csv.startSesi, duration_hours: csv.totalJam || null,
+      gmv: csv.gmv, impression: csv.impression, viewer: csv.viewer, trans: csv.trans, comment_count: csv.comment,
+      notes: 'CSV',
+    }).select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, profiles:host_id(full_name, username)').single()
+    setSavingNotReportedIdx(null)
+    if (repErr) {
+      // Roll the slot back so a failed report doesn't strand an empty slot.
+      await supabase.from('schedule_slots').delete().eq('id', slot.id)
+      setNotReportedError(repErr.message)
+      return
+    }
+
+    setScheduleSlots(prev => [...prev, slot!])
+    setCreatedSlotIds(prev => ({ ...prev, [csvIdx]: slot!.id }))
+    if (report) {
+      setAppReports(prev => [...prev, report as any])
+      setNotReportedMatches(prev => ({ ...prev, [csvIdx]: slot!.id }))
+      setNotReportedReportIds(prev => ({ ...prev, [csvIdx]: (report as any).id }))
+    }
+  }
+
+  function resolveRoomId(csvRoom: string): string | null {
+    if (!rooms.length) return null
+    const n = normBrand(csvRoom)
+    const exact = n ? rooms.find(r => normBrand(r.name) === n) : null
+    const fuzzy = n ? rooms.find(r => normBrand(r.name).includes(n) || n.includes(normBrand(r.name))) : null
+    return (exact || fuzzy)?.id || rooms.find(r => /lain/i.test(r.name))?.id || rooms[0].id
   }
 
   const hostNameById = useMemo(() => {
@@ -566,7 +674,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                                 const nick = p?.username || p?.full_name?.split(' ')[0] || '—'
                                 return (
                                   <option key={c.id} value={c.id}>
-                                    {fmtDate(c.report_date)} · {c.start_time?.slice(0,5) || '—'} · {nick} · {c.brand || '—'} · {formatCurrency(Number(c.gmv))}
+                                    {nick} · {c.start_time?.slice(0,5) || '—'} · {c.brand || '—'}{dayMarker(c.report_date, r.csv.tanggal)}
                                   </option>
                                 )
                               })}
@@ -581,8 +689,18 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                               <option value="">— Pilih jadwal —</option>
                               {scheduleCandidatesFor(r.csv).map(s => (
                                 <option key={s.id} value={s.id}>
-                                  {fmtDate(s.slot_date)} · {slotTime(s)} · {hostNameById[s.host_id] || '—'} · {s.brand || '—'}
+                                  {hostNameById[s.host_id] || '—'} · {slotTime(s)} · {s.brand || '—'}{dayMarker(s.slot_date, r.csv.tanggal)}
                                 </option>
+                              ))}
+                            </select>
+                          ) : pickingHostIdx === r.csvIdx ? (
+                            <select autoFocus defaultValue=""
+                              onChange={e => { if (e.target.value) makeScheduleFor(r.csvIdx, e.target.value) }}
+                              onBlur={() => setPickingHostIdx(null)}
+                              className="text-[10px] border border-emerald-300 rounded-lg px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-400 bg-white max-w-[280px]">
+                              <option value="">— Host siapa? —</option>
+                              {hosts.map(h => (
+                                <option key={h.id} value={h.id}>{h.username || h.full_name}</option>
                               ))}
                             </select>
                           ) : (
@@ -594,6 +712,10 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                               <button onClick={() => setPickingScheduleIdx(r.csvIdx)}
                                 className="inline-flex items-center gap-1 text-[10px] text-purple-600 hover:text-purple-800 border border-purple-200 rounded-lg px-2 py-1 hover:bg-purple-50 transition-colors whitespace-nowrap">
                                 <CalendarSearch size={10}/> Tidak Lapor
+                              </button>
+                              <button onClick={() => makeScheduleFor(r.csvIdx)}
+                                className="inline-flex items-center gap-1 text-[10px] text-emerald-600 hover:text-emerald-800 border border-emerald-200 rounded-lg px-2 py-1 hover:bg-emerald-50 transition-colors whitespace-nowrap">
+                                <CalendarPlus size={10}/> Buat Jadwal
                               </button>
                             </div>
                           )
