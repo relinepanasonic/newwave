@@ -1,9 +1,9 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { Download, ExternalLink, Save, X, Edit2, CheckCircle, XCircle, FileText, Plane, Trash2, Plus, Wallet } from 'lucide-react'
-import { formatCurrency, getPayPeriod } from '@/lib/utils'
+import { formatCurrency, getPayPeriod, toLocalDateStr } from '@/lib/utils'
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
 import PettyCashPanel from './PettyCashPanel'
@@ -35,7 +35,8 @@ interface Host {
 
 interface PayRow {
   host_id: string; full_name: string; hourly_rate: number
-  period_start: string; total_hours: number; total_salary: number; session_count: number
+  scheduledHours: number; forecastSalary: number
+  reportedHours: number; actualSalary: number
 }
 
 function periodLabel(start: string): string {
@@ -448,58 +449,99 @@ function HostListTab() {
 
 // ── Gaji Tab ──────────────────────────────────────────────────────────────────
 function GajiTab() {
-  const [summary, setSummary] = useState<PayRow[]>([])
+  const [rows, setRows] = useState<PayRow[]>([])
+  const [excludedRows, setExcludedRows] = useState<PayRow[]>([])
   const [kasbonByHost, setKasbonByHost] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const currentPeriod = getPayPeriod()
   const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod.start.toISOString().split('T')[0].slice(0, 7))
 
-  useEffect(() => {
+  // Edit hourly rate
+  const [editHost, setEditHost] = useState<PayRow | null>(null)
+  const [editRate, setEditRate] = useState(0)
+  const [savingRate, setSavingRate] = useState(false)
+
+  // Exclude (delete) from this period
+  const [confirmExcludeId, setConfirmExcludeId] = useState<string | null>(null)
+
+  const periodStartStr = useMemo(() => {
+    const [y, m] = selectedPeriod.split('-').map(Number)
+    return toLocalDateStr(getPayPeriod(new Date(y, m - 1, 21)).start)
+  }, [selectedPeriod])
+
+  const load = useCallback(async () => {
+    setLoading(true)
     const supabase = createClient()
-    Promise.all([
-      supabase.from('payroll_summary').select('*'),
+    const [y, m] = selectedPeriod.split('-').map(Number)
+    const period = getPayPeriod(new Date(y, m - 1, 21))
+    const periodStart = toLocalDateStr(period.start)
+    const periodEnd = toLocalDateStr(period.end)
+
+    const [hostsRes, slotsRes, reportsRes, kasbonRes, exclRes] = await Promise.all([
+      supabase.from('profiles').select('id, full_name, hourly_rate').in('role', ['host', 'host_manager']).order('full_name'),
+      supabase.from('schedule_slots').select('host_id, durasi').gte('slot_date', periodStart).lte('slot_date', periodEnd).not('host_id', 'is', null),
+      supabase.from('live_reports').select('host_id, duration_hours').gte('report_date', periodStart).lte('report_date', periodEnd),
       supabase.from('kasbon').select('host_id, amount').eq('status', 'unpaid'),
-    ]).then(([payRes, kasbonRes]) => {
-      setSummary(payRes.data || [])
-      const map: Record<string, number> = {}
-      ;(kasbonRes.data || []).forEach((k: any) => {
-        map[k.host_id] = (map[k.host_id] || 0) + Number(k.amount)
+      supabase.from('payroll_exclusions').select('host_id').eq('period_start', periodStart),
+    ])
+
+    const scheduledMap: Record<string, number> = {}
+    ;(slotsRes.data || []).forEach((s: any) => { scheduledMap[s.host_id] = (scheduledMap[s.host_id] || 0) + Number(s.durasi || 0) })
+
+    const reportedMap: Record<string, number> = {}
+    ;(reportsRes.data || []).forEach((r: any) => { if (r.host_id) reportedMap[r.host_id] = (reportedMap[r.host_id] || 0) + Number(r.duration_hours || 0) })
+
+    const kasbonMap: Record<string, number> = {}
+    ;(kasbonRes.data || []).forEach((k: any) => { kasbonMap[k.host_id] = (kasbonMap[k.host_id] || 0) + Number(k.amount) })
+    setKasbonByHost(kasbonMap)
+
+    const excludedIds = new Set((exclRes.data || []).map((e: any) => e.host_id))
+
+    const allRows: PayRow[] = (hostsRes.data || [])
+      .map((h: any) => {
+        const scheduledHours = scheduledMap[h.id] || 0
+        const reportedHours = reportedMap[h.id] || 0
+        return {
+          host_id: h.id, full_name: h.full_name, hourly_rate: Number(h.hourly_rate) || 0,
+          scheduledHours, forecastSalary: scheduledHours * Number(h.hourly_rate || 0),
+          reportedHours, actualSalary: reportedHours * Number(h.hourly_rate || 0),
+        }
       })
-      setKasbonByHost(map)
-      setLoading(false)
-    })
-  }, [])
+      .filter(r => r.scheduledHours > 0 || r.reportedHours > 0)
+
+    setRows(allRows.filter(r => !excludedIds.has(r.host_id)))
+    setExcludedRows(allRows.filter(r => excludedIds.has(r.host_id)))
+    setLoading(false)
+  }, [selectedPeriod])
+
+  useEffect(() => { load() }, [load])
 
   const periods = useMemo(() => {
-    // Always offer the last 12 pay periods regardless of whether payroll_summary
-    // has rows yet for them — otherwise a period with no data can never be selected.
+    // Always offer the last 12 pay periods regardless of whether there's data
+    // yet — otherwise a period with no sessions could never be selected.
     const now = new Date()
     const generated = Array.from({ length: 12 }, (_, i) => {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 21)
       return getPayPeriod(d).start.toISOString().split('T')[0].slice(0, 7)
     })
-    const fromSummary = summary.map((r: PayRow) => r.period_start.slice(0, 7))
-    const ps = Array.from(new Set([...generated, ...fromSummary, selectedPeriod]))
-    return ps.sort().reverse()
-  }, [summary, selectedPeriod])
+    return Array.from(new Set([...generated, selectedPeriod])).sort().reverse()
+  }, [selectedPeriod])
 
-  const filtered = summary.filter((r: PayRow) => r.period_start.slice(0, 7) === selectedPeriod)
-  const totalPay = filtered.reduce((s, r) => s + Number(r.total_salary), 0)
-  const totalHours = filtered.reduce((s, r) => s + Number(r.total_hours), 0)
-  const totalKasbon = filtered.reduce((s, r) => s + (kasbonByHost[r.host_id] || 0), 0)
-  const totalNet = totalPay - totalKasbon
+  const totalReportedHours = rows.reduce((s, r) => s + r.reportedHours, 0)
+  const totalActualSalary = rows.reduce((s, r) => s + r.actualSalary, 0)
+  const totalKasbon = rows.reduce((s, r) => s + (kasbonByHost[r.host_id] || 0), 0)
 
   async function exportExcel() {
     const { utils, writeFile } = await import('xlsx')
-    const ws = utils.json_to_sheet(filtered.map(r => ({
+    const ws = utils.json_to_sheet(rows.map(r => ({
       'Nama Host': r.full_name,
       'Tarif/Jam': r.hourly_rate,
-      'Total Jam': Number(r.total_hours).toFixed(2),
-      'Sesi': r.session_count,
-      'Total Gaji': Number(r.total_salary),
+      'Jam Terjadwal': Number(r.scheduledHours).toFixed(2),
+      'Forecast Gaji': r.forecastSalary,
+      'Jam Dilaporkan': Number(r.reportedHours).toFixed(2),
+      'Gaji Aktual': r.actualSalary,
       'Kasbon': kasbonByHost[r.host_id] || 0,
-      'Gaji Bersih': Number(r.total_salary) - (kasbonByHost[r.host_id] || 0),
-      'Periode': periodLabel(r.period_start),
+      'Periode': periodLabel(periodStartStr),
     })))
     const wb = utils.book_new()
     utils.book_append_sheet(wb, ws, 'Payroll')
@@ -515,24 +557,53 @@ function GajiTab() {
     doc.setFontSize(11)
     doc.text('Slip Gaji / Payslip', 14, 30)
     doc.text(`Nama: ${host.full_name}`, 14, 42)
-    doc.text(`Periode: ${periodLabel(host.period_start)}`, 14, 50)
+    doc.text(`Periode: ${periodLabel(periodStartStr)}`, 14, 50)
     doc.text(`Tarif/Jam: ${formatCurrency(host.hourly_rate)}`, 14, 58)
     const kasbon = kasbonByHost[host.host_id] || 0
     autoTable(doc, {
       startY: 68,
       head: [['Keterangan', 'Nilai']],
       body: [
-        ['Total Sesi', String(host.session_count)],
-        ['Total Jam Kerja', `${Number(host.total_hours).toFixed(2)} jam`],
+        ['Jam Terjadwal (Forecast)', `${Number(host.scheduledHours).toFixed(2)} jam — ${formatCurrency(host.forecastSalary)}`],
+        ['Jam Dilaporkan (Aktual)', `${Number(host.reportedHours).toFixed(2)} jam`],
         ['Tarif per Jam', formatCurrency(host.hourly_rate)],
-        ['Total Gaji (Bruto)', formatCurrency(Number(host.total_salary))],
+        ['Total Gaji (Bruto)', formatCurrency(host.actualSalary)],
         ['Potongan Kasbon', `- ${formatCurrency(kasbon)}`],
-        ['Gaji Bersih (Netto)', formatCurrency(Number(host.total_salary) - kasbon)],
+        ['Gaji Bersih (Netto)', formatCurrency(host.actualSalary - kasbon)],
       ],
       theme: 'grid',
       headStyles: { fillColor: [109, 40, 217] },
     })
     doc.save(`Payslip_${host.full_name.replace(' ', '_')}_${selectedPeriod}.pdf`)
+  }
+
+  async function saveRate() {
+    if (!editHost) return
+    setSavingRate(true)
+    const { error } = await createClient().from('profiles').update({ hourly_rate: editRate }).eq('id', editHost.host_id)
+    setSavingRate(false)
+    if (error) return
+    const patch = (r: PayRow) => r.host_id === editHost.host_id
+      ? { ...r, hourly_rate: editRate, forecastSalary: r.scheduledHours * editRate, actualSalary: r.reportedHours * editRate }
+      : r
+    setRows(prev => prev.map(patch))
+    setExcludedRows(prev => prev.map(patch))
+    setEditHost(null)
+  }
+
+  async function excludeHost(hostId: string) {
+    await createClient().from('payroll_exclusions').insert({ host_id: hostId, period_start: periodStartStr })
+    const row = rows.find(r => r.host_id === hostId)
+    setRows(prev => prev.filter(r => r.host_id !== hostId))
+    if (row) setExcludedRows(prev => [...prev, row])
+    setConfirmExcludeId(null)
+  }
+
+  async function restoreHost(hostId: string) {
+    await createClient().from('payroll_exclusions').delete().eq('host_id', hostId).eq('period_start', periodStartStr)
+    const row = excludedRows.find(r => r.host_id === hostId)
+    setExcludedRows(prev => prev.filter(r => r.host_id !== hostId))
+    if (row) setRows(prev => [...prev, row])
   }
 
   if (loading) {
@@ -559,9 +630,9 @@ function GajiTab() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Total Host', value: `${filtered.length}` },
-          { label: 'Total Jam', value: `${Number(totalHours.toFixed(1))} jam` },
-          { label: 'Total Gaji', value: formatCurrency(totalPay) },
+          { label: 'Total Host', value: `${rows.length}` },
+          { label: 'Total Jam Dilaporkan', value: `${Number(totalReportedHours.toFixed(1))} jam` },
+          { label: 'Total Gaji Aktual', value: formatCurrency(totalActualSalary) },
           { label: 'Total Kasbon', value: formatCurrency(totalKasbon) },
         ].map(({ label, value }) => (
           <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
@@ -571,49 +642,98 @@ function GajiTab() {
         ))}
       </div>
 
+      {excludedRows.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap text-xs bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5">
+          <span className="text-gray-400">{excludedRows.length} host disembunyikan periode ini:</span>
+          {excludedRows.map(r => (
+            <button key={r.host_id} onClick={() => restoreHost(r.host_id)}
+              className="flex items-center gap-1 bg-white border border-gray-200 rounded-full px-2.5 py-1 text-gray-600 hover:border-brand-400 hover:text-brand-700 transition-colors">
+              {r.full_name} <span className="text-brand-500 font-semibold">↺ Tampilkan</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        {filtered.length === 0 ? (
+        {rows.length === 0 ? (
           <div className="p-10 text-center text-sm text-gray-400">Belum ada data gaji untuk periode ini</div>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
                 <th className="px-4 py-3 text-left font-semibold">Nama Host</th>
-                <th className="px-4 py-3 text-right font-semibold">Sesi</th>
-                <th className="px-4 py-3 text-right font-semibold">Jam Kerja</th>
                 <th className="px-4 py-3 text-right font-semibold">Tarif/Jam</th>
-                <th className="px-4 py-3 text-right font-semibold">Total Gaji</th>
-                <th className="px-4 py-3 text-right font-semibold">Kasbon</th>
-                <th className="px-4 py-3 text-right font-semibold">Gaji Bersih</th>
-                <th className="px-4 py-3 text-center font-semibold">Payslip</th>
+                <th className="px-4 py-3 text-right font-semibold">Jam Terjadwal</th>
+                <th className="px-4 py-3 text-right font-semibold">Forecast Gaji</th>
+                <th className="px-4 py-3 text-right font-semibold">Jam Dilaporkan</th>
+                <th className="px-4 py-3 text-right font-semibold">Gaji Aktual</th>
+                <th className="px-4 py-3 text-center font-semibold w-40">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filtered.map(row => {
-                const kasbon = kasbonByHost[row.host_id] || 0
-                const net = Number(row.total_salary) - kasbon
-                return (
+              {rows.map(row => (
                 <tr key={row.host_id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3 font-semibold text-gray-900">{row.full_name}</td>
-                  <td className="px-4 py-3 text-right text-gray-600">{row.session_count}</td>
-                  <td className="px-4 py-3 text-right text-gray-600">{Number(row.total_hours).toFixed(2)}</td>
-                  <td className="px-4 py-3 text-right text-gray-600">{formatCurrency(row.hourly_rate)}</td>
-                  <td className="px-4 py-3 text-right text-gray-600">{formatCurrency(Number(row.total_salary))}</td>
-                  <td className="px-4 py-3 text-right text-red-500">{kasbon > 0 ? `- ${formatCurrency(kasbon)}` : '—'}</td>
-                  <td className="px-4 py-3 text-right font-bold text-gray-900">{formatCurrency(net)}</td>
-                  <td className="px-4 py-3 text-center">
-                    <button onClick={() => exportPDF(row)}
-                      className="inline-flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-800 font-medium border border-brand-200 rounded-lg px-2.5 py-1 hover:bg-brand-50 transition-colors">
-                      <FileText size={12}/> PDF
-                    </button>
+                  <td className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap">{row.full_name}</td>
+                  <td className="px-4 py-3 text-right text-gray-600 whitespace-nowrap">{formatCurrency(row.hourly_rate)}</td>
+                  <td className="px-4 py-3 text-right text-gray-600">{row.scheduledHours.toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right text-gray-500">{formatCurrency(row.forecastSalary)}</td>
+                  <td className="px-4 py-3 text-right text-gray-600">{row.reportedHours.toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-bold text-gray-900 whitespace-nowrap">{formatCurrency(row.actualSalary)}</td>
+                  <td className="px-4 py-3">
+                    {confirmExcludeId === row.host_id ? (
+                      <div className="flex items-center justify-center gap-1">
+                        <span className="text-[10px] text-gray-500">Sembunyikan?</span>
+                        <button onClick={() => excludeHost(row.host_id)}
+                          className="text-[10px] bg-red-500 text-white px-2 py-1 rounded-lg font-semibold">Ya</button>
+                        <button onClick={() => setConfirmExcludeId(null)}
+                          className="text-[10px] bg-gray-100 text-gray-600 px-2 py-1 rounded-lg font-semibold">Batal</button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center gap-1">
+                        <button onClick={() => { setEditHost(row); setEditRate(row.hourly_rate) }} title="Edit Tarif/Jam"
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors">
+                          <Edit2 size={13}/>
+                        </button>
+                        <button onClick={() => setConfirmExcludeId(row.host_id)} title="Sembunyikan dari periode ini"
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+                          <Trash2 size={13}/>
+                        </button>
+                        <button onClick={() => exportPDF(row)} title="Generate Slip Gaji"
+                          className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-medium border border-brand-200 rounded-lg px-2 py-1 hover:bg-brand-50 transition-colors">
+                          <FileText size={12}/> Slip
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
-                )
-              })}
+              ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
+
+      {/* Edit hourly rate modal */}
+      {editHost && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setEditHost(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <p className="font-bold text-gray-900 text-sm">Edit Tarif/Jam — {editHost.full_name}</p>
+              <button onClick={() => setEditHost(null)}><X size={16} className="text-gray-400"/></button>
+            </div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Tarif per Jam (Rp)</label>
+            <CurrencyInput value={editRate} onChange={setEditRate}/>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setEditHost(null)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500">Batal</button>
+              <button onClick={saveRate} disabled={savingRate}
+                className="flex-1 bg-brand-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-brand-700 disabled:opacity-60">
+                {savingRate ? 'Menyimpan...' : 'Simpan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
