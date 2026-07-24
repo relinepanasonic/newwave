@@ -63,6 +63,12 @@ function fmtDate(dateStr: string) {
   return new Date(y, m - 1, d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 function fmtNum(n: number) { return n.toLocaleString('id-ID') }
+function shiftDate(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  dt.setDate(dt.getDate() + days)
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+}
 
 interface CsvRow {
   _line: number
@@ -217,14 +223,20 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     appReports.filter(r => !usedAppIds.has(r.id)).sort((a, b) => a.report_date.localeCompare(b.report_date)),
     [appReports, usedAppIds])
 
-  // Candidates offered in the manual-match picker for a given CSV row: same date first, then the rest.
+  // Candidates offered in the manual-match picker for a given CSV row: only
+  // yesterday/today/tomorrow relative to the CSV row's date (sessions that
+  // cross midnight can land on the day before/after), same date sorted first.
   function candidatesFor(csv: CsvRow) {
-    return [...extraAppReports].sort((a, b) => {
-      const aSame = a.report_date === csv.tanggal ? 0 : 1
-      const bSame = b.report_date === csv.tanggal ? 0 : 1
-      if (aSame !== bSame) return aSame - bSame
-      return a.report_date.localeCompare(b.report_date)
-    })
+    const prev = shiftDate(csv.tanggal, -1)
+    const next = shiftDate(csv.tanggal, 1)
+    return extraAppReports
+      .filter(r => r.report_date === prev || r.report_date === csv.tanggal || r.report_date === next)
+      .sort((a, b) => {
+        const aSame = a.report_date === csv.tanggal ? 0 : 1
+        const bSame = b.report_date === csv.tanggal ? 0 : 1
+        if (aSame !== bSame) return aSame - bSame
+        return a.report_date.localeCompare(b.report_date)
+      })
   }
 
   function setManualMatch(csvIdx: number, appId: string) {
