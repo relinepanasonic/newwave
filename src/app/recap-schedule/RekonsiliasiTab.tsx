@@ -89,7 +89,7 @@ interface AppReport {
   start_time: string | null; duration_hours: number | null
   gmv: number; impression: number; viewer: number; trans: number; comment_count: number
   screenshot_url: string | null
-  profiles: { full_name: string } | null
+  profiles: { full_name: string; username: string | null } | null
 }
 
 interface ScheduleSlotRow {
@@ -123,7 +123,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
   const [csvRows, setCsvRows] = useState<CsvRow[]>([])
   const [appReports, setAppReports] = useState<AppReport[]>([])
   const [scheduleSlots, setScheduleSlots] = useState<ScheduleSlotRow[]>([])
-  const [hosts, setHosts] = useState<{ id: string; full_name: string }[]>([])
+  const [hosts, setHosts] = useState<{ id: string; full_name: string; username: string | null }[]>([])
   const [fileName, setFileName] = useState('')
   const [loading, setLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState<'all' | 'mismatch' | 'missing_in_app' | 'not_reported_confirmed'>('all')
@@ -178,12 +178,12 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     const supabase = createClient()
     const [reportsRes, slotsRes, hostsRes] = await Promise.all([
       supabase.from('live_reports')
-        .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, profiles:host_id(full_name)')
+        .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, profiles:host_id(full_name, username)')
         .gte('report_date', fetchStart).lte('report_date', fetchEnd),
       supabase.from('schedule_slots')
         .select('id, slot_date, session_no, jam_mulai, durasi, brand, platform, host_id')
         .gte('slot_date', fetchStart).lte('slot_date', fetchEnd).not('host_id', 'is', null),
-      supabase.from('profiles').select('id, full_name').in('role', ['host', 'host_manager']),
+      supabase.from('profiles').select('id, full_name, username').in('role', ['host', 'host_manager']),
     ])
     setAppReports((reportsRes.data as any) || [])
     setScheduleSlots((slotsRes.data as any) || [])
@@ -315,7 +315,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
 
   const hostNameById = useMemo(() => {
     const map: Record<string, string> = {}
-    hosts.forEach(h => { map[h.id] = h.full_name })
+    hosts.forEach(h => { map[h.id] = h.username || h.full_name.split(' ')[0] })
     return map
   }, [hosts])
 
@@ -427,19 +427,23 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                             <select autoFocus defaultValue=""
                               onChange={e => { if (e.target.value) setManualMatch(r.csvIdx, e.target.value) }}
                               onBlur={() => setPickingIdx(null)}
-                              className="text-[10px] border border-brand-300 rounded-lg px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white max-w-[220px]">
+                              className="text-[10px] border border-brand-300 rounded-lg px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white max-w-[280px]">
                               <option value="">— Pilih laporan app —</option>
-                              {candidatesFor(r.csv).map(c => (
-                                <option key={c.id} value={c.id}>
-                                  {fmtDate(c.report_date)} · {c.start_time?.slice(0,5) || '—'} · {(c.profiles as any)?.full_name || '—'} · {c.brand || '—'}
-                                </option>
-                              ))}
+                              {candidatesFor(r.csv).map(c => {
+                                const p = c.profiles as any
+                                const nick = p?.username || p?.full_name?.split(' ')[0] || '—'
+                                return (
+                                  <option key={c.id} value={c.id}>
+                                    {fmtDate(c.report_date)} · {c.start_time?.slice(0,5) || '—'} · {nick} · {c.brand || '—'} · {formatCurrency(Number(c.gmv))}
+                                  </option>
+                                )
+                              })}
                             </select>
                           ) : pickingScheduleIdx === r.csvIdx ? (
                             <select autoFocus defaultValue=""
                               onChange={e => { if (e.target.value) setNotReportedMatch(r.csvIdx, e.target.value) }}
                               onBlur={() => setPickingScheduleIdx(null)}
-                              className="text-[10px] border border-purple-300 rounded-lg px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-purple-400 bg-white max-w-[220px]">
+                              className="text-[10px] border border-purple-300 rounded-lg px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-purple-400 bg-white max-w-[280px]">
                               <option value="">— Pilih jadwal —</option>
                               {scheduleCandidatesFor(r.csv).map(s => (
                                 <option key={s.id} value={s.id}>
