@@ -10,6 +10,7 @@ interface Props {
   placeholder?: string
   className?: string
   wrapperClassName?: string
+  prefixClassName?: string
   disabled?: boolean
   autoFocus?: boolean
   showPrefix?: boolean
@@ -19,7 +20,7 @@ function formatThousands(digits: string): string {
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
 }
 
-export default function CurrencyInput({ value, onChange, onBlur, placeholder, className, wrapperClassName, disabled, autoFocus, showPrefix = true }: Props) {
+export default function CurrencyInput({ value, onChange, onBlur, placeholder, className, wrapperClassName, prefixClassName, disabled, autoFocus, showPrefix = true }: Props) {
   const [text, setText] = useState(value ? formatThousands(String(value)) : '')
 
   // Keep the display in sync if `value` changes from outside (e.g. form reset)
@@ -39,7 +40,7 @@ export default function CurrencyInput({ value, onChange, onBlur, placeholder, cl
 
   return (
     <div className={wrapperClassName ?? `flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-brand-400 bg-white ${disabled ? 'opacity-60' : ''}`}>
-      {showPrefix && <span className="px-3 py-2.5 bg-gray-50 text-sm font-semibold text-gray-500 border-r border-gray-200 flex-shrink-0">Rp</span>}
+      {showPrefix && <span className={prefixClassName ?? 'px-3 py-2.5 bg-gray-50 text-sm font-semibold text-gray-500 border-r border-gray-200 flex-shrink-0'}>Rp</span>}
       <input
         type="text"
         inputMode="numeric"

@@ -824,7 +824,7 @@ function GajiTab() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
-                <th className="px-4 py-3 text-left font-semibold">Nama Host</th>
+                <th className="px-4 py-3 text-left font-semibold sticky left-0 z-20 bg-gray-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">Nama Host</th>
                 <th className="px-4 py-3 text-right font-semibold">Tarif/Jam</th>
                 <th className="px-4 py-3 text-right font-semibold">Jam Terjadwal</th>
                 <th className="px-4 py-3 text-right font-semibold">Forecast Gaji</th>
@@ -840,36 +840,40 @@ function GajiTab() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {rows.map(row => (
-                <tr key={row.host_id} className="hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => openDetail(row)}>
-                  <td className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap">{row.full_name}</td>
+                <tr key={row.host_id} className="group hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => openDetail(row)}>
+                  <td className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap sticky left-0 z-10 bg-white group-hover:bg-gray-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">{row.full_name}</td>
                   <td className="px-4 py-3 text-right text-gray-600 whitespace-nowrap">{formatCurrency(row.hourly_rate)}</td>
                   <td className="px-4 py-3 text-right text-gray-600">{row.scheduledHours.toFixed(2)}</td>
                   <td className="px-4 py-3 text-right text-gray-500">{formatCurrency(row.forecastSalary)}</td>
                   <td className="px-4 py-3 text-right text-gray-600">{row.reportedHours.toFixed(2)}</td>
                   <td className="px-4 py-3 text-right text-gray-900 whitespace-nowrap">{formatCurrency(row.actualSalary)}</td>
                   <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
-                    <CurrencyInput value={row.tunjangan} showPrefix={false}
+                    <CurrencyInput value={row.tunjangan}
                       onChange={v => updateAdjField(row.host_id, 'tunjangan', v)} onBlur={() => persistRow(row)}
-                      wrapperClassName="border border-transparent hover:border-gray-200 focus-within:border-brand-400 rounded-lg"
-                      className="w-24 px-1.5 py-1 text-xs text-right text-emerald-600 focus:outline-none bg-transparent"/>
+                      wrapperClassName="flex items-center border border-transparent hover:border-gray-200 focus-within:border-brand-400 rounded-lg overflow-hidden"
+                      prefixClassName="px-1.5 py-1 bg-gray-50 text-[10px] font-semibold text-gray-400 flex-shrink-0"
+                      className="w-20 min-w-0 px-1.5 py-1 text-xs text-right text-emerald-600 focus:outline-none bg-transparent"/>
                   </td>
                   <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
-                    <CurrencyInput value={row.bonus} showPrefix={false}
+                    <CurrencyInput value={row.bonus}
                       onChange={v => updateAdjField(row.host_id, 'bonus', v)} onBlur={() => persistRow(row)}
-                      wrapperClassName="border border-transparent hover:border-gray-200 focus-within:border-brand-400 rounded-lg"
-                      className="w-24 px-1.5 py-1 text-xs text-right text-emerald-600 focus:outline-none bg-transparent"/>
+                      wrapperClassName="flex items-center border border-transparent hover:border-gray-200 focus-within:border-brand-400 rounded-lg overflow-hidden"
+                      prefixClassName="px-1.5 py-1 bg-gray-50 text-[10px] font-semibold text-gray-400 flex-shrink-0"
+                      className="w-20 min-w-0 px-1.5 py-1 text-xs text-right text-emerald-600 focus:outline-none bg-transparent"/>
                   </td>
                   <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
-                    <CurrencyInput value={row.kasbonDibayar} showPrefix={false}
+                    <CurrencyInput value={row.kasbonDibayar}
                       onChange={v => updateAdjField(row.host_id, 'kasbonDibayar', v)} onBlur={() => persistRow(row)}
-                      wrapperClassName="border border-transparent hover:border-gray-200 focus-within:border-brand-400 rounded-lg"
-                      className="w-24 px-1.5 py-1 text-xs text-right text-red-500 focus:outline-none bg-transparent"/>
+                      wrapperClassName="flex items-center border border-transparent hover:border-gray-200 focus-within:border-brand-400 rounded-lg overflow-hidden"
+                      prefixClassName="px-1.5 py-1 bg-gray-50 text-[10px] font-semibold text-gray-400 flex-shrink-0"
+                      className="w-20 min-w-0 px-1.5 py-1 text-xs text-right text-red-500 focus:outline-none bg-transparent"/>
                   </td>
                   <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
-                    <CurrencyInput value={row.pinalti} showPrefix={false}
+                    <CurrencyInput value={row.pinalti}
                       onChange={v => updateAdjField(row.host_id, 'pinalti', v)} onBlur={() => persistRow(row)}
-                      wrapperClassName="border border-transparent hover:border-gray-200 focus-within:border-brand-400 rounded-lg"
-                      className="w-24 px-1.5 py-1 text-xs text-right text-red-500 focus:outline-none bg-transparent"/>
+                      wrapperClassName="flex items-center border border-transparent hover:border-gray-200 focus-within:border-brand-400 rounded-lg overflow-hidden"
+                      prefixClassName="px-1.5 py-1 bg-gray-50 text-[10px] font-semibold text-gray-400 flex-shrink-0"
+                      className="w-20 min-w-0 px-1.5 py-1 text-xs text-right text-red-500 focus:outline-none bg-transparent"/>
                   </td>
                   <td className="px-4 py-3 text-right font-bold text-gray-900 whitespace-nowrap">{formatCurrency(row.netSalary)}</td>
                   <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
