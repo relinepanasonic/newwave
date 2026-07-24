@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
-import { Plus, X, ChevronDown, ChevronUp, ExternalLink, Lock, Unlock, Trash2 } from 'lucide-react'
+import { Plus, X, ChevronDown, ChevronUp, ExternalLink, Lock, Unlock, Trash2, Upload } from 'lucide-react'
 import CurrencyInput from '@/components/CurrencyInput'
 
 interface PC {
@@ -19,6 +19,7 @@ function fmtDate(s: string) {
   const [y, m, d] = s.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
 }
+function todayStr() { return new Date().toISOString().split('T')[0] }
 
 function nextCashId(existing: string[]): string {
   const now = new Date()
@@ -61,6 +62,14 @@ export default function PettyCashPanel() {
   const [editItem, setEditItem] = useState<PCItem | null>(null)
   const [editItemForm, setEditItemForm] = useState({ tanggal: '', remark: '', cash_out: 0 })
   const [savingItem, setSavingItem] = useState(false)
+
+  // Add item (superadmin can log an expense directly)
+  const [addingTo, setAddingTo] = useState<string | null>(null)
+  const [newItem, setNewItem] = useState({ tanggal: todayStr(), remark: '', cash_out: 0 })
+  const [newItemFile, setNewItemFile] = useState<File | null>(null)
+  const [addingItemSaving, setAddingItemSaving] = useState(false)
+  const [addItemError, setAddItemError] = useState('')
+  const [uploadProgress, setUploadProgress] = useState('')
 
   // Confirm close
   const [confirmCloseId, setConfirmCloseId] = useState<string | null>(null)
@@ -156,6 +165,60 @@ export default function PettyCashPanel() {
       ...prev,
       [item.petty_cash_id]: (prev[item.petty_cash_id] || []).filter(i => i.id !== item.id),
     }))
+  }
+
+  async function addItem(pc: PC) {
+    if (!newItem.tanggal || !newItem.cash_out || newItem.cash_out <= 0) {
+      setAddItemError('Isi tanggal dan jumlah pengeluaran'); return
+    }
+    setAddingItemSaving(true); setAddItemError(''); setUploadProgress('')
+
+    let receiptUrl: string | null = null
+    if (newItemFile) {
+      setUploadProgress('Mengunggah bukti...')
+      const toBase64 = (file: File) => new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as string)
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+      try {
+        const b64 = await toBase64(newItemFile)
+        const res = await fetch('/api/petty-cash/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            host_name: pc.profiles?.full_name || 'Tanpa Nama',
+            cash_id: pc.cash_id,
+            filename: newItemFile.name,
+            mime: newItemFile.type,
+            base64: b64,
+          }),
+        })
+        const json = await res.json()
+        if (json.fileUrl) receiptUrl = json.fileUrl
+        else if (!json.skipped) setAddItemError(`Bukti gagal diunggah: ${json.error || 'Unknown error'}`)
+      } catch {
+        setAddItemError('Bukti gagal diunggah — cek koneksi internet')
+      }
+      setUploadProgress('')
+    }
+
+    const { data, error } = await createClient().from('petty_cash_items').insert({
+      petty_cash_id: pc.id,
+      tanggal: newItem.tanggal,
+      remark: newItem.remark || null,
+      cash_out: newItem.cash_out,
+      receipt_url: receiptUrl,
+    }).select().single()
+
+    if (error) { setAddItemError(error.message); setAddingItemSaving(false); return }
+
+    setItems(prev => ({ ...prev, [pc.id]: [...(prev[pc.id] || []), data as PCItem] }))
+    setNewItem({ tanggal: todayStr(), remark: '', cash_out: 0 })
+    setNewItemFile(null)
+    setAddingTo(null)
+    setAddingItemSaving(false)
   }
 
   return (
@@ -373,6 +436,69 @@ export default function PettyCashPanel() {
                           </tbody>
                         </table>
                       </div>
+                    )}
+                    {/* Add expense (superadmin can log directly) */}
+                    {pc.status === 'active' && (
+                      addingTo === pc.id ? (
+                        <div className="px-5 py-4 bg-gray-50 border-t border-gray-100 space-y-3">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Tanggal *</label>
+                              <input type="date" value={newItem.tanggal}
+                                onChange={e => setNewItem(r => ({ ...r, tanggal: e.target.value }))}
+                                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"/>
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Cash Out (Rp) *</label>
+                              <CurrencyInput value={newItem.cash_out}
+                                onChange={v => setNewItem(r => ({ ...r, cash_out: v }))}
+                                placeholder="50.000"
+                                className="flex-1 min-w-0 px-3 py-2 text-xs focus:outline-none"/>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Remark / Keterangan</label>
+                            <input value={newItem.remark}
+                              onChange={e => setNewItem(r => ({ ...r, remark: e.target.value }))}
+                              placeholder="Ongkos ojek ke lokasi"
+                              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"/>
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Bukti Pembayaran (opsional)</label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <span className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 bg-white rounded-xl px-3 py-2 hover:bg-gray-50">
+                                <Upload size={12}/> {newItemFile ? newItemFile.name : 'Pilih Foto'}
+                              </span>
+                              <input type="file" accept="image/*,application/pdf" className="hidden"
+                                onChange={e => setNewItemFile(e.target.files?.[0] || null)}/>
+                            </label>
+                            {newItemFile && (
+                              <button onClick={() => setNewItemFile(null)} className="mt-1 flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600">
+                                <X size={10}/> Hapus file
+                              </button>
+                            )}
+                          </div>
+                          {addItemError && <p className="text-[11px] text-red-600">{addItemError}</p>}
+                          {uploadProgress && <p className="text-[11px] text-blue-500">{uploadProgress}</p>}
+                          <div className="flex gap-2">
+                            <button onClick={() => { setAddingTo(null); setAddItemError(''); setNewItemFile(null) }}
+                              className="px-4 py-2 border border-gray-200 rounded-xl text-xs text-gray-500 hover:bg-gray-100">
+                              Batal
+                            </button>
+                            <button onClick={() => addItem(pc)} disabled={addingItemSaving}
+                              className="flex-1 bg-emerald-600 text-white py-2 rounded-xl text-xs font-semibold hover:bg-emerald-700 disabled:opacity-60">
+                              {addingItemSaving ? 'Menyimpan...' : 'Simpan Pengeluaran'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="px-5 py-3 border-t border-gray-50">
+                          <button onClick={() => { setAddingTo(pc.id); setNewItem({ tanggal: todayStr(), remark: '', cash_out: 0 }); setAddItemError(''); setNewItemFile(null) }}
+                            className="flex items-center gap-1.5 text-xs text-emerald-700 font-semibold hover:text-emerald-900 transition-colors">
+                            <Plus size={13}/> Tambah Pengeluaran
+                          </button>
+                        </div>
+                      )
                     )}
                   </div>
                 )}
