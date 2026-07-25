@@ -13,7 +13,27 @@ interface ReportRow {
   start_time: string | null; duration_hours: number | null
   gmv: number; impression: number; viewer: number; trans: number; comment_count: number
   screenshot_url: string | null; notes: string | null; product_sold_name: string | null
+  slot_id: string | null
   host_id: string; profiles: { full_name: string } | null
+}
+
+// Derived from existing columns, not a stored field:
+// - 'not_scheduled': no schedule_slots link (added without ever being on the schedule)
+// - 'csv': confirmed via Rekonsiliasi's "Tidak Lapor"/"Buat Jadwal" (host never reported)
+// - 'reported': submitted by the host through the app (has a screenshot)
+// - 'miss_report': added/fixed manually by an admin (no screenshot, not CSV-tagged)
+type ReportStatus = 'reported' | 'miss_report' | 'csv' | 'not_scheduled'
+function reportStatus(r: ReportRow): ReportStatus {
+  if (r.notes === 'CSV') return 'csv'
+  if (!r.slot_id) return 'not_scheduled'
+  return r.screenshot_url ? 'reported' : 'miss_report'
+}
+const STATUS_LABEL: Record<ReportStatus, string> = {
+  reported: 'Reported', miss_report: 'Miss Report', csv: 'CSV', not_scheduled: 'Not Scheduled',
+}
+const STATUS_COLOR: Record<ReportStatus, string> = {
+  reported: 'bg-emerald-100 text-emerald-700', miss_report: 'bg-amber-100 text-amber-700',
+  csv: 'bg-purple-100 text-purple-700', not_scheduled: 'bg-gray-100 text-gray-500',
 }
 interface ProductRow {
   id: string; live_report_id: string; produk_terjual: string
@@ -179,7 +199,7 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
     setExpanded({})
     const supabase = createClient()
     let q = supabase.from('live_reports')
-      .select('id, report_date, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, product_sold_name, host_id, profiles:host_id(full_name)')
+      .select('id, report_date, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, product_sold_name, slot_id, host_id, profiles:host_id(full_name)')
       .gte('report_date', month.start).lte('report_date', month.end)
       .order('report_date', { ascending: false }).order('start_time', { ascending: false })
     if (selectedHost) q = q.eq('host_id', selectedHost)
@@ -393,7 +413,8 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
       'Transaksi': r.trans || 0,
       'Komentar': r.comment_count || 0,
       'Produk Dijual': r.product_sold_name || '',
-      'Evaluasi': r.notes || '',
+      'Evaluasi': r.notes === 'CSV' ? '' : (r.notes || ''),
+      'Status': STATUS_LABEL[reportStatus(r)],
     })))
     const wb = utils.book_new()
     utils.book_append_sheet(wb, ws, 'Live Reports')
@@ -503,6 +524,7 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
                   <th className="px-3 py-2.5 text-right font-semibold">Komentar</th>
                   <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Produk Terjual</th>
                   <th className="px-3 py-2.5 text-left font-semibold">Evaluasi</th>
+                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Status</th>
                   <th className="px-3 py-2.5 w-8"></th>
                 </tr>
               </thead>
@@ -534,7 +556,12 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
                         <td className="px-3 py-3 text-xs text-gray-700 max-w-[140px] truncate">
                           {r.product_sold_name || (prods.length > 0 ? `${prods.length} produk` : '—')}
                         </td>
-                        <td className="px-3 py-3 text-xs text-gray-500 max-w-[160px] truncate">{r.notes || '—'}</td>
+                        <td className="px-3 py-3 text-xs text-gray-500 max-w-[160px] truncate">{r.notes === 'CSV' ? '—' : (r.notes || '—')}</td>
+                        <td className="px-3 py-3">
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap ${STATUS_COLOR[reportStatus(r)]}`}>
+                            {STATUS_LABEL[reportStatus(r)]}
+                          </span>
+                        </td>
                         <td className="px-3 py-3 text-gray-400">
                           {isOpen ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                         </td>
@@ -582,7 +609,7 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
                                     )}
                                   </div>
                                 )}
-                                {r.notes && (
+                                {r.notes && r.notes !== 'CSV' && (
                                   <div>
                                     <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wide mb-1">Evaluasi</p>
                                     <p className="text-xs text-gray-700 whitespace-pre-wrap">{r.notes}</p>
