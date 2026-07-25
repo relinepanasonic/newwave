@@ -1334,6 +1334,22 @@ interface LemburRow {
   id: string; operator_id: string; date: string; hours: number; reason: string | null
   request_status: string; created_at: string
 }
+interface OperatorRow { id: string; full_name: string; daily_rate: number }
+interface OpPayRow {
+  operator_id: string; full_name: string; daily_rate: number
+  fullDays: number; shortDays: number; openDays: number
+  basePay: number; tunjangan: number; bonus: number; pinalti: number; netPay: number
+}
+
+// A day only counts toward pay once it's genuinely closed out (both clock_in
+// and clock_out present) AND spans at least 8 hours -- shorter closed days and
+// still-open days (clock_in with no clock_out) are surfaced as flags instead
+// of being silently included or excluded, per the "manual review" decision.
+const MIN_PAID_HOURS = 8
+function dayHours(a: AttendanceRow): number | null {
+  if (!a.clock_in || !a.clock_out) return null
+  return (new Date(a.clock_out).getTime() - new Date(a.clock_in).getTime()) / 3_600_000
+}
 
 function fmtShortDateFull(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number)
@@ -1344,29 +1360,97 @@ function fmtClockTime(iso: string) {
 }
 
 function AbsensiOpsTab() {
-  const [operators, setOperators] = useState<{ id: string; full_name: string }[]>([])
+  const [operators, setOperators] = useState<OperatorRow[]>([])
   const [attendance, setAttendance] = useState<AttendanceRow[]>([])
   const [lemburs, setLemburs] = useState<LemburRow[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedOp, setSelectedOp] = useState('')
   const [actioningId, setActioningId] = useState<string | null>(null)
 
-  const load = useCallback(() => {
+  const currentPeriod = getPayPeriod()
+  const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod.start.toISOString().split('T')[0].slice(0, 7))
+  const { periodStartStr, periodEndStr } = useMemo(() => {
+    const [y, m] = selectedPeriod.split('-').map(Number)
+    const p = getPayPeriod(new Date(y, m - 1, 21))
+    return { periodStartStr: toLocalDateStr(p.start), periodEndStr: toLocalDateStr(p.end) }
+  }, [selectedPeriod])
+
+  const [payRows, setPayRows] = useState<OpPayRow[]>([])
+  const [editRateId, setEditRateId] = useState<string | null>(null)
+  const [editRateVal, setEditRateVal] = useState(0)
+  const [savingRate, setSavingRate] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
     const supabase = createClient()
-    const since = new Date(); since.setDate(since.getDate() - 30)
-    const sinceStr = toLocalDateStr(since)
-    Promise.all([
-      supabase.from('profiles').select('id, full_name').eq('role', 'operator').order('full_name'),
-      supabase.from('attendance').select('*').gte('date', sinceStr).order('date', { ascending: false }),
+    const [opRes, attRes, lemburRes, adjRes] = await Promise.all([
+      supabase.from('profiles').select('id, full_name, daily_rate').eq('role', 'operator').order('full_name'),
+      supabase.from('attendance').select('*').gte('date', periodStartStr).lte('date', periodEndStr).order('date', { ascending: false }),
       supabase.from('lembur_requests').select('*').order('created_at', { ascending: false }),
-    ]).then(([opRes, attRes, lemburRes]) => {
-      setOperators(opRes.data || [])
-      setAttendance((attRes.data as AttendanceRow[]) || [])
-      setLemburs((lemburRes.data as LemburRow[]) || [])
-      setLoading(false)
-    })
+      supabase.from('payroll_adjustments').select('*').eq('period_start', periodStartStr),
+    ])
+    const ops = (opRes.data as OperatorRow[]) || []
+    const att = (attRes.data as AttendanceRow[]) || []
+    const adjByOp = Object.fromEntries((adjRes.data || []).map((a: any) => [a.host_id, a]))
+
+    setOperators(ops)
+    setAttendance(att)
+    setLemburs((lemburRes.data as LemburRow[]) || [])
+    setPayRows(ops.map(op => {
+      const days = att.filter(a => a.operator_id === op.id)
+      const fullDays = days.filter(a => { const h = dayHours(a); return h !== null && h >= MIN_PAID_HOURS }).length
+      const shortDays = days.filter(a => { const h = dayHours(a); return h !== null && h < MIN_PAID_HOURS }).length
+      const openDays = days.filter(a => a.clock_in && !a.clock_out).length
+      const rate = Number(op.daily_rate) || 0
+      const basePay = fullDays * rate
+      const adj = adjByOp[op.id]
+      const tunjangan = Number(adj?.tunjangan) || 0
+      const bonus = Number(adj?.bonus) || 0
+      const pinalti = Number(adj?.pinalti) || 0
+      return {
+        operator_id: op.id, full_name: op.full_name, daily_rate: rate,
+        fullDays, shortDays, openDays, basePay, tunjangan, bonus, pinalti,
+        netPay: basePay + tunjangan + bonus - pinalti,
+      }
+    }))
+    setLoading(false)
+  }, [periodStartStr, periodEndStr])
+  useEffect(() => { load() }, [load])
+
+  const periodOptions = useMemo(() => {
+    const opts = []
+    for (let i = 0; i < 6; i++) {
+      const d = new Date()
+      if (i > 0) d.setMonth(d.getMonth() - i)
+      const p = getPayPeriod(d)
+      opts.push(toLocalDateStr(p.start).slice(0, 7))
+    }
+    return opts
   }, [])
-  useEffect(load, [load])
+
+  async function saveDailyRate(operatorId: string) {
+    setSavingRate(true)
+    await createClient().from('profiles').update({ daily_rate: editRateVal }).eq('id', operatorId)
+    setPayRows(prev => prev.map(r => r.operator_id === operatorId
+      ? { ...r, daily_rate: editRateVal, basePay: r.fullDays * editRateVal, netPay: r.fullDays * editRateVal + r.tunjangan + r.bonus - r.pinalti }
+      : r))
+    setSavingRate(false); setEditRateId(null)
+  }
+
+  function updatePayAdj(operatorId: string, field: 'tunjangan' | 'bonus' | 'pinalti', value: number) {
+    setPayRows(prev => prev.map(r => {
+      if (r.operator_id !== operatorId) return r
+      const next = { ...r, [field]: value }
+      next.netPay = next.basePay + next.tunjangan + next.bonus - next.pinalti
+      return next
+    }))
+  }
+  async function persistPayAdj(row: OpPayRow) {
+    await createClient().from('payroll_adjustments').upsert({
+      host_id: row.operator_id, period_start: periodStartStr,
+      tunjangan: row.tunjangan, bonus: row.bonus, pinalti: row.pinalti,
+    }, { onConflict: 'host_id,period_start' })
+  }
 
   async function approveLembur(l: LemburRow) {
     setActioningId(l.id)
@@ -1389,8 +1473,16 @@ function AbsensiOpsTab() {
 
   if (loading) return <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">Memuat absensi...</div>
 
+  const totalNetPay = payRows.reduce((s, r) => s + r.netPay, 0)
+
   return (
     <div className="space-y-5">
+      {/* Period selector */}
+      <select value={selectedPeriod} onChange={e => setSelectedPeriod(e.target.value)}
+        className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+        {periodOptions.map(p => <option key={p} value={p}>{periodLabel(p + '-21')}</option>)}
+      </select>
+
       {/* Pending Lembur requests */}
       {pendingLembur.length > 0 && (
         <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
@@ -1421,6 +1513,100 @@ function AbsensiOpsTab() {
           </div>
         </div>
       )}
+
+      {/* Payroll Operator */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm font-bold text-gray-900">Payroll Operator</p>
+          <p className="text-sm font-bold text-gray-900">Total: {formatCurrency(totalNetPay)}</p>
+        </div>
+        {payRows.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center text-sm text-gray-400">
+            Belum ada operator
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
+                    <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Operator</th>
+                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Tarif Harian</th>
+                    <th className="px-3 py-2.5 text-center font-semibold whitespace-nowrap">Hari Penuh (&ge;8j)</th>
+                    <th className="px-3 py-2.5 text-center font-semibold whitespace-nowrap">Perlu Review</th>
+                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Gaji Pokok</th>
+                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Tunjangan</th>
+                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Bonus</th>
+                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Pinalti</th>
+                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Gaji Bersih</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {payRows.map(row => (
+                    <tr key={row.operator_id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-3 py-3 font-bold text-brand-700 whitespace-nowrap">{row.full_name}</td>
+                      <td className="px-3 py-3 text-right whitespace-nowrap">
+                        {editRateId === row.operator_id ? (
+                          <div className="flex items-center gap-1 justify-end">
+                            <CurrencyInput value={editRateVal} onChange={setEditRateVal}
+                              wrapperClassName="flex items-center border border-gray-200 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-brand-400 bg-white w-28"
+                              className="w-full min-w-0 px-2 py-1 text-xs text-right focus:outline-none"/>
+                            <button onClick={() => saveDailyRate(row.operator_id)} disabled={savingRate}
+                              className="text-emerald-600 hover:text-emerald-800"><Save size={13}/></button>
+                          </div>
+                        ) : (
+                          <button onClick={() => { setEditRateId(row.operator_id); setEditRateVal(row.daily_rate) }}
+                            className="text-gray-600 hover:text-brand-600 flex items-center gap-1 justify-end ml-auto">
+                            {formatCurrency(row.daily_rate)} <Edit2 size={11} className="text-gray-300"/>
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-3 py-3 text-center font-semibold text-emerald-700">{row.fullDays}</td>
+                      <td className="px-3 py-3 text-center">
+                        {row.shortDays === 0 && row.openDays === 0 ? (
+                          <span className="text-gray-300 text-xs">—</span>
+                        ) : (
+                          <div className="flex flex-col items-center gap-0.5">
+                            {row.shortDays > 0 && (
+                              <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">{row.shortDays} hari &lt;8j</span>
+                            )}
+                            {row.openDays > 0 && (
+                              <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">{row.openDays} belum checkout</span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-3 text-right text-gray-600 whitespace-nowrap">{formatCurrency(row.basePay)}</td>
+                      <td className="px-3 py-3 text-right">
+                        <CurrencyInput value={row.tunjangan} onChange={v => updatePayAdj(row.operator_id, 'tunjangan', v)}
+                          onBlur={() => persistPayAdj(row)}
+                          wrapperClassName="flex items-center border border-gray-200 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-brand-400 bg-white w-24 ml-auto"
+                          className="w-full min-w-0 px-2 py-1 text-xs text-right focus:outline-none"/>
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <CurrencyInput value={row.bonus} onChange={v => updatePayAdj(row.operator_id, 'bonus', v)}
+                          onBlur={() => persistPayAdj(row)}
+                          wrapperClassName="flex items-center border border-gray-200 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-brand-400 bg-white w-24 ml-auto"
+                          className="w-full min-w-0 px-2 py-1 text-xs text-right focus:outline-none"/>
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <CurrencyInput value={row.pinalti} onChange={v => updatePayAdj(row.operator_id, 'pinalti', v)}
+                          onBlur={() => persistPayAdj(row)}
+                          wrapperClassName="flex items-center border border-gray-200 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-brand-400 bg-white w-24 ml-auto"
+                          className="w-full min-w-0 px-2 py-1 text-xs text-right focus:outline-none"/>
+                      </td>
+                      <td className="px-3 py-3 text-right font-bold text-gray-900 whitespace-nowrap">{formatCurrency(row.netPay)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        <p className="text-[11px] text-gray-400 mt-2">
+          "Perlu Review" hari (&lt;8 jam atau belum checkout) tidak otomatis dihitung ke Gaji Pokok — sesuaikan lewat Bonus/Pinalti jika perlu.
+        </p>
+      </div>
 
       {/* Filter */}
       <select value={selectedOp} onChange={e => setSelectedOp(e.target.value)}
