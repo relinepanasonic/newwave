@@ -7,13 +7,23 @@ import { getPayPeriod, toLocalDateStr, SESSION_LABELS, PLATFORM_COLORS, formatCu
 import { Upload, X, CheckCircle2, Camera, TrendingUp, ChevronDown, ChevronUp, Plus, Package, Trash2, PlayCircle, ClipboardList } from 'lucide-react'
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
-import TimeInput from '@/components/TimeInput'
 import CurrencyInput from '@/components/CurrencyInput'
+import SteppedTimeInput from '@/components/SteppedTimeInput'
+import SteppedNumberInput from '@/components/SteppedNumberInput'
 
 // ── ProductsSection (expandable per-report) ──────────────────────────────────
 interface Product {
   id?: string; live_report_id: string; produk_terjual: string
   product_klik: number; item_sold: number; total: number
+}
+
+function StatField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-gray-50 rounded-xl p-2.5">
+      <p className="text-xs text-gray-400 mb-1">{label}</p>
+      {children}
+    </div>
+  )
 }
 
 function ProductsSection({ reportId, hostId, brand, reportDate }: { reportId: string; hostId: string; brand: string; reportDate: string }) {
@@ -263,11 +273,23 @@ export default function LiveReportClient({ profile }: { profile: any }) {
       })
   }, [form.slot_id, form.brand, form.platform, todaySlots])
 
-  // Auto-fill brand/platform when slot selected
+  // Auto-fill brand/platform/start_time/duration when slot selected. Time
+  // defaults to the slot's own jam_mulai, falling back to the session-number
+  // hour (session 1 = 00:00) when jam_mulai was never set manually.
   useEffect(() => {
     if (form.slot_id) {
       const slot = todaySlots.find(s => s.id === form.slot_id)
-      if (slot) setForm(f => ({ ...f, brand: slot.brand || f.brand, platform: slot.platform || f.platform }))
+      if (slot) {
+        const defaultStart = slot.jam_mulai
+          ? slot.jam_mulai.slice(0, 5)
+          : `${String(slot.session_no - 1).padStart(2, '0')}:00`
+        setForm(f => ({
+          ...f,
+          brand: slot.brand || f.brand, platform: slot.platform || f.platform,
+          start_time: f.start_time || defaultStart,
+          duration_hours: f.duration_hours || slot.durasi || 0,
+        }))
+      }
     }
   }, [form.slot_id, todaySlots])
 
@@ -686,10 +708,10 @@ export default function LiveReportClient({ profile }: { profile: any }) {
         {approvalDone && (
           <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 bg-brand-50">
-              <h2 className="font-bold text-brand-900 text-sm">Submit Laporan Live</h2>
+              <h2 className="font-bold text-brand-900 text-sm">{tr('submitLiveReport', lang)}</h2>
               <p className="text-xs text-brand-600 mt-0.5">
-                Look Approval pukul {approvalTs}
-                {liveStartedFresh && ` · Live mulai pukul ${liveStartTs}`}
+                {tr('lookApprovalAt', lang)} {approvalTs}
+                {liveStartedFresh && ` · ${tr('liveStartedAt', lang)} ${liveStartTs}`}
               </p>
             </div>
 
@@ -698,16 +720,16 @@ export default function LiveReportClient({ profile }: { profile: any }) {
               {/* Brand + Platform */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Brand *</label>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">{tr('brandRequired', lang)}</label>
                   <input value={form.brand} onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
                     placeholder="e.g. Niko" required
                     className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50"/>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Platform *</label>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">{tr('platformRequired', lang)}</label>
                   <select value={form.platform} onChange={e => setForm(f => ({ ...f, platform: e.target.value }))}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50">
-                    <option value="">— Pilih —</option>
+                    <option value="">{tr('pilihPlaceholder', lang)}</option>
                     {PLATFORMS.map(p => <option key={p}>{p}</option>)}
                   </select>
                 </div>
@@ -716,52 +738,62 @@ export default function LiveReportClient({ profile }: { profile: any }) {
               {/* Jam Mulai + Durasi */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Jam Mulai</label>
-                  <TimeInput value={form.start_time} onChange={v => setForm(f => ({ ...f, start_time: v }))}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50"/>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">{tr('jamMulai', lang)}</label>
+                  <SteppedTimeInput value={form.start_time} onChange={v => setForm(f => ({ ...f, start_time: v }))}
+                    className="border border-gray-200 rounded-xl px-2 py-1.5 bg-gray-50"/>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Durasi (jam)</label>
-                  <input type="number" min="0" max="12" step="0.5" value={form.duration_hours || ''}
-                    onChange={e => setForm(f => ({ ...f, duration_hours: parseFloat(e.target.value) || 0 }))}
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">{tr('durasiJam', lang)}</label>
+                  <SteppedNumberInput value={form.duration_hours} min={0} max={12} step={0.25}
+                    onChange={v => setForm(f => ({ ...f, duration_hours: v }))}
                     placeholder="e.g. 4"
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50"/>
+                    className="border border-gray-200 rounded-xl py-1.5 bg-gray-50"/>
                 </div>
               </div>
 
-              {/* Stats */}
+              {/* Stats — GMV full width, then Impresi/Penonton and Transaksi/Komentar in pairs */}
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">Statistik Live *</label>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                  {([
-                    { key: 'gmv', label: 'GMV (Rp)', emoji: '💰' },
-                    { key: 'impression', label: 'Impresi', emoji: '👁' },
-                    { key: 'viewer', label: 'Penonton', emoji: '👥' },
-                    { key: 'trans', label: 'Transaksi', emoji: '🛒' },
-                    { key: 'comment_count', label: 'Komentar', emoji: '💬' },
-                  ] as const).map(({ key, label, emoji }) => (
-                    <div key={key} className="bg-gray-50 rounded-xl p-2.5">
-                      <p className="text-xs text-gray-400 mb-1">{emoji} {label}</p>
-                      {key === 'gmv' ? (
-                        <CurrencyInput value={(form as any)[key] || 0}
-                          onChange={v => setForm(f => ({ ...f, [key]: v }))}
-                          wrapperClassName="flex items-center bg-white border border-gray-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-brand-400"
-                          className="w-full min-w-0 px-2 py-1.5 text-sm font-semibold text-gray-900 focus:outline-none"/>
-                      ) : (
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">{tr('statistikLiveRequired', lang)}</label>
+                <div className="space-y-2">
+                  <StatField label={`💰 ${tr('gmvLabel', lang)}`}>
+                    <CurrencyInput value={form.gmv || 0}
+                      onChange={v => setForm(f => ({ ...f, gmv: v }))}
+                      wrapperClassName="flex items-center bg-white border border-gray-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-brand-400"
+                      className="w-full min-w-0 px-2 py-1.5 text-sm font-semibold text-gray-900 focus:outline-none"/>
+                  </StatField>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { key: 'impression', label: `👁 ${tr('impresiLabel', lang)}` },
+                      { key: 'viewer', label: `👥 ${tr('penontonLabel', lang)}` },
+                    ] as const).map(({ key, label }) => (
+                      <StatField key={key} label={label}>
                         <input type="number" min="0" value={(form as any)[key] || ''}
                           onChange={e => setForm(f => ({ ...f, [key]: parseInt(e.target.value) || 0 }))}
                           placeholder="0"
                           className="w-full bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-400"/>
-                      )}
-                    </div>
-                  ))}
+                      </StatField>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { key: 'trans', label: `🛒 ${tr('transaksiLabel', lang)}` },
+                      { key: 'comment_count', label: `💬 ${tr('komentarLabel', lang)}` },
+                    ] as const).map(({ key, label }) => (
+                      <StatField key={key} label={label}>
+                        <input type="number" min="0" value={(form as any)[key] || ''}
+                          onChange={e => setForm(f => ({ ...f, [key]: parseInt(e.target.value) || 0 }))}
+                          placeholder="0"
+                          className="w-full bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                      </StatField>
+                    ))}
+                  </div>
                 </div>
               </div>
 
               {/* Screenshot */}
               <div>
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">
-                  Screenshot Dashboard Live *
+                  {tr('screenshotDashboardRequired', lang)}
                 </label>
                 {screenshotPreview ? (
                   <div className="relative inline-block">
@@ -776,8 +808,8 @@ export default function LiveReportClient({ profile }: { profile: any }) {
                   <button type="button" onClick={() => fileRef.current?.click()}
                     className="w-full border-2 border-dashed border-gray-200 rounded-xl py-8 flex flex-col items-center gap-2 hover:border-brand-400 hover:bg-brand-50/30 transition-colors">
                     <Upload size={24} className="text-gray-300"/>
-                    <p className="text-sm text-gray-400 font-medium">Klik untuk upload screenshot</p>
-                    <p className="text-xs text-gray-300">PNG, JPG, JPEG — Max 10MB</p>
+                    <p className="text-sm text-gray-400 font-medium">{tr('clickUploadScreenshot', lang)}</p>
+                    <p className="text-xs text-gray-300">{tr('maxFileSize', lang)}</p>
                   </button>
                 )}
                 <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleFile} className="hidden"/>
@@ -786,23 +818,23 @@ export default function LiveReportClient({ profile }: { profile: any }) {
               {/* Product Sold */}
               <div>
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">
-                  Produk yang Dijual
+                  {tr('produkDijual', lang)}
                 </label>
                 <select value={form.product_sold_name}
                   onChange={e => setForm(f => ({ ...f, product_sold_name: e.target.value, product_sold_other: '' }))}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50">
-                  <option value="">— Pilih produk (opsional) —</option>
+                  <option value="">{tr('pilihProdukOptional', lang)}</option>
                   {etalaseProducts.map(p => (
                     <option key={p.id} value={p.name}>
                       {p.name}{p.sku ? ` (${p.sku})` : ''}{p.platform ? ` · ${p.platform}` : ''}
                     </option>
                   ))}
-                  <option value="__other__">✏️ Produk Lain (isi manual)</option>
+                  <option value="__other__">{tr('produkLainManual', lang)}</option>
                 </select>
                 {form.product_sold_name === '__other__' && (
                   <input value={form.product_sold_other}
                     onChange={e => setForm(f => ({ ...f, product_sold_other: e.target.value }))}
-                    placeholder="Nama produk yang dijual..."
+                    placeholder={tr('namaProdukPlaceholder', lang)}
                     className="w-full mt-2 border border-brand-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"/>
                 )}
               </div>
@@ -810,14 +842,14 @@ export default function LiveReportClient({ profile }: { profile: any }) {
               {/* Catatan — mandatory min 25 chars */}
               <div>
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">
-                  Catatan * <span className="text-gray-400 font-normal normal-case">(min. 25 karakter)</span>
+                  {tr('catatanRequired', lang)} <span className="text-gray-400 font-normal normal-case">{tr('minKarakter', lang)}</span>
                 </label>
                 <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                  rows={3} placeholder="Highlight produk, kendala teknis, kondisi live, saran ke depan... (minimal 25 karakter)"
+                  rows={3} placeholder={tr('catatanPlaceholder', lang)}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50 resize-none"/>
                 <div className="flex items-center justify-between mt-1">
                   <p className={`text-[11px] ${catatanOk ? 'text-emerald-600' : form.notes.length > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
-                    {form.notes.length} / 25 karakter minimum
+                    {form.notes.length} / 25 {tr('karakterMinimum', lang)}
                   </p>
                   {catatanOk && <CheckCircle2 size={13} className="text-emerald-500"/>}
                 </div>
@@ -834,16 +866,16 @@ export default function LiveReportClient({ profile }: { profile: any }) {
             <div className="px-5 pb-5 space-y-2">
               {!canSubmit && (
                 <div className="text-[11px] text-amber-700 bg-amber-50 rounded-xl px-3 py-2 space-y-0.5">
-                  {!form.brand.trim() && <p>· Brand wajib diisi</p>}
-                  {!form.platform && <p>· Platform wajib dipilih</p>}
-                  {!screenshotFile && <p>· Screenshot wajib diupload</p>}
-                  {form.gmv === 0 && form.impression === 0 && <p>· Isi minimal GMV atau Impresi</p>}
-                  {!catatanOk && <p>· Catatan minimal 25 karakter ({form.notes.length} sekarang)</p>}
+                  {!form.brand.trim() && <p>{tr('brandWajibDiisi', lang)}</p>}
+                  {!form.platform && <p>{tr('platformWajibDipilih', lang)}</p>}
+                  {!screenshotFile && <p>{tr('screenshotWajibDiupload', lang)}</p>}
+                  {form.gmv === 0 && form.impression === 0 && <p>{tr('isiMinimalGmvImpresi', lang)}</p>}
+                  {!catatanOk && <p>{tr('catatanMinimal25', lang)} ({form.notes.length} {tr('sekarang', lang)})</p>}
                 </div>
               )}
               <button type="submit" disabled={saving || uploading || !canSubmit}
                 className="w-full bg-brand-600 text-white rounded-xl py-3.5 font-semibold text-sm hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-opacity">
-                {saving || uploading ? (uploading ? 'Mengupload...' : 'Menyimpan...') : '✓ Submit Laporan Live'}
+                {saving || uploading ? (uploading ? tr('mengupload', lang) : tr('menyimpan', lang)) : `✓ ${tr('submitLiveReport', lang)}`}
               </button>
             </div>
           </form>
