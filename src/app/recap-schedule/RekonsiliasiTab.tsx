@@ -324,10 +324,22 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
 
   // Schedule slots that already have a live_report tied to them (whether
   // reported normally or confirmed via "Tidak Lapor") -- hide these from the
-  // "Tidak Lapor" picker so a slot can't be picked twice.
-  const usedSlotIds = useMemo(() =>
-    new Set(appReports.filter(r => r.slot_id).map(r => r.slot_id as string)),
-    [appReports])
+  // "Tidak Lapor" picker so a slot can't be picked twice. Only counts if the
+  // report's own date actually falls within ±1 day of the slot's date --
+  // hosts can pick ANY past slot when submitting (no date window enforced),
+  // so a report submitted long after its selected slot's real date must not
+  // poison that slot's availability for the CSV row that actually matches it.
+  const usedSlotIds = useMemo(() => {
+    const used = new Set<string>()
+    appReports.forEach(r => {
+      if (!r.slot_id) return
+      const slot = scheduleById[r.slot_id]
+      if (!slot) { used.add(r.slot_id); return }
+      const prev = shiftDate(slot.slot_date, -1), next = shiftDate(slot.slot_date, 1)
+      if (r.report_date === prev || r.report_date === slot.slot_date || r.report_date === next) used.add(r.slot_id)
+    })
+    return used
+  }, [appReports, scheduleById])
 
   function resolveHostId(csv: CsvRow): string | undefined {
     return hostMap[csv.host.toLowerCase()] || hostMap[csv.host.split(' ')[0].toLowerCase()]
