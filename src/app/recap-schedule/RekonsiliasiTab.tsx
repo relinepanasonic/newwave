@@ -87,14 +87,13 @@ function shiftDate(dateStr: string, days: number): string {
   dt.setDate(dt.getDate() + days)
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
 }
-// Picker labels are Host · Jam · Brand; when a candidate sits on the day
-// before/after the CSV row (midnight-crossing sessions) that has to be visible
-// too, otherwise two candidates read identically.
-function dayMarker(candDate: string, csvDate: string): string {
-  if (candDate === csvDate) return ''
-  if (candDate === shiftDate(csvDate, -1)) return ' · kemarin'
-  if (candDate === shiftDate(csvDate, 1)) return ' · besok'
-  return ` · ${fmtDate(candDate)}`
+// Picker labels are Host · Jam · Brand · Tanggal -- the date is always shown
+// (not just when it differs from the CSV row's own date) so an admin matching
+// a midnight-crossing session can actually confirm which day they're picking
+// instead of trusting the day-before/after inference.
+function dayMarker(candDate: string): string {
+  const [y, m, d] = candDate.split('-').map(Number)
+  return ' · ' + new Date(y, m - 1, d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
 }
 // Schedule slots without a manually-set jam_mulai default to their session
 // number's hour (session 1 = 00:00, session 18 = 17:00, etc.) — same
@@ -674,7 +673,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                                 const nick = p?.username || p?.full_name?.split(' ')[0] || '—'
                                 return (
                                   <option key={c.id} value={c.id}>
-                                    {nick} · {c.start_time?.slice(0,5) || '—'} · {c.brand || '—'}{dayMarker(c.report_date, r.csv.tanggal)}
+                                    {nick} · {c.start_time?.slice(0,5) || '—'} · {c.brand || '—'}{dayMarker(c.report_date)}
                                   </option>
                                 )
                               })}
@@ -689,7 +688,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                               <option value="">— Pilih jadwal —</option>
                               {scheduleCandidatesFor(r.csv).map(s => (
                                 <option key={s.id} value={s.id}>
-                                  {hostNameById[s.host_id] || '—'} · {slotTime(s)} · {s.brand || '—'}{dayMarker(s.slot_date, r.csv.tanggal)}
+                                  {hostNameById[s.host_id] || '—'} · {slotTime(s)} · {s.brand || '—'}{dayMarker(s.slot_date)}
                                 </option>
                               ))}
                             </select>
