@@ -167,11 +167,11 @@ function ClientListTab() {
 
       {/* Column headers */}
       {!loading && meters.length > 0 && (
-        <div className="hidden sm:flex items-center gap-3 px-4 text-[11px] text-gray-400">
+        <div className="hidden sm:flex items-center gap-4 px-4 text-[11px] font-medium text-gray-400 uppercase tracking-wide">
           <span className="flex-1">Brand / Owner</span>
-          <span className="w-32 text-right">Succeed / Sched / Slot</span>
-          <span className="w-28"></span>
-          <span className="w-12 text-right">%</span>
+          <span className="w-36 text-right">Succeed / Sched / Slot</span>
+          <span className="w-28">Progress</span>
+          <span className="w-14 text-right">%</span>
           <span className="w-4"></span>
         </div>
       )}
@@ -201,13 +201,13 @@ function ClientListTab() {
               <div key={m.brand}>
                 <div
                   onClick={() => canExpand && setExpandedBrand(isExpanded ? null : m.brand)}
-                  className={`flex items-center gap-3 px-4 py-3 ${canExpand ? 'cursor-pointer hover:bg-gray-50' : ''} transition-colors`}>
+                  className={`flex items-center gap-4 px-4 py-3.5 ${canExpand ? 'cursor-pointer hover:bg-gray-50' : ''} transition-colors`}>
                   <span className={`w-2 h-2 rounded-full flex-shrink-0 ${DOT_CLASSES[sev]}`}/>
                   <div className="flex-1 min-w-0">
                     <p className="font-bold text-gray-900 text-sm truncate">{m.brand}</p>
                     <p className="text-xs text-gray-400 truncate">{m.clientName}</p>
                   </div>
-                  <span className="w-32 text-right text-sm font-semibold text-gray-800 flex-shrink-0">
+                  <span className="w-36 text-right text-sm font-semibold text-gray-800 tabular-nums flex-shrink-0">
                     {hasSlots ? `${m.successSlots} / ${m.planSlots} / ${m.capacitySlots}` : `${m.successSlots} / ${m.planSlots} / —`}
                   </span>
                   <div className="w-28 flex-shrink-0">
@@ -218,9 +218,11 @@ function ClientListTab() {
                         style={{ width: hasSlots ? `${Math.min((m.successSlots / m.capacitySlots) * 100, 100)}%` : '0%' }}/>
                     </div>
                   </div>
-                  <span className={`w-12 flex-shrink-0 text-xs font-bold px-1.5 py-0.5 rounded-full text-center flex items-center justify-center gap-0.5 ${BADGE_CLASSES[sev]}`}>
-                    {sev === 'high' && <AlertTriangle size={9}/>}
-                    {hasSlots ? `${pct}%` : '—'}
+                  <span className="w-14 flex justify-end flex-shrink-0">
+                    <span className={`inline-flex items-center gap-0.5 whitespace-nowrap text-xs font-bold px-2 py-0.5 rounded-full ${BADGE_CLASSES[sev]}`}>
+                      {sev === 'high' && <AlertTriangle size={9}/>}
+                      {hasSlots ? `${pct}%` : '—'}
+                    </span>
                   </span>
                   {canExpand ? (
                     isExpanded ? <ChevronUp size={14} className="text-gray-400 flex-shrink-0"/> : <ChevronDown size={14} className="text-gray-400 flex-shrink-0"/>
@@ -228,65 +230,73 @@ function ClientListTab() {
                 </div>
 
                 {isExpanded && (
-                  <div className="border-t border-gray-100 bg-gray-50/50 px-4 py-3">
+                  <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-4 space-y-4">
                     {/* Per-package breakdown — same shape as the header row, one per purchased package */}
                     {m.packages.length > 0 && (
-                      <div className="space-y-2 mb-3">
-                        {m.packages.map(pkg => {
-                          const pkgHasSlots = pkg.slots > 0
-                          const pkgPct = pkgHasSlots ? Math.round((pkg.planSlots / pkg.slots) * 100) : 0
-                          const pkgExceeds = pkg.planSlots > pkg.slots
-                          const pkgSev = severity(pkgPct, pkgExceeds)
-                          return (
-                            <div key={pkg.tipe} className="flex items-center gap-3">
-                              <div className="flex-1 min-w-0 pl-5">
-                                <span className="text-xs font-semibold text-gray-700">{pkg.tipe} Live</span>
-                                <span className="text-[11px] text-gray-400 ml-1">· {pkg.jam_per_sesi}j/sesi</span>
-                              </div>
-                              <span className="w-32 text-right text-xs font-semibold text-gray-700 flex-shrink-0">
-                                {pkgHasSlots ? `${pkg.successSlots} / ${pkg.planSlots} / ${pkg.slots}` : `${pkg.successSlots} / ${pkg.planSlots} / —`}
-                              </span>
-                              <div className="w-28 flex-shrink-0">
-                                <div className="relative h-1.5 bg-brand-50 rounded-full overflow-hidden">
-                                  <div className="absolute inset-y-0 left-0 bg-brand-300 rounded-full transition-all duration-500"
-                                    style={{ width: pkgHasSlots ? `${Math.min(pkgPct, 100)}%` : '0%' }}/>
-                                  <div className="absolute inset-y-0 left-0 bg-brand-600 rounded-full transition-all duration-500"
-                                    style={{ width: pkgHasSlots ? `${Math.min((pkg.successSlots / pkg.slots) * 100, 100)}%` : '0%' }}/>
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 pl-5">Paket</p>
+                        <div className="space-y-2.5">
+                          {m.packages.map(pkg => {
+                            const pkgHasSlots = pkg.slots > 0
+                            const pkgPct = pkgHasSlots ? Math.round((pkg.planSlots / pkg.slots) * 100) : 0
+                            const pkgExceeds = pkg.planSlots > pkg.slots
+                            const pkgSev = severity(pkgPct, pkgExceeds)
+                            return (
+                              <div key={pkg.tipe} className="flex items-center gap-4">
+                                <div className="flex-1 min-w-0 pl-5">
+                                  <span className="text-xs font-semibold text-gray-700">{pkg.tipe} Live</span>
+                                  <span className="text-[11px] text-gray-400 ml-1.5">{pkg.jam_per_sesi}j/sesi</span>
                                 </div>
+                                <span className="w-36 text-right text-xs font-semibold text-gray-700 tabular-nums flex-shrink-0">
+                                  {pkgHasSlots ? `${pkg.successSlots} / ${pkg.planSlots} / ${pkg.slots}` : `${pkg.successSlots} / ${pkg.planSlots} / —`}
+                                </span>
+                                <div className="w-28 flex-shrink-0">
+                                  <div className="relative h-1.5 bg-white rounded-full overflow-hidden">
+                                    <div className="absolute inset-y-0 left-0 bg-brand-300 rounded-full transition-all duration-500"
+                                      style={{ width: pkgHasSlots ? `${Math.min(pkgPct, 100)}%` : '0%' }}/>
+                                    <div className="absolute inset-y-0 left-0 bg-brand-600 rounded-full transition-all duration-500"
+                                      style={{ width: pkgHasSlots ? `${Math.min((pkg.successSlots / pkg.slots) * 100, 100)}%` : '0%' }}/>
+                                  </div>
+                                </div>
+                                <span className="w-14 flex justify-end flex-shrink-0">
+                                  <span className={`inline-flex items-center gap-0.5 whitespace-nowrap text-[11px] font-bold px-2 py-0.5 rounded-full ${BADGE_CLASSES[pkgSev]}`}>
+                                    {pkgSev === 'high' && <AlertTriangle size={8}/>}
+                                    {pkgHasSlots ? `${pkgPct}%` : '—'}
+                                  </span>
+                                </span>
+                                <span className="w-3.5 flex-shrink-0"/>
                               </div>
-                              <span className={`w-12 flex-shrink-0 text-[11px] font-bold px-1.5 py-0.5 rounded-full text-center flex items-center justify-center gap-0.5 ${BADGE_CLASSES[pkgSev]}`}>
-                                {pkgSev === 'high' && <AlertTriangle size={8}/>}
-                                {pkgHasSlots ? `${pkgPct}%` : '—'}
-                              </span>
-                              <span className="w-3.5 flex-shrink-0"/>
-                            </div>
-                          )
-                        })}
+                            )
+                          })}
+                        </div>
                       </div>
                     )}
 
                     {slots.length > 0 && (
-                      <div className="overflow-x-auto max-h-52 overflow-y-auto rounded-xl border border-gray-100">
-                        <table className="w-full text-xs">
-                          <thead className="sticky top-0">
-                            <tr className="bg-gray-100 text-gray-500 uppercase tracking-wide text-[10px]">
-                              <th className="px-3 py-2 text-left font-semibold">Tanggal</th>
-                              <th className="px-3 py-2 text-left font-semibold">Sesi</th>
-                              <th className="px-3 py-2 text-left font-semibold">Host</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-100 bg-white">
-                            {slots.map((s: any) => (
-                              <tr key={s.id} className="hover:bg-gray-50 transition-colors">
-                                <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
-                                  {new Date(s.slot_date + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                                </td>
-                                <td className="px-3 py-2 text-gray-500">Sesi {s.session_no}</td>
-                                <td className="px-3 py-2 font-medium text-gray-800">{(s.profiles as any)?.full_name || '—'}</td>
+                      <div className="pl-5">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Jadwal {selectedMonth.label}</p>
+                        <div className="overflow-x-auto max-h-52 overflow-y-auto rounded-xl border border-gray-100 bg-white">
+                          <table className="w-full text-xs">
+                            <thead className="sticky top-0">
+                              <tr className="bg-gray-50 text-gray-500 uppercase tracking-wide text-[10px]">
+                                <th className="px-3 py-2 text-left font-semibold">Tanggal</th>
+                                <th className="px-3 py-2 text-left font-semibold">Sesi</th>
+                                <th className="px-3 py-2 text-left font-semibold">Host</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                              {slots.map((s: any) => (
+                                <tr key={s.id} className="hover:bg-gray-50 transition-colors">
+                                  <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
+                                    {new Date(s.slot_date + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-500">Sesi {s.session_no}</td>
+                                  <td className="px-3 py-2 font-medium text-gray-800">{(s.profiles as any)?.full_name || '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
                   </div>
