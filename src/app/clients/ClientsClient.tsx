@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import InvoicePanel from '@/app/invoice/InvoicePanel'
 import ProductEtalasePanel from './ProductEtalasePanel'
 import ServicePackagePanel from './ServicePackagePanel'
-import { ChevronDown, ChevronUp, Plus, Trash2, Ban } from 'lucide-react'
+import { ChevronDown, ChevronUp, Plus, Trash2, Ban, AlertTriangle } from 'lucide-react'
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
 import TimeInput from '@/components/TimeInput'
@@ -15,24 +15,18 @@ type Tab = 'clients' | 'invoice' | 'servicepkg' | 'products' | 'blackout'
 interface ClientProfile { id: string; full_name: string; client_brand: string }
 interface PackageCapacity {
   tipe: string    // e.g. "Regular", "Silver"
-  slots: number   // purchased slot count
-  hours: number   // purchased hours
+  slots: number   // purchased slot count (Slot)
   jam_per_sesi: number
-  planSlots: number  // how many scheduled slots carry this tipe_live
+  planSlots: number     // scheduled slots carrying this tipe_live (Scheduled)
+  successSlots: number  // of those, how many already have a live report (Succeed)
 }
 interface ClientMeter {
   brand: string; clientName: string
-  capacityHours: number   // total slot hours purchased (from invoices)
-  capacitySlots: number   // total slots (sessions) purchased
-  planHours: number       // total scheduled live hours
-  planSlots: number       // total scheduled sessions
-  successHours: number    // scheduled hours that already have a live report
-  successSlots: number    // scheduled sessions with a live report
+  capacitySlots: number   // total slots purchased, all packages (Slot)
+  planSlots: number       // total scheduled sessions (Scheduled)
+  successSlots: number    // scheduled sessions with a live report (Succeed)
   packages: PackageCapacity[]  // per-package breakdown from invoice items
 }
-
-// Trim trailing .0 → "150" not "150.0", keep "12.5"
-function trimH(n: number) { return Number(n.toFixed(1)).toString() }
 
 function getMonthOptions() {
   return Array.from({ length: 6 }, (_, i) => {
@@ -46,13 +40,22 @@ function getMonthOptions() {
   })
 }
 
-interface ReportMemo { id: string; slot_date: string; notes: string; memo_checked: boolean }
+// Severity expressed as brand-purple shade depth only (no red/amber/green):
+// light = comfortably under capacity, mid = near capacity, dark = over capacity.
+function severity(pct: number, exceeds: boolean): 'low' | 'mid' | 'high' {
+  if (exceeds) return 'high'
+  if (pct >= 80) return 'mid'
+  return 'low'
+}
+const DOT_CLASSES = { low: 'bg-brand-200', mid: 'bg-brand-400', high: 'bg-brand-700' }
+const BADGE_CLASSES = {
+  low: 'bg-brand-50 text-brand-600', mid: 'bg-brand-100 text-brand-700', high: 'bg-brand-700 text-white',
+}
 
 function ClientListTab() {
   const { lang } = useLang()
   const [meters, setMeters] = useState<ClientMeter[]>([])
   const [scheduleByBrand, setScheduleByBrand] = useState<Record<string, any[]>>({})
-  const [memosByBrand, setMemosByBrand] = useState<Record<string, ReportMemo[]>>({})
   const [expandedBrand, setExpandedBrand] = useState<string | null>(null)
   const [monthIdx, setMonthIdx] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -74,24 +77,19 @@ function ClientListTab() {
         .not('host_id', 'is', null)
         .order('slot_date')
         .then(({ data }) => data || []),
-      supabase.from('live_reports').select('id, slot_id, brand, notes, memo_checked, slot_date')
-        .not('notes', 'is', null).order('slot_date', { ascending: false })
+      supabase.from('live_reports').select('id, slot_id')
         .then(({ data }) => data || []),
       supabase.from('invoices').select('brand, invoice_items(tipe_live, jam_per_sesi, qty)')
         .then(({ data }) => data || []),
     ]).then(([clients, slots, reports, invoices]) => {
       // Capacity per brand from invoice items — also track per package type
-      const capacityByBrand: Record<string, number> = {}
       const capacitySlotsByBrand: Record<string, number> = {}
-      // packages: brand → tipe → { slots, hours, jam_per_sesi }
-      const pkgByBrand: Record<string, Record<string, { slots: number; hours: number; jam_per_sesi: number }>> = {}
+      // packages: brand → tipe → { slots, jam_per_sesi }
+      const pkgByBrand: Record<string, Record<string, { slots: number; jam_per_sesi: number }>> = {}
       ;(invoices as any[]).forEach((inv: any) => {
         if (!inv.brand) return
-        const hrs = (inv.invoice_items || []).reduce(
-          (s: number, it: any) => s + (Number(it.jam_per_sesi) || 0) * (Number(it.qty) || 0), 0)
         const slotsCount = (inv.invoice_items || []).reduce(
           (s: number, it: any) => s + (Number(it.qty) || 0), 0)
-        capacityByBrand[inv.brand] = (capacityByBrand[inv.brand] || 0) + hrs
         capacitySlotsByBrand[inv.brand] = (capacitySlotsByBrand[inv.brand] || 0) + slotsCount
         // Per-package breakdown
         if (!pkgByBrand[inv.brand]) pkgByBrand[inv.brand] = {}
@@ -99,9 +97,8 @@ function ClientListTab() {
           const tipe = it.tipe_live || 'Regular'
           const jps = Number(it.jam_per_sesi) || 0
           const qty = Number(it.qty) || 0
-          if (!pkgByBrand[inv.brand][tipe]) pkgByBrand[inv.brand][tipe] = { slots: 0, hours: 0, jam_per_sesi: jps }
+          if (!pkgByBrand[inv.brand][tipe]) pkgByBrand[inv.brand][tipe] = { slots: 0, jam_per_sesi: jps }
           pkgByBrand[inv.brand][tipe].slots += qty
-          pkgByBrand[inv.brand][tipe].hours += jps * qty
           if (jps > 0) pkgByBrand[inv.brand][tipe].jam_per_sesi = jps  // keep last non-zero value
         })
       })
@@ -110,37 +107,26 @@ function ClientListTab() {
       const reportedSlotIds = new Set(
         (reports as any[]).map((r: any) => r.slot_id).filter(Boolean))
 
-      // Memos per brand (live report notes shown as client checklist)
-      const memoMap: Record<string, ReportMemo[]> = {}
-      ;(reports as any[]).forEach((r: any) => {
-        if (!r.brand || !r.notes?.trim()) return
-        if (!memoMap[r.brand]) memoMap[r.brand] = []
-        memoMap[r.brand].push({ id: r.id, slot_date: r.slot_date || '', notes: r.notes, memo_checked: !!r.memo_checked })
-      })
-      setMemosByBrand(memoMap)
-
-      const planByBrand: Record<string, number> = {}
       const planSlotsByBrand: Record<string, number> = {}
-      const successByBrand: Record<string, number> = {}
       const successSlotsByBrand: Record<string, number> = {}
-      // per-package plan slots: brand → tipe → count
+      // per-package plan/success slots: brand → tipe → count
       const planSlotsByBrandPkg: Record<string, Record<string, number>> = {}
+      const successSlotsByBrandPkg: Record<string, Record<string, number>> = {}
       const scheduleMap: Record<string, any[]> = {}
       ;(slots as any[]).forEach((s: any) => {
         if (!s.brand) return
-        const dur = Number(s.durasi) || 1
-        planByBrand[s.brand] = (planByBrand[s.brand] || 0) + dur
         planSlotsByBrand[s.brand] = (planSlotsByBrand[s.brand] || 0) + 1
-        // per-package plan tracking (tipe_live on slot)
         const slotTipe = s.tipe_live || ''
+        const reported = reportedSlotIds.has(s.id)
         if (slotTipe) {
           if (!planSlotsByBrandPkg[s.brand]) planSlotsByBrandPkg[s.brand] = {}
           planSlotsByBrandPkg[s.brand][slotTipe] = (planSlotsByBrandPkg[s.brand][slotTipe] || 0) + 1
+          if (reported) {
+            if (!successSlotsByBrandPkg[s.brand]) successSlotsByBrandPkg[s.brand] = {}
+            successSlotsByBrandPkg[s.brand][slotTipe] = (successSlotsByBrandPkg[s.brand][slotTipe] || 0) + 1
+          }
         }
-        if (reportedSlotIds.has(s.id)) {
-          successByBrand[s.brand] = (successByBrand[s.brand] || 0) + dur
-          successSlotsByBrand[s.brand] = (successSlotsByBrand[s.brand] || 0) + 1
-        }
+        if (reported) successSlotsByBrand[s.brand] = (successSlotsByBrand[s.brand] || 0) + 1
         if (!scheduleMap[s.brand]) scheduleMap[s.brand] = []
         scheduleMap[s.brand].push(s)
       })
@@ -149,17 +135,15 @@ function ClientListTab() {
       setMeters(clients.map(c => {
         const brandPkgs = pkgByBrand[c.client_brand] || {}
         const brandPlanPkg = planSlotsByBrandPkg[c.client_brand] || {}
+        const brandSuccessPkg = successSlotsByBrandPkg[c.client_brand] || {}
         const packages: PackageCapacity[] = Object.entries(brandPkgs)
-          .map(([tipe, d]) => ({ tipe, ...d, planSlots: brandPlanPkg[tipe] || 0 }))
+          .map(([tipe, d]) => ({ tipe, ...d, planSlots: brandPlanPkg[tipe] || 0, successSlots: brandSuccessPkg[tipe] || 0 }))
           .sort((a, b) => a.tipe.localeCompare(b.tipe))
         return {
           brand: c.client_brand,
           clientName: c.full_name,
-          capacityHours: capacityByBrand[c.client_brand] || 0,
           capacitySlots: capacitySlotsByBrand[c.client_brand] || 0,
-          planHours: planByBrand[c.client_brand] || 0,
           planSlots: planSlotsByBrand[c.client_brand] || 0,
-          successHours: successByBrand[c.client_brand] || 0,
           successSlots: successSlotsByBrand[c.client_brand] || 0,
           packages,
         }
@@ -167,15 +151,6 @@ function ClientListTab() {
       setLoading(false)
     })
   }, [])
-
-  async function toggleMemoChecked(reportId: string, brand: string, current: boolean) {
-    const supabase = createClient()
-    await supabase.from('live_reports').update({ memo_checked: !current }).eq('id', reportId)
-    setMemosByBrand(prev => ({
-      ...prev,
-      [brand]: (prev[brand] || []).map(m => m.id === reportId ? { ...m, memo_checked: !current } : m)
-    }))
-  }
 
   return (
     <div className="space-y-5">
@@ -190,158 +165,130 @@ function ClientListTab() {
         </select>
       </div>
 
+      {/* Column headers */}
+      {!loading && meters.length > 0 && (
+        <div className="hidden sm:flex items-center gap-3 px-4 text-[11px] text-gray-400">
+          <span className="flex-1">Brand / Owner</span>
+          <span className="w-32 text-right">Succeed / Sched / Slot</span>
+          <span className="w-28"></span>
+          <span className="w-12 text-right">%</span>
+          <span className="w-4"></span>
+        </div>
+      )}
+
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3].map(i => <div key={i} className="bg-white rounded-2xl border border-gray-100 h-32 animate-pulse"/>)}
+        <div className="space-y-2">
+          {[1, 2, 3].map(i => <div key={i} className="bg-white rounded-2xl border border-gray-100 h-14 animate-pulse"/>)}
         </div>
       ) : meters.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center">
           <p className="text-sm font-medium text-gray-400">Belum ada client terdaftar</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-50">
           {meters.map(m => {
-            const hasHours = m.capacityHours > 0
-            const planPct = hasHours ? Math.round((m.planHours / m.capacityHours) * 100) : 0
-            const reportPct = m.planSlots > 0 ? Math.round((m.successSlots / m.planSlots) * 100) : 0
-            const exceeds = m.planHours > m.capacityHours
+            const hasSlots = m.capacitySlots > 0
+            const pct = hasSlots ? Math.round((m.planSlots / m.capacitySlots) * 100) : 0
+            const exceeds = m.planSlots > m.capacitySlots
+            const sev = severity(pct, exceeds)
             const isExpanded = expandedBrand === m.brand
             const allSlots = scheduleByBrand[m.brand] || []
             // jadwal table is scoped to the selected month
             const slots = allSlots.filter((s: any) =>
               s.slot_date >= selectedMonth.start && s.slot_date <= selectedMonth.end)
+            const canExpand = m.packages.length > 0 || slots.length > 0
             return (
-              <div key={m.brand} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className="p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="min-w-0">
-                      <p className="font-bold text-gray-900 text-sm truncate">{m.brand}</p>
-                      <p className="text-xs text-gray-400 truncate">{m.clientName}</p>
-                    </div>
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 ml-2 ${
-                      exceeds ? 'bg-red-100 text-red-700'
-                        : planPct >= 80 ? 'bg-amber-100 text-amber-700'
-                        : 'bg-emerald-100 text-emerald-700'
-                    }`}>
-                      {hasHours ? `${planPct}%` : '—'}
-                    </span>
+              <div key={m.brand}>
+                <div
+                  onClick={() => canExpand && setExpandedBrand(isExpanded ? null : m.brand)}
+                  className={`flex items-center gap-3 px-4 py-3 ${canExpand ? 'cursor-pointer hover:bg-gray-50' : ''} transition-colors`}>
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${DOT_CLASSES[sev]}`}/>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-gray-900 text-sm truncate">{m.brand}</p>
+                    <p className="text-xs text-gray-400 truncate">{m.clientName}</p>
                   </div>
-                  {/* Hours focal point */}
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="flex-1 text-center bg-brand-50 rounded-xl py-2 border border-brand-100">
-                      <p className="text-[10px] text-brand-500 font-medium">Total Jam</p>
-                      <p className="text-xl font-bold text-brand-700 leading-tight">{trimH(m.capacityHours)}j</p>
-                    </div>
-                    <div className="flex-1 text-center bg-orange-50 rounded-xl py-2 border border-orange-100">
-                      <p className="text-[10px] text-orange-500 font-medium">Jam Live</p>
-                      <p className="text-xl font-bold text-orange-700 leading-tight">{trimH(m.planHours)}j</p>
-                    </div>
-                    <div className="flex-1 text-center bg-emerald-50 rounded-xl py-2 border border-emerald-100">
-                      <p className="text-[10px] text-emerald-500 font-medium">Report</p>
-                      <p className="text-xl font-bold text-emerald-700 leading-tight">{m.successSlots}</p>
+                  <span className="w-32 text-right text-sm font-semibold text-gray-800 flex-shrink-0">
+                    {hasSlots ? `${m.successSlots} / ${m.planSlots} / ${m.capacitySlots}` : `${m.successSlots} / ${m.planSlots} / —`}
+                  </span>
+                  <div className="w-28 flex-shrink-0">
+                    <div className="relative h-1.5 bg-brand-50 rounded-full overflow-hidden">
+                      <div className="absolute inset-y-0 left-0 bg-brand-300 rounded-full transition-all duration-500"
+                        style={{ width: hasSlots ? `${Math.min(pct, 100)}%` : '0%' }}/>
+                      <div className="absolute inset-y-0 left-0 bg-brand-600 rounded-full transition-all duration-500"
+                        style={{ width: hasSlots ? `${Math.min((m.successSlots / m.capacitySlots) * 100, 100)}%` : '0%' }}/>
                     </div>
                   </div>
-                  <div className="space-y-1.5 mb-3">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-gray-500">Laporan terkumpul</span>
-                      <span className="font-semibold text-gray-800">
-                        {m.planSlots > 0 ? `${m.successSlots} / ${m.planSlots} sesi` : 'Belum ada jadwal'}
-                      </span>
-                    </div>
-                    {/* Stacked bar: orange = jam live scheduled, emerald = reports collected */}
-                    <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="absolute inset-y-0 left-0 bg-orange-400/30 rounded-full transition-all duration-500"
-                        style={{ width: hasHours ? `${Math.min(planPct, 100)}%` : '0%' }}/>
-                      <div className="absolute inset-y-0 left-0 bg-emerald-500 rounded-full transition-all duration-500"
-                        style={{ width: hasHours ? `${Math.min(reportPct, 100)}%` : '0%' }}/>
-                    </div>
-                    {exceeds && (
-                      <p className="text-[10px] text-red-600 font-bold">⚠️ Lewat {trimH(m.planHours - m.capacityHours)}j!</p>
-                    )}
-                  </div>
-                  {/* Per-package capacity breakdown */}
-                  {m.packages.length > 0 && (
-                    <div className="mt-2.5 space-y-1.5">
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Paket</p>
-                      {m.packages.map(pkg => {
-                        const pkgExceeds = pkg.planSlots > pkg.slots
-                        return (
-                          <div key={pkg.tipe}>
-                            <div className="flex items-center justify-between text-[11px]">
-                              <div className="flex items-center gap-1.5">
-                                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${pkgExceeds ? 'bg-red-400' : 'bg-brand-400'}`}/>
-                                <span className="font-semibold text-gray-700">{pkg.tipe}</span>
-                                <span className="text-gray-400">· {pkg.jam_per_sesi}j/sesi</span>
-                              </div>
-                              <div className="text-right">
-                                <span className={`font-bold ${pkgExceeds ? 'text-red-600' : 'text-gray-800'}`}>
-                                  {pkg.planSlots}/{pkg.slots} slot
-                                </span>
-                                <span className="text-gray-400 ml-1">· {trimH(pkg.hours)}j</span>
-                              </div>
-                            </div>
-                            {pkgExceeds && (
-                              <p className="text-[10px] text-red-500 font-semibold mt-0.5 ml-3">
-                                ⚠️ Lewat {pkg.planSlots - pkg.slots} slot
-                              </p>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                  {/* Memo Evaluation Checklist */}
-                  {(memosByBrand[m.brand] || []).length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-gray-100">
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Memo Evaluasi</p>
-                      <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                        {(memosByBrand[m.brand] || []).map(memo => (
-                          <label key={memo.id} className="flex items-start gap-2 cursor-pointer group">
-                            <input type="checkbox" checked={memo.memo_checked}
-                              onChange={() => toggleMemoChecked(memo.id, m.brand, memo.memo_checked)}
-                              className="mt-0.5 rounded accent-brand-600 shrink-0"/>
-                            <span className={`text-[11px] leading-snug ${memo.memo_checked ? 'line-through text-gray-300' : 'text-gray-600'}`}>
-                              {memo.notes}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {slots.length > 0 && (
-                    <button
-                      onClick={() => setExpandedBrand(isExpanded ? null : m.brand)}
-                      className="flex items-center gap-1.5 text-[10px] text-brand-600 font-semibold hover:text-brand-700 transition-colors mt-3">
-                      {isExpanded ? <ChevronUp size={11}/> : <ChevronDown size={11}/>}
-                      {isExpanded ? 'Sembunyikan' : `Lihat ${slots.length} jadwal`}
-                    </button>
-                  )}
+                  <span className={`w-12 flex-shrink-0 text-xs font-bold px-1.5 py-0.5 rounded-full text-center flex items-center justify-center gap-0.5 ${BADGE_CLASSES[sev]}`}>
+                    {sev === 'high' && <AlertTriangle size={9}/>}
+                    {hasSlots ? `${pct}%` : '—'}
+                  </span>
+                  {canExpand ? (
+                    isExpanded ? <ChevronUp size={14} className="text-gray-400 flex-shrink-0"/> : <ChevronDown size={14} className="text-gray-400 flex-shrink-0"/>
+                  ) : <span className="w-3.5 flex-shrink-0"/>}
                 </div>
 
-                {isExpanded && slots.length > 0 && (
-                  <div className="border-t border-gray-100 bg-gray-50/50">
-                    <div className="overflow-x-auto max-h-52 overflow-y-auto">
-                      <table className="w-full text-xs">
-                        <thead className="sticky top-0">
-                          <tr className="bg-gray-100 text-gray-500 uppercase tracking-wide text-[10px]">
-                            <th className="px-3 py-2 text-left font-semibold">Tanggal</th>
-                            <th className="px-3 py-2 text-left font-semibold">Sesi</th>
-                            <th className="px-3 py-2 text-left font-semibold">Host</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {slots.map((s: any) => (
-                            <tr key={s.id} className="hover:bg-gray-100 transition-colors">
-                              <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
-                                {new Date(s.slot_date + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                              </td>
-                              <td className="px-3 py-2 text-gray-500">Sesi {s.session_no}</td>
-                              <td className="px-3 py-2 font-medium text-gray-800">{(s.profiles as any)?.full_name || '—'}</td>
+                {isExpanded && (
+                  <div className="border-t border-gray-100 bg-gray-50/50 px-4 py-3">
+                    {/* Per-package breakdown — same shape as the header row, one per purchased package */}
+                    {m.packages.length > 0 && (
+                      <div className="space-y-2 mb-3">
+                        {m.packages.map(pkg => {
+                          const pkgHasSlots = pkg.slots > 0
+                          const pkgPct = pkgHasSlots ? Math.round((pkg.planSlots / pkg.slots) * 100) : 0
+                          const pkgExceeds = pkg.planSlots > pkg.slots
+                          const pkgSev = severity(pkgPct, pkgExceeds)
+                          return (
+                            <div key={pkg.tipe} className="flex items-center gap-3">
+                              <div className="flex-1 min-w-0 pl-5">
+                                <span className="text-xs font-semibold text-gray-700">{pkg.tipe} Live</span>
+                                <span className="text-[11px] text-gray-400 ml-1">· {pkg.jam_per_sesi}j/sesi</span>
+                              </div>
+                              <span className="w-32 text-right text-xs font-semibold text-gray-700 flex-shrink-0">
+                                {pkgHasSlots ? `${pkg.successSlots} / ${pkg.planSlots} / ${pkg.slots}` : `${pkg.successSlots} / ${pkg.planSlots} / —`}
+                              </span>
+                              <div className="w-28 flex-shrink-0">
+                                <div className="relative h-1.5 bg-brand-50 rounded-full overflow-hidden">
+                                  <div className="absolute inset-y-0 left-0 bg-brand-300 rounded-full transition-all duration-500"
+                                    style={{ width: pkgHasSlots ? `${Math.min(pkgPct, 100)}%` : '0%' }}/>
+                                  <div className="absolute inset-y-0 left-0 bg-brand-600 rounded-full transition-all duration-500"
+                                    style={{ width: pkgHasSlots ? `${Math.min((pkg.successSlots / pkg.slots) * 100, 100)}%` : '0%' }}/>
+                                </div>
+                              </div>
+                              <span className={`w-12 flex-shrink-0 text-[11px] font-bold px-1.5 py-0.5 rounded-full text-center flex items-center justify-center gap-0.5 ${BADGE_CLASSES[pkgSev]}`}>
+                                {pkgSev === 'high' && <AlertTriangle size={8}/>}
+                                {pkgHasSlots ? `${pkgPct}%` : '—'}
+                              </span>
+                              <span className="w-3.5 flex-shrink-0"/>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    {slots.length > 0 && (
+                      <div className="overflow-x-auto max-h-52 overflow-y-auto rounded-xl border border-gray-100">
+                        <table className="w-full text-xs">
+                          <thead className="sticky top-0">
+                            <tr className="bg-gray-100 text-gray-500 uppercase tracking-wide text-[10px]">
+                              <th className="px-3 py-2 text-left font-semibold">Tanggal</th>
+                              <th className="px-3 py-2 text-left font-semibold">Sesi</th>
+                              <th className="px-3 py-2 text-left font-semibold">Host</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 bg-white">
+                            {slots.map((s: any) => (
+                              <tr key={s.id} className="hover:bg-gray-50 transition-colors">
+                                <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
+                                  {new Date(s.slot_date + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+                                </td>
+                                <td className="px-3 py-2 text-gray-500">Sesi {s.session_no}</td>
+                                <td className="px-3 py-2 font-medium text-gray-800">{(s.profiles as any)?.full_name || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
