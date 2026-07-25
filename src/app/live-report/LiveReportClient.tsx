@@ -228,12 +228,17 @@ export default function LiveReportClient({ profile }: { profile: any }) {
     const supabase = createClient()
     const uid = isHostLike ? profile.id : null
 
-    // No date window for now — hosts can report any past slot at any time
+    // Slots are pickable for the last 14 days so a host can still catch up on
+    // a recently-missed report, but not reach arbitrarily far back into their
+    // history -- a report submitted "today" against a months-old slot is
+    // almost always a mis-click, and it desyncs report_date from the slot's
+    // real date (see report_date in handleSubmit).
+    const minSlotDate = toLocalDateStr(new Date(Date.now() - 14 * 24 * 60 * 60 * 1000))
     Promise.all([
       uid
         ? supabase.from('schedule_slots')
             .select('id, slot_date, session_no, brand, platform, status, jam_mulai, durasi, look_approval_at, look_approval_url, rooms(name)')
-            .lte('slot_date', todayStr)
+            .gte('slot_date', minSlotDate).lte('slot_date', todayStr)
             .eq('host_id', uid).order('slot_date', { ascending: false }).order('session_no')
         : Promise.resolve({ data: [] }),
       supabase.from('live_reports')
@@ -458,7 +463,11 @@ export default function LiveReportClient({ profile }: { profile: any }) {
     const payload = {
       host_id: profile.id,
       slot_id: form.slot_id || null,
-      report_date: todayStr,
+      // Report date must follow the picked slot's own date, not "today" --
+      // hardcoding today's date here is what let a report submitted long
+      // after its session get stamped with a mismatched slot_id (the slot
+      // and the report ended up pointing at two different real dates).
+      report_date: selectedSlot?.slot_date || todayStr,
       brand: form.brand || null,
       platform: form.platform || null,
       start_time: form.start_time || null,
