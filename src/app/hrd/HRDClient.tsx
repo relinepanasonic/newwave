@@ -2,14 +2,14 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
-import { Download, ExternalLink, Save, X, Edit2, CheckCircle, XCircle, FileText, Plane, Trash2, Plus, Wallet } from 'lucide-react'
+import { Download, ExternalLink, Save, X, Edit2, CheckCircle, XCircle, FileText, Plane, Trash2, Plus, Wallet, Camera, Clock } from 'lucide-react'
 import { formatCurrency, getPayPeriod, toLocalDateStr } from '@/lib/utils'
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
 import PettyCashPanel from './PettyCashPanel'
 import CurrencyInput from '@/components/CurrencyInput'
 
-type Tab = 'hosts' | 'gaji' | 'kasbon' | 'pettycash'
+type Tab = 'hosts' | 'gaji' | 'kasbon' | 'pettycash' | 'absensi'
 
 interface Kasbon {
   id: string; host_id: string; amount: number; reason?: string
@@ -1324,6 +1324,200 @@ function KasbonTab() {
   )
 }
 
+// ── Absensi Ops Tab ───────────────────────────────────────────────────────────
+interface AttendanceRow {
+  id: string; operator_id: string; date: string
+  clock_in: string | null; clock_in_photo_url: string | null
+  clock_out: string | null; clock_out_photo_url: string | null
+}
+interface LemburRow {
+  id: string; operator_id: string; date: string; hours: number; reason: string | null
+  request_status: string; created_at: string
+}
+
+function fmtShortDateFull(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+function fmtClockTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+}
+
+function AbsensiOpsTab() {
+  const [operators, setOperators] = useState<{ id: string; full_name: string }[]>([])
+  const [attendance, setAttendance] = useState<AttendanceRow[]>([])
+  const [lemburs, setLemburs] = useState<LemburRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selectedOp, setSelectedOp] = useState('')
+  const [actioningId, setActioningId] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    const supabase = createClient()
+    const since = new Date(); since.setDate(since.getDate() - 30)
+    const sinceStr = toLocalDateStr(since)
+    Promise.all([
+      supabase.from('profiles').select('id, full_name').eq('role', 'operator').order('full_name'),
+      supabase.from('attendance').select('*').gte('date', sinceStr).order('date', { ascending: false }),
+      supabase.from('lembur_requests').select('*').order('created_at', { ascending: false }),
+    ]).then(([opRes, attRes, lemburRes]) => {
+      setOperators(opRes.data || [])
+      setAttendance((attRes.data as AttendanceRow[]) || [])
+      setLemburs((lemburRes.data as LemburRow[]) || [])
+      setLoading(false)
+    })
+  }, [])
+  useEffect(load, [load])
+
+  async function approveLembur(l: LemburRow) {
+    setActioningId(l.id)
+    await createClient().from('lembur_requests').update({
+      request_status: 'approved', approved_at: new Date().toISOString(),
+    }).eq('id', l.id)
+    setLemburs(prev => prev.map(x => x.id === l.id ? { ...x, request_status: 'approved' } : x))
+    setActioningId(null)
+  }
+  async function rejectLembur(l: LemburRow) {
+    setActioningId(l.id)
+    await createClient().from('lembur_requests').update({ request_status: 'rejected' }).eq('id', l.id)
+    setLemburs(prev => prev.map(x => x.id === l.id ? { ...x, request_status: 'rejected' } : x))
+    setActioningId(null)
+  }
+
+  const nameOf = (id: string) => operators.find(o => o.id === id)?.full_name || '—'
+  const pendingLembur = lemburs.filter(l => l.request_status === 'pending')
+  const filteredAttendance = attendance.filter(a => !selectedOp || a.operator_id === selectedOp)
+
+  if (loading) return <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">Memuat absensi...</div>
+
+  return (
+    <div className="space-y-5">
+      {/* Pending Lembur requests */}
+      {pendingLembur.length > 0 && (
+        <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
+            <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"/>
+            <p className="text-sm font-bold text-amber-800">{pendingLembur.length} Request Lembur Masuk</p>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {pendingLembur.map(l => (
+              <div key={l.id} className="px-4 py-4 flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <p className="font-bold text-gray-900 text-sm">{nameOf(l.operator_id)}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{fmtShortDateFull(l.date)} · {l.hours} jam</p>
+                  {l.reason && <p className="text-xs text-gray-600 mt-1 italic">"{l.reason}"</p>}
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button onClick={() => approveLembur(l)} disabled={actioningId === l.id}
+                    className="flex items-center gap-1 bg-emerald-600 text-white text-xs font-bold px-3 py-2 rounded-xl hover:bg-emerald-700 disabled:opacity-60">
+                    <CheckCircle size={12}/> ACC
+                  </button>
+                  <button onClick={() => rejectLembur(l)} disabled={actioningId === l.id}
+                    className="flex items-center gap-1 bg-red-100 text-red-600 text-xs font-bold px-3 py-2 rounded-xl hover:bg-red-200 disabled:opacity-60">
+                    <XCircle size={12}/> Tolak
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Filter */}
+      <select value={selectedOp} onChange={e => setSelectedOp(e.target.value)}
+        className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white min-w-[180px]">
+        <option value="">Semua Operator</option>
+        {operators.map(o => <option key={o.id} value={o.id}>{o.full_name}</option>)}
+      </select>
+
+      {/* Attendance table */}
+      {filteredAttendance.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center text-sm text-gray-400">
+          Belum ada data absensi
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
+                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Tanggal</th>
+                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Operator</th>
+                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Masuk</th>
+                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Keluar</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {filteredAttendance.map(a => (
+                  <tr key={a.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-3 py-3 text-xs text-gray-600 whitespace-nowrap">{fmtShortDateFull(a.date)}</td>
+                    <td className="px-3 py-3 text-xs font-bold text-brand-700 whitespace-nowrap">{nameOf(a.operator_id)}</td>
+                    <td className="px-3 py-3">
+                      {a.clock_in ? (
+                        <div className="flex items-center gap-2">
+                          {a.clock_in_photo_url ? (
+                            <button onClick={() => window.open(a.clock_in_photo_url!, '_blank')}>
+                              <img src={a.clock_in_photo_url} alt="Masuk" className="w-8 h-8 rounded-lg object-cover border border-emerald-200 hover:border-emerald-400"/>
+                            </button>
+                          ) : (
+                            <Camera size={14} className="text-gray-300"/>
+                          )}
+                          <span className="text-xs font-semibold text-emerald-700">{fmtClockTime(a.clock_in)}</span>
+                        </div>
+                      ) : <span className="text-xs text-gray-300">—</span>}
+                    </td>
+                    <td className="px-3 py-3">
+                      {a.clock_out ? (
+                        <div className="flex items-center gap-2">
+                          {a.clock_out_photo_url ? (
+                            <button onClick={() => window.open(a.clock_out_photo_url!, '_blank')}>
+                              <img src={a.clock_out_photo_url} alt="Keluar" className="w-8 h-8 rounded-lg object-cover border border-blue-200 hover:border-blue-400"/>
+                            </button>
+                          ) : (
+                            <Camera size={14} className="text-gray-300"/>
+                          )}
+                          <span className="text-xs font-semibold text-blue-700">{fmtClockTime(a.clock_out)}</span>
+                        </div>
+                      ) : a.clock_in ? (
+                        <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 w-fit"><Clock size={9}/>Belum keluar</span>
+                      ) : <span className="text-xs text-gray-300">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Lembur history */}
+      <div>
+        <p className="text-sm font-bold text-gray-900 mb-2">Riwayat Lembur</p>
+        {lemburs.filter(l => l.request_status !== 'pending').length === 0 ? (
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 text-center text-sm text-gray-400">
+            Belum ada riwayat lembur
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {lemburs.filter(l => l.request_status !== 'pending').map(l => (
+              <div key={l.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-bold text-gray-900 text-sm">{nameOf(l.operator_id)}</p>
+                  <p className="text-xs text-gray-400">{fmtShortDateFull(l.date)} · {l.hours} jam{l.reason ? ` · ${l.reason}` : ''}</p>
+                </div>
+                {l.request_status === 'approved' ? (
+                  <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 flex-shrink-0"><CheckCircle size={9}/>Disetujui</span>
+                ) : (
+                  <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 flex-shrink-0"><XCircle size={9}/>Ditolak</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main HRD Page ─────────────────────────────────────────────────────────────
 export default function HRDClient({ profile }: { profile: any }) {
   const { lang } = useLang()
@@ -1340,17 +1534,17 @@ export default function HRDClient({ profile }: { profile: any }) {
         </div>
 
         <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-5 w-fit flex-wrap">
-          {(['hosts', 'gaji', 'kasbon', 'pettycash'] as Tab[]).map(t => (
+          {(['hosts', 'gaji', 'kasbon', 'pettycash', 'absensi'] as Tab[]).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
                 tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}>
-              {t === 'hosts' ? 'Data Host' : t === 'gaji' ? 'Gaji' : t === 'kasbon' ? 'Kasbon' : 'Petty Cash'}
+              {t === 'hosts' ? 'Data Host' : t === 'gaji' ? 'Gaji' : t === 'kasbon' ? 'Kasbon' : t === 'pettycash' ? 'Petty Cash' : 'Absensi Ops'}
             </button>
           ))}
         </div>
 
-        {tab === 'hosts' ? <HostListTab/> : tab === 'gaji' ? <GajiTab/> : tab === 'kasbon' ? <KasbonTab/> : <PettyCashPanel/>}
+        {tab === 'hosts' ? <HostListTab/> : tab === 'gaji' ? <GajiTab/> : tab === 'kasbon' ? <KasbonTab/> : tab === 'pettycash' ? <PettyCashPanel/> : <AbsensiOpsTab/>}
       </div>
     </AppShell>
   )

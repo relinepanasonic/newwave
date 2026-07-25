@@ -12,6 +12,7 @@ export const t: Record<string, Record<Lang, string>> = {
   rooms:         { id: 'Ruangan',         en: 'Rooms' },
   settings:      { id: 'Pengaturan',      en: 'Settings' },
   checkin:       { id: 'Absen',           en: 'Check In/Out' },
+  absensi:       { id: 'Absensi',         en: 'Attendance' },
   myschedule:    { id: 'Jadwal Saya',     en: 'My Schedule' },
   pralive:       { id: 'Pra-Live',         en: 'Pre-Live' },
   livereport:    { id: 'Live Report',     en: 'Live Report' },

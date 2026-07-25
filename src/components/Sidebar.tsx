@@ -58,7 +58,7 @@ const NAV_OPERATOR = [
   { key: 'dashboard',   icon: LayoutDashboard, href: '/dashboard' },
   { key: 'schedule',    icon: CalendarDays,    href: '/schedule' },
   { key: 'myschedule',  icon: ClipboardList,   href: '/my-schedule' },
-  { key: 'checkin',     icon: Headphones,      href: '/check-in' },
+  { key: 'absensi',     icon: Headphones,      href: '/absensi' },
   { key: 'clientreport', icon: FileBarChart2,  href: '/client-report' },
   { key: 'hosthrd',     icon: Wallet,          href: '/host-hrd' },
 ]

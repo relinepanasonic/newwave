@@ -176,6 +176,34 @@ export async function uploadPettyCashReceipt(opts: {
 }
 
 /**
+ * Upload an operator's Absensi (attendance) photo stamp into:
+ *   [Root] / Absensi Ops / [Operator Name] / filename
+ */
+export async function uploadAbsensiPhoto(opts: {
+  opName: string
+  filename: string
+  mimeType: string
+  buffer: Buffer
+}): Promise<{ fileUrl: string; folderUrl: string }> {
+  const token = await getAccessToken()
+  const root = process.env.GDRIVE_ROOT_FOLDER_ID!
+  const opName = sanitizeName(opts.opName) || 'Tanpa Nama'
+
+  // [Root] / Absensi Ops
+  let absensiRootId = await findFolder(token, 'Absensi Ops', root)
+  if (!absensiRootId) absensiRootId = await createFolder(token, 'Absensi Ops', root)
+
+  // [Root] / Absensi Ops / [Operator Name]
+  let opFolderId = await findFolder(token, opName, absensiRootId)
+  if (!opFolderId) opFolderId = await createFolder(token, opName, absensiRootId)
+
+  const fileUrl = await uploadMultipart(
+    token, opFolderId, sanitizeName(opts.filename), opts.mimeType, opts.buffer,
+  )
+  return { fileUrl, folderUrl: `https://drive.google.com/drive/folders/${opFolderId}` }
+}
+
+/**
  * Ensure a folder named after the host exists directly under the root folder,
  * upload the given file into it, and return both the file link and folder link.
  * Reuses the host folder if it already exists.
