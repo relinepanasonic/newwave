@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getPayPeriod, toLocalDateStr, PLATFORM_COLORS } from '@/lib/utils'
-import { CalendarDays, Clock, Users, Filter } from 'lucide-react'
+import { CalendarDays, Clock, Users, Filter, Camera } from 'lucide-react'
 
 const DAYS_ID = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
 
@@ -26,6 +26,7 @@ interface Slot {
   brand?: string; platform?: string; konsep?: string
   background?: string; kostum?: string; gimmick?: string
   jam_mulai?: string; durasi?: number; host_id?: string
+  look_approval_at?: string | null; look_approval_url?: string | null
   rooms: { name: string }
   profiles: { full_name: string; id: string } | null
 }
@@ -40,6 +41,38 @@ function getPeriodOptions() {
     opts.push({ label: period.label, start: toLocalDateStr(period.start), end: toLocalDateStr(period.end) })
   }
   return opts
+}
+
+// Look Approval is "on time" when it happened at/before the session's own start.
+function lookApprovalOnTime(slot: Slot): boolean {
+  if (!slot.look_approval_at) return false
+  const approvalTime = new Date(slot.look_approval_at)
+  const sessionStart = slot.jam_mulai
+    ? new Date(`${slot.slot_date}T${slot.jam_mulai}`)
+    : new Date(`${slot.slot_date}T${String(slot.session_no - 1).padStart(2, '0')}:00:00`)
+  return approvalTime <= sessionStart
+}
+
+function LookStatusCell({ slot }: { slot: Slot }) {
+  if (!slot.look_approval_at) {
+    return <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full whitespace-nowrap">— Belum</span>
+  }
+  const onTime = lookApprovalOnTime(slot)
+  const timeFmt = new Date(slot.look_approval_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+  const classes = onTime
+    ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+    : 'bg-red-100 text-red-700 hover:bg-red-200'
+  const label = `${onTime ? '✅ Tepat Waktu' : '🔴 Terlambat'} · ${timeFmt}`
+
+  if (!slot.look_approval_url) {
+    return <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap ${classes}`}>{label}</span>
+  }
+  return (
+    <button onClick={e => { e.stopPropagation(); window.open(slot.look_approval_url!, '_blank') }}
+      className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap transition-colors ${classes}`}>
+      <Camera size={10}/> {label}
+    </button>
+  )
 }
 
 export default function RecapTab({ profile: _profile }: { profile: any }) {
@@ -58,7 +91,7 @@ export default function RecapTab({ profile: _profile }: { profile: any }) {
     const supabase = createClient()
 
     let slotsQuery = supabase.from('schedule_slots')
-      .select('id, slot_date, session_no, status, brand, platform, konsep, background, kostum, gimmick, jam_mulai, durasi, host_id, rooms:room_id(name), profiles:host_id(full_name, id)')
+      .select('id, slot_date, session_no, status, brand, platform, konsep, background, kostum, gimmick, jam_mulai, durasi, host_id, look_approval_at, look_approval_url, rooms:room_id(name), profiles:host_id(full_name, id)')
       .gte('slot_date', selectedPeriod.start)
       .lte('slot_date', selectedPeriod.end)
       .not('host_id', 'is', null)
@@ -92,11 +125,10 @@ export default function RecapTab({ profile: _profile }: { profile: any }) {
     byDate[s.slot_date].push(s)
   })
 
-  const totalHours = 0 // check_ins join removed — calculated separately if needed
   const totalWithReport = slots.filter(s => reportBySlotId[s.id]).length
 
   return (
-      <div className="max-w-5xl mx-auto">
+      <div className="w-full">
 
         {/* Filters */}
         <div className="flex items-center gap-3 mb-5 flex-wrap">
@@ -133,7 +165,7 @@ export default function RecapTab({ profile: _profile }: { profile: any }) {
           ))}
         </div>
 
-        {/* Slots grouped by date */}
+        {/* Slots grouped by date, each day rendered as a wide table */}
         {loading ? (
           <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center text-sm text-gray-400">Memuat...</div>
         ) : slots.length === 0 ? (
@@ -141,7 +173,7 @@ export default function RecapTab({ profile: _profile }: { profile: any }) {
             Tidak ada data jadwal untuk periode dan filter ini
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-5">
             {Object.entries(byDate)
               .sort(([a], [b]) => a.localeCompare(b))
               .map(([date, daySlots]) => {
@@ -156,63 +188,59 @@ export default function RecapTab({ profile: _profile }: { profile: any }) {
                       </h3>
                       <span className="text-xs text-gray-300 bg-gray-100 px-1.5 py-0.5 rounded-full">{daySlots.length} sesi</span>
                     </div>
-                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm divide-y divide-gray-50">
-                      {daySlots.map(slot => {
-                        const report = reportBySlotId[slot.id]
-                        const badge = report ? (
-                          <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">
-                            Laporan ✓
-                          </span>
-                        ) : (
-                          <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full whitespace-nowrap">
-                            No report
-                          </span>
-                        )
-                        return (
-                          <div key={slot.id} className="px-4 py-3">
-                            {/* Mobile: time + status on their own row, so brand text never has to compete for width */}
-                            <div className="flex items-center justify-between gap-2 mb-1.5 sm:hidden">
-                              <span className="font-mono text-xs text-gray-500">{slotTimeLabel(slot)}</span>
-                              {badge}
-                            </div>
-                            <div className="flex items-start gap-3">
-                              {/* Time (desktop only — shown above on mobile) */}
-                              <span className="hidden sm:block font-mono text-xs text-gray-500 w-28 flex-shrink-0 pt-0.5">
-                                {slotTimeLabel(slot)}
-                              </span>
-                              {/* Host name */}
-                              {!selectedHost && (
-                                <span className="text-sm font-bold text-brand-700 w-24 sm:w-20 flex-shrink-0 truncate pt-0.5">
-                                  {slot.profiles?.full_name || '?'}
-                                </span>
-                              )}
-                              {/* Brand · Platform · Room · Details */}
-                              <div className="flex-1 min-w-0">
-                                {slot.brand && (
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="text-sm font-bold text-gray-900 truncate">{slot.brand}</span>
-                                    {slot.platform && (
-                                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${PLATFORM_COLORS[slot.platform] || PLATFORM_COLORS.Other}`}>
-                                        {slot.platform}
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
+                              <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Jam</th>
+                              <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Host</th>
+                              <th className="px-3 py-2.5 text-left font-semibold">Brand</th>
+                              <th className="px-3 py-2.5 text-left font-semibold">Detail</th>
+                              <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Look Report</th>
+                              <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50">
+                            {daySlots.map(slot => {
+                              const report = reportBySlotId[slot.id]
+                              const details = [slot.rooms?.name, slot.konsep, slot.background, slot.kostum, slot.gimmick]
+                                .filter(Boolean).join(' · ')
+                              return (
+                                <tr key={slot.id} className="hover:bg-gray-50 transition-colors">
+                                  <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-500 font-mono">{slotTimeLabel(slot)}</td>
+                                  <td className="px-3 py-3 text-xs font-bold text-brand-700 whitespace-nowrap">{slot.profiles?.full_name || '?'}</td>
+                                  <td className="px-3 py-3">
+                                    {slot.brand && (
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="text-xs font-bold text-gray-900 whitespace-nowrap">{slot.brand}</span>
+                                        {slot.platform && (
+                                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${PLATFORM_COLORS[slot.platform] || PLATFORM_COLORS.Other}`}>
+                                            {slot.platform}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-3 text-xs text-gray-500 max-w-[260px] truncate">{details || '—'}</td>
+                                  <td className="px-3 py-3"><LookStatusCell slot={slot}/></td>
+                                  <td className="px-3 py-3">
+                                    {report ? (
+                                      <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">
+                                        Laporan ✓
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full whitespace-nowrap">
+                                        No report
                                       </span>
                                     )}
-                                  </div>
-                                )}
-                                <p className="text-xs text-gray-500 mt-0.5 truncate">{slot.rooms?.name}</p>
-                                {(slot.konsep || slot.background || slot.kostum || slot.gimmick) && (
-                                  <p className="text-[11px] text-gray-400 mt-0.5 truncate">
-                                    {[slot.konsep, slot.background, slot.kostum, slot.gimmick].filter(Boolean).join(' · ')}
-                                  </p>
-                                )}
-                              </div>
-                              {/* Report badge (desktop only — shown above on mobile) */}
-                              <div className="hidden sm:flex items-center gap-2 flex-shrink-0 pt-0.5">
-                                {badge}
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </div>
                 )

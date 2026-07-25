@@ -1,19 +1,17 @@
 'use client'
 import { useState } from 'react'
 import AppShell from '@/components/AppShell'
-import { CalendarDays, BarChart2, Camera, GitCompareArrows } from 'lucide-react'
+import { CalendarDays, BarChart2, GitCompareArrows } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import RecapTab from './RecapClient'
 import ReportDetailTab from './ReportDetailTab'
-import LookApprovalLogTab from './LookApprovalLogTab'
 import RekonsiliasiTab from './RekonsiliasiTab'
 
-type Tab = 'recap' | 'report' | 'looklog' | 'rekonsiliasi'
+type Tab = 'recap' | 'report' | 'rekonsiliasi'
 
 const TABS: { key: Tab; label: string; shortLabel: string; icon: any }[] = [
   { key: 'recap',        label: 'Recap Schedule',    shortLabel: 'Recap',    icon: CalendarDays },
   { key: 'report',       label: 'Live Report Detail', shortLabel: 'Report',  icon: BarChart2 },
-  { key: 'looklog',      label: 'Look Approval Log',  shortLabel: 'Look Log', icon: Camera },
   { key: 'rekonsiliasi', label: 'Rekonsiliasi',       shortLabel: 'Rekon',   icon: GitCompareArrows },
 ]
 
@@ -22,7 +20,7 @@ export default function LiveDetailsClient({ profile }: { profile: any }) {
 
   return (
     <AppShell role={profile.role as any} userName={profile.full_name}>
-      <div className={cn('p-4 sm:p-6 mx-auto', tab === 'rekonsiliasi' || tab === 'report' ? 'max-w-full' : 'max-w-5xl')}>
+      <div className="p-4 sm:p-6 mx-auto max-w-full">
 
         {/* Header */}
         <div className="mb-5">
@@ -47,7 +45,6 @@ export default function LiveDetailsClient({ profile }: { profile: any }) {
 
         {tab === 'recap' && <RecapTab profile={profile} />}
         {tab === 'report' && <ReportDetailTab profile={profile} />}
-        {tab === 'looklog' && <LookApprovalLogTab profile={profile} />}
         {tab === 'rekonsiliasi' && <RekonsiliasiTab profile={profile} />}
       </div>
     </AppShell>
