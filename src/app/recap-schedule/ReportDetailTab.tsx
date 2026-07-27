@@ -7,6 +7,8 @@ import {
   ChevronDown, ChevronUp, Pencil, Trash2, X, Save, Plus, Upload, AlertCircle,
 } from 'lucide-react'
 import CurrencyInput from '@/components/CurrencyInput'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 
 interface ReportRow {
   id: string; report_date: string; brand: string | null; platform: string | null
@@ -28,8 +30,8 @@ function reportStatus(r: ReportRow): ReportStatus {
   if (!r.slot_id) return 'not_scheduled'
   return r.screenshot_url ? 'reported' : 'miss_report'
 }
-const STATUS_LABEL: Record<ReportStatus, string> = {
-  reported: 'Reported', miss_report: 'Miss Report', csv: 'CSV', not_scheduled: 'Not Scheduled',
+const STATUS_KEY: Record<ReportStatus, string> = {
+  reported: 'statusReported', miss_report: 'statusMissReport', csv: 'statusCsv', not_scheduled: 'statusNotScheduled',
 }
 const STATUS_COLOR: Record<ReportStatus, string> = {
   reported: 'bg-emerald-100 text-emerald-700', miss_report: 'bg-amber-100 text-amber-700',
@@ -148,6 +150,7 @@ const EMPTY_FORM = {
 }
 
 export default function ReportDetailTab({ profile }: { profile: any }) {
+  const { lang } = useLang()
   const isSuperadmin = profile?.role === 'superadmin'
 
   const [reports, setReports] = useState<ReportRow[]>([])
@@ -250,7 +253,7 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
   function closeModal() { setModalMode('none'); setEditRow(null) }
 
   async function saveForm() {
-    if (!form.brand.trim()) { setFormError('Brand wajib diisi'); return }
+    if (!form.brand.trim()) { setFormError(tr('brandRequiredMsg', lang)); return }
     setSaving(true); setFormError('')
     const supabase = createClient()
     const payload = {
@@ -414,7 +417,7 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
       'Komentar': r.comment_count || 0,
       'Produk Dijual': r.product_sold_name || '',
       'Evaluasi': r.notes === 'CSV' ? '' : (r.notes || ''),
-      'Status': STATUS_LABEL[reportStatus(r)],
+      'Status': tr(STATUS_KEY[reportStatus(r)], lang),
     })))
     const wb = utils.book_new()
     utils.book_append_sheet(wb, ws, 'Live Reports')
@@ -447,7 +450,7 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
       <div className="flex items-center gap-3 mb-5 flex-wrap">
         <div className="flex items-center gap-2">
           <Filter size={14} className="text-gray-400"/>
-          <span className="text-xs text-gray-500 font-medium">Filter:</span>
+          <span className="text-xs text-gray-500 font-medium">{tr('filter', lang)}:</span>
         </div>
         <select value={monthIdx} onChange={e => setMonthIdx(Number(e.target.value))}
           className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
@@ -455,12 +458,12 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
         </select>
         <select value={selectedHost} onChange={e => setSelectedHost(e.target.value)}
           className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white min-w-[150px]">
-          <option value="">Semua Host</option>
+          <option value="">{tr('allHosts', lang)}</option>
           {hosts.map(h => <option key={h.id} value={h.id}>{h.full_name}</option>)}
         </select>
         <select value={selectedBrand} onChange={e => setSelectedBrand(e.target.value)}
           className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white min-w-[150px]">
-          <option value="">Semua Brand</option>
+          <option value="">{tr('allBrands', lang)}</option>
           {brands.map(b => <option key={b} value={b}>{b}</option>)}
         </select>
 
@@ -469,17 +472,17 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
             <>
               <button onClick={openAdd}
                 className="flex items-center gap-1.5 text-sm bg-brand-600 text-white px-3.5 py-2 rounded-xl font-semibold hover:bg-brand-700 transition-colors shadow-sm">
-                <Plus size={14}/> Tambah Manual
+                <Plus size={14}/> {tr('addManual', lang)}
               </button>
               <button onClick={() => csvRef.current?.click()}
                 className="flex items-center gap-1.5 text-sm bg-emerald-600 text-white px-3.5 py-2 rounded-xl font-semibold hover:bg-emerald-700 transition-colors shadow-sm">
-                <Upload size={14}/> Import CSV
+                <Upload size={14}/> {tr('importCsv', lang)}
               </button>
             </>
           )}
           <button onClick={exportExcel} disabled={reports.length === 0}
             className="flex items-center gap-1.5 text-sm border border-gray-200 text-gray-600 px-3.5 py-2 rounded-xl font-medium hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-            <Download size={14}/> Unduh Excel
+            <Download size={14}/> {tr('downloadExcel', lang)}
           </button>
         </div>
       </div>
@@ -487,9 +490,9 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
         {[
-          { label: 'Total Laporan', value: String(reports.length), color: 'bg-brand-50 border-brand-100 text-brand-700', icon: FileText },
-          { label: 'Total GMV', value: fmtRp(totalGmv), color: 'bg-emerald-50 border-emerald-100 text-emerald-700', icon: TrendingUp },
-          { label: selectedHost ? '1 Host' : `${hosts.length} Host`, value: '', color: 'bg-blue-50 border-blue-100 text-blue-700', icon: Package },
+          { label: tr('totalReports', lang), value: String(reports.length), color: 'bg-brand-50 border-brand-100 text-brand-700', icon: FileText },
+          { label: tr('totalGmv', lang), value: fmtRp(totalGmv), color: 'bg-emerald-50 border-emerald-100 text-emerald-700', icon: TrendingUp },
+          { label: selectedHost ? `1 ${tr('host', lang)}` : `${hosts.length} ${tr('host', lang)}`, value: '', color: 'bg-blue-50 border-blue-100 text-blue-700', icon: Package },
         ].map(({ label, value, color, icon: Icon }) => (
           <div key={label} className={`rounded-2xl border p-4 flex items-center gap-3 ${color}`}>
             <Icon size={18} className="flex-shrink-0 opacity-70"/>
@@ -503,10 +506,10 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
 
       {/* Table */}
       {loading ? (
-        <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center text-sm text-gray-400">Memuat...</div>
+        <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center text-sm text-gray-400">{tr('loading', lang)}</div>
       ) : reports.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center text-sm text-gray-400">
-          Tidak ada laporan untuk filter ini
+          {tr('noReportsForFilter', lang)}
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -514,17 +517,17 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
-                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Tanggal</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Host</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Brand</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Platform</th>
-                  <th className="px-3 py-2.5 text-right font-semibold">GMV</th>
-                  <th className="px-3 py-2.5 text-right font-semibold">Impresi</th>
-                  <th className="px-3 py-2.5 text-right font-semibold">Penonton</th>
-                  <th className="px-3 py-2.5 text-right font-semibold">Komentar</th>
-                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Produk Terjual</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Evaluasi</th>
-                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Status</th>
+                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('date', lang)}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">{tr('host', lang)}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">{tr('brand', lang)}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">{tr('platform', lang)}</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">{tr('gmvCol', lang)}</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">{tr('impresiCol', lang)}</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">{tr('penontonCol', lang)}</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">{tr('komentarCol', lang)}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('produkTerjualCol', lang)}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">{tr('evaluasiCol', lang)}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('status', lang)}</th>
                   <th className="px-3 py-2.5 w-8"></th>
                 </tr>
               </thead>
@@ -559,7 +562,7 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
                         <td className="px-3 py-3 text-xs text-gray-500 max-w-[160px] truncate">{r.notes === 'CSV' ? '—' : (r.notes || '—')}</td>
                         <td className="px-3 py-3">
                           <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap ${STATUS_COLOR[reportStatus(r)]}`}>
-                            {STATUS_LABEL[reportStatus(r)]}
+                            {tr(STATUS_KEY[reportStatus(r)], lang)}
                           </span>
                         </td>
                         <td className="px-3 py-3 text-gray-400">
@@ -582,17 +585,17 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
                                 {(prods.length > 0 || r.product_sold_name) && (
                                   <div>
                                     <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                                      <Package size={11}/> Produk Dijual
+                                      <Package size={11}/> {tr('produkDijualLabel', lang)}
                                     </p>
                                     {r.product_sold_name && <p className="text-xs font-medium text-gray-800 mb-2">⭐ {r.product_sold_name}</p>}
                                     {prods.length > 0 && (
                                       <table className="text-xs w-full max-w-lg">
                                         <thead>
                                           <tr className="text-gray-400 uppercase tracking-wide text-[10px]">
-                                            <th className="px-2 py-1 text-left font-semibold">Produk</th>
+                                            <th className="px-2 py-1 text-left font-semibold">{tr('produkTerjualCol', lang)}</th>
                                             <th className="px-2 py-1 text-center font-semibold">Klik</th>
-                                            <th className="px-2 py-1 text-center font-semibold">Terjual</th>
-                                            <th className="px-2 py-1 text-right font-semibold">Total</th>
+                                            <th className="px-2 py-1 text-center font-semibold">{tr('sold', lang)}</th>
+                                            <th className="px-2 py-1 text-right font-semibold">{tr('total', lang)}</th>
                                           </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
@@ -611,7 +614,7 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
                                 )}
                                 {r.notes && r.notes !== 'CSV' && (
                                   <div>
-                                    <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wide mb-1">Evaluasi</p>
+                                    <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wide mb-1">{tr('evaluasiCol', lang)}</p>
                                     <p className="text-xs text-gray-700 whitespace-pre-wrap">{r.notes}</p>
                                   </div>
                                 )}
@@ -619,23 +622,23 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
                                   <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
                                     <button onClick={e => openEdit(r, e)}
                                       className="flex items-center gap-1.5 text-xs bg-brand-50 text-brand-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-brand-100 transition-colors">
-                                      <Pencil size={12}/> Edit
+                                      <Pencil size={12}/> {tr('edit', lang)}
                                     </button>
                                     {!isConfirm ? (
                                       <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(r.id) }}
                                         className="flex items-center gap-1.5 text-xs bg-red-50 text-red-600 px-3 py-1.5 rounded-lg font-semibold hover:bg-red-100 transition-colors">
-                                        <Trash2 size={12}/> Hapus
+                                        <Trash2 size={12}/> {tr('delete', lang)}
                                       </button>
                                     ) : (
                                       <div className="flex items-center gap-1.5">
-                                        <span className="text-[11px] text-red-500 font-medium">Hapus laporan ini?</span>
+                                        <span className="text-[11px] text-red-500 font-medium">{tr('hapusLaporanIni', lang)}</span>
                                         <button onClick={e => handleDelete(r.id, e)} disabled={deleting}
                                           className="text-[11px] bg-red-500 text-white px-2.5 py-1.5 rounded-lg font-semibold hover:bg-red-600 disabled:opacity-60 transition-colors">
-                                          {deleting ? '...' : 'Ya, Hapus'}
+                                          {deleting ? '...' : tr('yaHapus', lang)}
                                         </button>
                                         <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(null) }}
                                           className="text-[11px] bg-gray-100 text-gray-600 px-2.5 py-1.5 rounded-lg font-semibold hover:bg-gray-200 transition-colors">
-                                          Batal
+                                          {tr('cancel', lang)}
                                         </button>
                                       </div>
                                     )}
@@ -663,10 +666,10 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
               style={{ background: 'linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%)' }}>
               <div>
                 <h3 className="font-bold text-brand-900 text-sm">
-                  {modalMode === 'add' ? 'Tambah Laporan Live' : 'Edit Live Report'}
+                  {modalMode === 'add' ? tr('tambahLaporanLive', lang) : tr('editLiveReport', lang)}
                 </h3>
                 <p className="text-[10px] text-brand-500 mt-0.5">
-                  {modalMode === 'add' ? 'Input laporan secara manual' : `${(editRow?.profiles as any)?.full_name} · ${editRow?.brand} · ${editRow ? localDate(editRow.report_date) : ''}`}
+                  {modalMode === 'add' ? tr('inputManual', lang) : `${(editRow?.profiles as any)?.full_name} · ${editRow?.brand} · ${editRow ? localDate(editRow.report_date) : ''}`}
                 </p>
               </div>
               <button onClick={closeModal} className="p-1.5 rounded-lg hover:bg-brand-100 transition-colors">
@@ -676,38 +679,38 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
             <div className="p-5 space-y-4 overflow-y-auto max-h-[70vh]">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Tanggal *</label>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{tr('tanggalReq', lang)}</label>
                   <input type="date" value={form.report_date} onChange={ff('report_date')}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Host</label>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{tr('host', lang)}</label>
                   <select value={form.host_id} onChange={ff('host_id')}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
-                    <option value="">— Pilih Host —</option>
+                    <option value="">{tr('pilihHost', lang)}</option>
                     {hosts.map(h => <option key={h.id} value={h.id}>{h.full_name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Brand *</label>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{tr('brandReq', lang)}</label>
                   <input value={form.brand} onChange={ff('brand')} placeholder="Saga Beauty - Nivea"
                     className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Platform</label>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{tr('platform', lang)}</label>
                   <select value={form.platform} onChange={ff('platform')}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
-                    <option value="">— Pilih —</option>
+                    <option value="">{tr('pilihPlaceholder', lang)}</option>
                     {PLATFORMS.map(p => <option key={p}>{p}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Jam Mulai</label>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{tr('jamMulaiLabel', lang)}</label>
                   <input type="time" value={form.start_time} onChange={ff('start_time')}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Durasi (jam)</label>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{tr('durasiJamLabel', lang)}</label>
                   <input type="number" min="0" step="0.5" value={form.duration_hours} onChange={ff('duration_hours')}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
                 </div>
@@ -715,11 +718,11 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
 
               <div className="grid grid-cols-3 gap-3">
                 {([
-                  { label: 'GMV (Rp)', key: 'gmv' as const },
-                  { label: 'Impresi', key: 'impression' as const },
-                  { label: 'Penonton', key: 'viewer' as const },
-                  { label: 'Transaksi', key: 'trans' as const },
-                  { label: 'Komentar', key: 'comment_count' as const },
+                  { label: tr('gmvLabel', lang), key: 'gmv' as const },
+                  { label: tr('impresiCol', lang), key: 'impression' as const },
+                  { label: tr('penontonCol', lang), key: 'viewer' as const },
+                  { label: tr('transaksiLabel', lang), key: 'trans' as const },
+                  { label: tr('komentarCol', lang), key: 'comment_count' as const },
                 ] as { label: string; key: keyof typeof form }[]).map(({ label, key }) => (
                   <div key={key}>
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{label}</label>
@@ -735,12 +738,12 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
               </div>
 
               <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Produk Terjual (Utama)</label>
-                <input value={form.product_sold_name} onChange={ff('product_sold_name')} placeholder="Nama produk utama"
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{tr('produkUtamaLabel', lang)}</label>
+                <input value={form.product_sold_name} onChange={ff('product_sold_name')} placeholder={tr('namaProdukUtama', lang)}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
               </div>
               <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Evaluasi / Catatan</label>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{tr('evaluasiCatatan', lang)}</label>
                 <textarea value={form.notes} onChange={ff('notes')} rows={3}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none"/>
               </div>
@@ -749,11 +752,11 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
 
               <div className="flex gap-2.5 pt-1">
                 <button onClick={closeModal} className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors">
-                  Batal
+                  {tr('cancel', lang)}
                 </button>
                 <button onClick={saveForm} disabled={saving}
                   className="flex-1 bg-brand-600 text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-brand-700 disabled:opacity-60 flex items-center justify-center gap-2 transition-colors shadow-sm">
-                  <Save size={14}/> {saving ? 'Menyimpan...' : modalMode === 'add' ? 'Simpan Laporan' : 'Simpan Perubahan'}
+                  <Save size={14}/> {saving ? tr('saving', lang) : modalMode === 'add' ? tr('simpanLaporan', lang) : tr('simpanPerubahan', lang)}
                 </button>
               </div>
             </div>
@@ -769,15 +772,15 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between"
               style={{ background: 'linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%)' }}>
               <div>
-                <h3 className="font-bold text-emerald-900 text-sm">Import CSV — Preview</h3>
+                <h3 className="font-bold text-emerald-900 text-sm">{tr('importCsvPreview', lang)}</h3>
                 <p className="text-[10px] text-emerald-600 mt-0.5">
-                  {csvRows.length} baris terdeteksi · {csvRows.filter(r => !r._error).length} valid
+                  {csvRows.length} {tr('barisTerdeteksi', lang)} · {csvRows.filter(r => !r._error).length} {tr('validText', lang)}
                 </p>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={downloadTemplate}
                   className="text-xs text-emerald-700 bg-emerald-100 hover:bg-emerald-200 px-3 py-1.5 rounded-lg font-medium transition-colors">
-                  Download Template
+                  {tr('downloadTemplate', lang)}
                 </button>
                 <button onClick={() => setShowCsvModal(false)} className="p-1.5 rounded-lg hover:bg-emerald-100 transition-colors">
                   <X size={16} className="text-emerald-500"/>
@@ -790,12 +793,12 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
                 <div className={`text-5xl mb-4 ${importResult.fail === 0 ? 'text-emerald-500' : 'text-amber-500'}`}>
                   {importResult.fail === 0 ? '✓' : '⚠'}
                 </div>
-                <p className="font-bold text-gray-900 text-lg">Import Selesai</p>
-                <p className="text-sm text-gray-500 mt-1">{importResult.ok} laporan berhasil diimpor</p>
-                {importResult.fail > 0 && <p className="text-sm text-red-500 mt-1">{importResult.fail} gagal</p>}
+                <p className="font-bold text-gray-900 text-lg">{tr('importSelesai', lang)}</p>
+                <p className="text-sm text-gray-500 mt-1">{importResult.ok} {tr('laporanBerhasilDiimpor', lang)}</p>
+                {importResult.fail > 0 && <p className="text-sm text-red-500 mt-1">{importResult.fail} {tr('gagalCount', lang)}</p>}
                 <button onClick={() => setShowCsvModal(false)}
                   className="mt-6 bg-brand-600 text-white px-6 py-2.5 rounded-xl font-semibold text-sm hover:bg-brand-700 transition-colors">
-                  Tutup
+                  {tr('tutup', lang)}
                 </button>
               </div>
             ) : (
@@ -812,14 +815,14 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
                               else setCsvSelected(new Set())
                             }} className="rounded accent-brand-600"/>
                         </th>
-                        <th className="px-3 py-2.5 text-left font-semibold">Tanggal</th>
-                        <th className="px-3 py-2.5 text-left font-semibold">Host</th>
-                        <th className="px-3 py-2.5 text-left font-semibold">Brand</th>
-                        <th className="px-3 py-2.5 text-left font-semibold">Platform</th>
-                        <th className="px-3 py-2.5 text-right font-semibold">GMV</th>
-                        <th className="px-3 py-2.5 text-right font-semibold">Impresi</th>
-                        <th className="px-3 py-2.5 text-right font-semibold">Penonton</th>
-                        <th className="px-3 py-2.5 text-left font-semibold">Status</th>
+                        <th className="px-3 py-2.5 text-left font-semibold">{tr('date', lang)}</th>
+                        <th className="px-3 py-2.5 text-left font-semibold">{tr('host', lang)}</th>
+                        <th className="px-3 py-2.5 text-left font-semibold">{tr('brand', lang)}</th>
+                        <th className="px-3 py-2.5 text-left font-semibold">{tr('platform', lang)}</th>
+                        <th className="px-3 py-2.5 text-right font-semibold">{tr('gmvCol', lang)}</th>
+                        <th className="px-3 py-2.5 text-right font-semibold">{tr('impresiCol', lang)}</th>
+                        <th className="px-3 py-2.5 text-right font-semibold">{tr('penontonCol', lang)}</th>
+                        <th className="px-3 py-2.5 text-left font-semibold">{tr('status', lang)}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
@@ -837,7 +840,7 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
                           <td className="px-3 py-2.5 text-gray-700">
                             {row.host_name}
                             {row.host_name && !row.host_id && (
-                              <span className="ml-1 text-amber-500" title="Host tidak ditemukan di sistem">⚠</span>
+                              <span className="ml-1 text-amber-500" title={tr('hostTidakDitemukan', lang)}>⚠</span>
                             )}
                           </td>
                           <td className="px-3 py-2.5 font-medium text-gray-800">{row.brand}</td>
@@ -861,18 +864,18 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
                 </div>
                 <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
                   <p className="text-xs text-gray-500">
-                    {csvSelected.size} baris dipilih untuk diimpor
+                    {csvSelected.size} {tr('barisDipilihUntukDiimpor', lang)}
                     {csvRows.some(r => r.host_name && !r.host_id) && (
-                      <span className="ml-2 text-amber-600">· ⚠ Beberapa host tidak dikenali — akan disimpan tanpa host_id</span>
+                      <span className="ml-2 text-amber-600">{tr('beberapaHostTidakDikenali', lang)}</span>
                     )}
                   </p>
                   <div className="flex gap-2">
                     <button onClick={() => setShowCsvModal(false)} className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50">
-                      Batal
+                      {tr('cancel', lang)}
                     </button>
                     <button onClick={runImport} disabled={csvSelected.size === 0 || importing}
                       className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-semibold text-sm hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2 transition-colors">
-                      <Upload size={14}/> {importing ? 'Mengimpor...' : `Import ${csvSelected.size} Laporan`}
+                      <Upload size={14}/> {importing ? tr('importingText', lang) : `${tr('add', lang)} ${csvSelected.size} ${tr('importNLaporan', lang)}`}
                     </button>
                   </div>
                 </div>
