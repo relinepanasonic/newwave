@@ -169,6 +169,12 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
   // Set when "Buat Jadwal" is clicked but the CSV host name can't be resolved
   // to a profile -- the row then asks which host it was before creating.
   const [pickingHostIdx, setPickingHostIdx] = useState<number | null>(null)
+  // Bulk "Buat Jadwal untuk Semua" — for backfilling months of historical CSV
+  // data where no schedule ever existed, instead of clicking every row.
+  const [bulkRunning, setBulkRunning] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 })
+  const [bulkSummary, setBulkSummary] = useState<{ created: number; skippedNoHost: number; failed: { line: number; brand: string; error: string }[] } | null>(null)
+  const [showBulkFailures, setShowBulkFailures] = useState(false)
   const [detailRow, setDetailRow] = useState<CompareRow | null>(null)
   const [editForm, setEditForm] = useState<{
     host_id: string; start_time: string; platform: string
@@ -440,12 +446,19 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
   // CSV rows whose session was never put on the schedule at all: create the
   // schedule_slot from the CSV (so it shows up on the Schedule page), then
   // attach the CSV's numbers to it as a live_report, same as "Tidak Lapor".
-  async function makeScheduleFor(csvIdx: number, hostIdOverride?: string) {
+  async function makeScheduleFor(csvIdx: number, hostIdOverride?: string, silent = false): Promise<{ ok: boolean; error?: string }> {
     const csv = csvRows[csvIdx]
-    if (!csv) return
+    if (!csv) return { ok: false, error: 'Baris tidak ditemukan' }
     const hostId = hostIdOverride || resolveHostId(csv)
-    if (!hostId) { setPickingHostIdx(csvIdx); return }
-    if (!csv.startSesi) { setNotReportedError(`Baris ${csv._line}: jam mulai kosong, tidak bisa buat jadwal.`); return }
+    if (!hostId) {
+      if (!silent) setPickingHostIdx(csvIdx)
+      return { ok: false, error: 'Host tidak dikenali' }
+    }
+    if (!csv.startSesi) {
+      const msg = `Baris ${csv._line}: jam mulai kosong, tidak bisa buat jadwal.`
+      if (!silent) setNotReportedError(msg)
+      return { ok: false, error: msg }
+    }
 
     setSavingNotReportedIdx(csvIdx); setNotReportedError(''); setPickingHostIdx(null)
     const supabase = createClient()
@@ -475,8 +488,8 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     }
     if (!slot) {
       setSavingNotReportedIdx(null)
-      setNotReportedError(lastErr || 'Gagal membuat jadwal.')
-      return
+      if (!silent) setNotReportedError(lastErr || 'Gagal membuat jadwal.')
+      return { ok: false, error: lastErr || 'Gagal membuat jadwal.' }
     }
 
     const { data: report, error: repErr } = await supabase.from('live_reports').insert({
@@ -490,8 +503,8 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     if (repErr) {
       // Roll the slot back so a failed report doesn't strand an empty slot.
       await supabase.from('schedule_slots').delete().eq('id', slot.id)
-      setNotReportedError(repErr.message)
-      return
+      if (!silent) setNotReportedError(repErr.message)
+      return { ok: false, error: repErr.message }
     }
 
     setScheduleSlots(prev => [...prev, slot!])
@@ -501,6 +514,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
       setNotReportedMatches(prev => ({ ...prev, [csvIdx]: slot!.id }))
       setNotReportedReportIds(prev => ({ ...prev, [csvIdx]: (report as any).id }))
     }
+    return { ok: true }
   }
 
   function resolveRoomId(csvRoom: string): string | null {
@@ -509,6 +523,36 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     const exact = n ? rooms.find(r => normBrand(r.name) === n) : null
     const fuzzy = n ? rooms.find(r => normBrand(r.name).includes(n) || n.includes(normBrand(r.name))) : null
     return (exact || fuzzy)?.id || rooms.find(r => /lain/i.test(r.name))?.id || rooms[0].id
+  }
+
+  // Runs makeScheduleFor across every row still "Tak Ada di App" -- for
+  // backfilling months of historical data where no schedule was ever entered,
+  // rather than clicking "Buat Jadwal" one row at a time. Sequential (not
+  // parallel) so it doesn't hammer Supabase with hundreds of simultaneous
+  // inserts, and so progress can be shown as it goes.
+  async function bulkCreateSchedule() {
+    const targets = compareRows.filter(r => r.status === 'missing_in_app')
+    setBulkRunning(true); setBulkSummary(null); setShowBulkFailures(false)
+    setBulkProgress({ done: 0, total: targets.length })
+
+    let created = 0, skippedNoHost = 0
+    const failed: { line: number; brand: string; error: string }[] = []
+
+    for (let i = 0; i < targets.length; i++) {
+      const r = targets[i]
+      const hostId = resolveHostId(r.csv)
+      if (!hostId) {
+        skippedNoHost++
+      } else {
+        const result = await makeScheduleFor(r.csvIdx, hostId, true)
+        if (result.ok) created++
+        else failed.push({ line: r.csv._line, brand: r.csv.brand || '—', error: result.error || 'Gagal' })
+      }
+      setBulkProgress({ done: i + 1, total: targets.length })
+    }
+
+    setBulkSummary({ created, skippedNoHost, failed })
+    setBulkRunning(false)
   }
 
   const hostNameById = useMemo(() => {
@@ -603,6 +647,60 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
             <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-2.5 mb-4 flex items-center justify-between gap-3">
               <p className="text-xs text-red-600">Gagal menyimpan: {notReportedError}</p>
               <button onClick={() => setNotReportedError('')} className="text-red-400 hover:text-red-600 flex-shrink-0"><X size={14}/></button>
+            </div>
+          )}
+
+          {/* Bulk backfill: create schedule + report for every "Tak Ada di App" row at once */}
+          {totalMissing > 0 && (
+            <div className="bg-emerald-50 border border-emerald-100 rounded-2xl px-4 py-3 mb-4">
+              {bulkRunning ? (
+                <div className="flex items-center gap-3">
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-emerald-800 mb-1.5">
+                      Membuat jadwal & laporan... {bulkProgress.done}/{bulkProgress.total}
+                    </p>
+                    <div className="h-1.5 bg-emerald-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-500 rounded-full transition-all duration-200"
+                        style={{ width: `${bulkProgress.total ? (bulkProgress.done / bulkProgress.total) * 100 : 0}%` }}/>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <p className="text-xs text-emerald-800">
+                    {totalMissing} baris belum ada di app — backfill sekaligus tanpa klik satu-satu.
+                  </p>
+                  <button onClick={bulkCreateSchedule}
+                    className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs font-semibold px-3 py-2 rounded-xl hover:bg-emerald-700 transition-colors flex-shrink-0">
+                    <CalendarPlus size={12}/> Buat Jadwal untuk Semua ({totalMissing})
+                  </button>
+                </div>
+              )}
+
+              {bulkSummary && (
+                <div className="mt-3 pt-3 border-t border-emerald-100 text-xs">
+                  <p className="text-emerald-800 font-semibold">
+                    ✓ {bulkSummary.created} berhasil dibuat
+                    {bulkSummary.skippedNoHost > 0 && ` · ${bulkSummary.skippedNoHost} dilewati (host tidak dikenali)`}
+                    {bulkSummary.failed.length > 0 && ` · ${bulkSummary.failed.length} gagal`}
+                  </p>
+                  {bulkSummary.failed.length > 0 && (
+                    <>
+                      <button onClick={() => setShowBulkFailures(s => !s)}
+                        className="text-red-600 hover:text-red-700 font-medium mt-1">
+                        {showBulkFailures ? 'Sembunyikan' : 'Lihat'} baris yang gagal
+                      </button>
+                      {showBulkFailures && (
+                        <ul className="mt-1.5 space-y-0.5 max-h-40 overflow-y-auto">
+                          {bulkSummary.failed.map((f, i) => (
+                            <li key={i} className="text-red-600">Baris {f.line} ({f.brand}): {f.error}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
