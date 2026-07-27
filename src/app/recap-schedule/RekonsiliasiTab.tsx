@@ -8,6 +8,8 @@ import {
 } from 'lucide-react'
 import CurrencyInput from '@/components/CurrencyInput'
 import TimeInput from '@/components/TimeInput'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 
 const PLATFORMS = ['TikTok', 'Shopee', 'Instagram', 'YouTube', 'Other']
 
@@ -147,6 +149,7 @@ function MetricCell({ csvVal, appVal, mismatch, fmt }: { csvVal: number; appVal?
 }
 
 export default function RekonsiliasiTab({ profile: _profile }: { profile: any }) {
+  const { lang } = useLang()
   const [csvRows, setCsvRows] = useState<CsvRow[]>([])
   const [appReports, setAppReports] = useState<AppReport[]>([])
   const [scheduleSlots, setScheduleSlots] = useState<ScheduleSlotRow[]>([])
@@ -609,28 +612,25 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
   return (
     <div className="w-full">
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-5">
-        <p className="text-sm font-bold text-gray-900 mb-1">Upload CSV Rekonsiliasi</p>
-        <p className="text-xs text-gray-500 mb-3">
-          Upload data live bulanan (Tanggal, Brand, Room, Start Sesi, Total Jam, Host, Platform, GMV, Impression, Viewer, Trans, Comment).
-          Setiap baris akan dicocokkan dengan laporan live host di aplikasi berdasarkan tanggal, host, dan jam mulai.
-        </p>
+        <p className="text-sm font-bold text-gray-900 mb-1">{tr('uploadCsvRekonTitle', lang)}</p>
+        <p className="text-xs text-gray-500 mb-3">{tr('uploadCsvRekonDesc', lang)}</p>
         <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleFile}/>
         <button onClick={() => fileRef.current?.click()}
           className="flex items-center gap-1.5 text-sm bg-brand-600 text-white px-3.5 py-2 rounded-xl font-medium hover:bg-brand-700 transition-colors shadow-sm">
-          <Upload size={14}/> Pilih File CSV
+          <Upload size={14}/> {tr('pilihFileCsv', lang)}
         </button>
-        {fileName && <p className="text-xs text-gray-400 mt-2">{loading ? 'Memuat...' : `File: ${fileName} · ${csvRows.length} baris`}</p>}
+        {fileName && <p className="text-xs text-gray-400 mt-2">{loading ? tr('loading', lang) : `File: ${fileName} · ${csvRows.length} baris`}</p>}
       </div>
 
       {csvRows.length > 0 && !loading && (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-5">
             {[
-              { key: 'all' as const, label: 'Total Baris', value: compareRows.length, icon: null, color: 'bg-gray-50 border-gray-100 text-gray-700' },
-              { key: 'all' as const, label: 'Cocok', value: totalMatch, icon: CheckCircle2, color: 'bg-emerald-50 border-emerald-100 text-emerald-700' },
-              { key: 'mismatch' as const, label: 'Berbeda', value: totalMismatch, icon: AlertTriangle, color: 'bg-pink-50 border-pink-100 text-pink-700' },
-              { key: 'missing_in_app' as const, label: 'Tidak Ada di App', value: totalMissing, icon: XCircle, color: 'bg-red-50 border-red-100 text-red-700' },
-              { key: 'not_reported_confirmed' as const, label: 'Tidak Lapor (CSV)', value: totalNotReported, icon: CalendarSearch, color: 'bg-purple-50 border-purple-100 text-purple-700' },
+              { key: 'all' as const, label: tr('totalBarisCard', lang), value: compareRows.length, icon: null, color: 'bg-gray-50 border-gray-100 text-gray-700' },
+              { key: 'all' as const, label: tr('cocokCard', lang), value: totalMatch, icon: CheckCircle2, color: 'bg-emerald-50 border-emerald-100 text-emerald-700' },
+              { key: 'mismatch' as const, label: tr('bedaCard', lang), value: totalMismatch, icon: AlertTriangle, color: 'bg-pink-50 border-pink-100 text-pink-700' },
+              { key: 'missing_in_app' as const, label: tr('takAdaDiApp', lang), value: totalMissing, icon: XCircle, color: 'bg-red-50 border-red-100 text-red-700' },
+              { key: 'not_reported_confirmed' as const, label: tr('takLaporCsv', lang), value: totalNotReported, icon: CalendarSearch, color: 'bg-purple-50 border-purple-100 text-purple-700' },
             ].map(({ key, label, value, icon: Icon, color }) => (
               <button key={label} onClick={() => setStatusFilter(key)}
                 className={`rounded-2xl border p-4 text-left flex items-center gap-3 ${color} ${statusFilter === key ? 'ring-2 ring-offset-1 ring-current' : ''}`}>
@@ -645,7 +645,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
 
           {notReportedError && (
             <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-2.5 mb-4 flex items-center justify-between gap-3">
-              <p className="text-xs text-red-600">Gagal menyimpan: {notReportedError}</p>
+              <p className="text-xs text-red-600">{tr('gagalMenyimpan', lang)}: {notReportedError}</p>
               <button onClick={() => setNotReportedError('')} className="text-red-400 hover:text-red-600 flex-shrink-0"><X size={14}/></button>
             </div>
           )}
@@ -657,7 +657,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                 <div className="flex items-center gap-3">
                   <div className="flex-1">
                     <p className="text-xs font-semibold text-emerald-800 mb-1.5">
-                      Membuat jadwal & laporan... {bulkProgress.done}/{bulkProgress.total}
+                      {tr('bulkCreatingProgress', lang)} {bulkProgress.done}/{bulkProgress.total}
                     </p>
                     <div className="h-1.5 bg-emerald-100 rounded-full overflow-hidden">
                       <div className="h-full bg-emerald-500 rounded-full transition-all duration-200"
@@ -668,11 +668,11 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
               ) : (
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <p className="text-xs text-emerald-800">
-                    {totalMissing} baris belum ada di app — backfill sekaligus tanpa klik satu-satu.
+                    {totalMissing} {tr('bulkBackfillDesc', lang)}
                   </p>
                   <button onClick={bulkCreateSchedule}
                     className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs font-semibold px-3 py-2 rounded-xl hover:bg-emerald-700 transition-colors flex-shrink-0">
-                    <CalendarPlus size={12}/> Buat Jadwal untuk Semua ({totalMissing})
+                    <CalendarPlus size={12}/> {tr('buatJadwalSemua', lang)} ({totalMissing})
                   </button>
                 </div>
               )}
@@ -680,20 +680,20 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
               {bulkSummary && (
                 <div className="mt-3 pt-3 border-t border-emerald-100 text-xs">
                   <p className="text-emerald-800 font-semibold">
-                    ✓ {bulkSummary.created} berhasil dibuat
-                    {bulkSummary.skippedNoHost > 0 && ` · ${bulkSummary.skippedNoHost} dilewati (host tidak dikenali)`}
-                    {bulkSummary.failed.length > 0 && ` · ${bulkSummary.failed.length} gagal`}
+                    ✓ {bulkSummary.created} {tr('berhasilDibuat', lang)}
+                    {bulkSummary.skippedNoHost > 0 && ` · ${bulkSummary.skippedNoHost} ${tr('dilewatiHostTidakDikenali', lang)}`}
+                    {bulkSummary.failed.length > 0 && ` · ${bulkSummary.failed.length} ${tr('gagalCard', lang)}`}
                   </p>
                   {bulkSummary.failed.length > 0 && (
                     <>
                       <button onClick={() => setShowBulkFailures(s => !s)}
                         className="text-red-600 hover:text-red-700 font-medium mt-1">
-                        {showBulkFailures ? 'Sembunyikan' : 'Lihat'} baris yang gagal
+                        {showBulkFailures ? tr('hideGroup', lang) : tr('showGroup', lang)} {tr('lihatBarisGagal', lang)}
                       </button>
                       {showBulkFailures && (
                         <ul className="mt-1.5 space-y-0.5 max-h-40 overflow-y-auto">
                           {bulkSummary.failed.map((f, i) => (
-                            <li key={i} className="text-red-600">Baris {f.line} ({f.brand}): {f.error}</li>
+                            <li key={i} className="text-red-600">{tr('barisLabel', lang)} {f.line} ({f.brand}): {f.error}</li>
                           ))}
                         </ul>
                       )}
@@ -709,18 +709,18 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
-                    <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Tanggal</th>
-                    <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Jam Mulai</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">Host</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">Brand (CSV)</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">Platform</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">GMV</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">Impresi</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">Penonton</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">Trans</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">Komentar</th>
-                    <th className="px-3 py-2.5 text-center font-semibold">Status</th>
-                    <th className="px-3 py-2.5 text-center font-semibold">Aksi</th>
+                    <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('date', lang)}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('jamMulaiCol', lang)}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{tr('host', lang)}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{tr('brandCsvCol', lang)}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{tr('platform', lang)}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">{tr('gmvCol', lang)}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">{tr('impresiCol', lang)}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">{tr('penontonCol', lang)}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">{tr('transCol', lang)}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">{tr('komentarCol', lang)}</th>
+                    <th className="px-3 py-2.5 text-center font-semibold">{tr('status', lang)}</th>
+                    <th className="px-3 py-2.5 text-center font-semibold">{tr('aksiCol', lang)}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -745,16 +745,16 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                           {r.status === 'match' && (
                             fixedLog[r.csvIdx] ? (
                               <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">
-                                Fixed · {fmtFixedDate(fixedLog[r.csvIdx])}
+                                {tr('fixedLabel', lang)} · {fmtFixedDate(fixedLog[r.csvIdx])}
                               </span>
                             ) : (
-                              <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Cocok</span>
+                              <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('cocokCard', lang)}</span>
                             )
                           )}
-                          {r.status === 'mismatch' && <span className="text-[10px] bg-pink-100 text-pink-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Berbeda</span>}
-                          {r.status === 'missing_in_app' && <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Tak Ada di App</span>}
-                          {r.status === 'not_reported_confirmed' && <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Tidak Lapor (CSV)</span>}
-                          {r.isManual && <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">Manual</span>}
+                          {r.status === 'mismatch' && <span className="text-[10px] bg-pink-100 text-pink-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('bedaCard', lang)}</span>}
+                          {r.status === 'missing_in_app' && <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('takAdaDiApp', lang)}</span>}
+                          {r.status === 'not_reported_confirmed' && <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('takLaporCsv', lang)}</span>}
+                          {r.isManual && <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('manualBadge', lang)}</span>}
                         </div>
                         {r.status === 'not_reported_confirmed' && (
                           <p className="text-[9px] text-purple-400 italic mt-0.5">CSV</p>
@@ -764,12 +764,12 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                         {r.isManual ? (
                           <button onClick={() => clearManualMatch(r.csvIdx)}
                             className="inline-flex items-center gap-1 text-[10px] text-gray-400 hover:text-red-500 border border-gray-200 hover:border-red-200 rounded-lg px-2 py-1 transition-colors">
-                            <X size={10}/> Batalkan
+                            <X size={10}/> {tr('batalkan', lang)}
                           </button>
                         ) : r.status === 'not_reported_confirmed' ? (
                           <button onClick={() => clearNotReportedMatch(r.csvIdx, r.app?.id)}
                             className="inline-flex items-center gap-1 text-[10px] text-gray-400 hover:text-red-500 border border-gray-200 hover:border-red-200 rounded-lg px-2 py-1 transition-colors">
-                            <X size={10}/> Batalkan
+                            <X size={10}/> {tr('batalkan', lang)}
                           </button>
                         ) : r.status === 'missing_in_app' ? (
                           pickingIdx === r.csvIdx ? (
@@ -777,7 +777,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                               onChange={e => { if (e.target.value) setManualMatch(r.csvIdx, e.target.value) }}
                               onBlur={() => setPickingIdx(null)}
                               className="text-[10px] border border-brand-300 rounded-lg px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white max-w-[280px]">
-                              <option value="">— Pilih laporan app —</option>
+                              <option value="">{tr('pilihLaporanApp', lang)}</option>
                               {candidatesFor(r.csv).map(c => {
                                 const p = c.profiles as any
                                 const nick = p?.username || p?.full_name?.split(' ')[0] || '—'
@@ -789,13 +789,13 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                               })}
                             </select>
                           ) : savingNotReportedIdx === r.csvIdx ? (
-                            <span className="text-[10px] text-purple-500 whitespace-nowrap">Menyimpan...</span>
+                            <span className="text-[10px] text-purple-500 whitespace-nowrap">{tr('saving', lang)}</span>
                           ) : pickingScheduleIdx === r.csvIdx ? (
                             <select autoFocus defaultValue=""
                               onChange={e => { if (e.target.value) setNotReportedMatch(r.csvIdx, e.target.value) }}
                               onBlur={() => setPickingScheduleIdx(null)}
                               className="text-[10px] border border-purple-300 rounded-lg px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-purple-400 bg-white max-w-[280px]">
-                              <option value="">— Pilih jadwal —</option>
+                              <option value="">{tr('pilihJadwal', lang)}</option>
                               {scheduleCandidatesFor(r.csv).map(s => (
                                 <option key={s.id} value={s.id}>
                                   {shortDate(s.slot_date)} · {slotTime(s)} · {hostNameById[s.host_id] || '—'} · {s.brand || '—'}
@@ -807,7 +807,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                               onChange={e => { if (e.target.value) makeScheduleFor(r.csvIdx, e.target.value) }}
                               onBlur={() => setPickingHostIdx(null)}
                               className="text-[10px] border border-emerald-300 rounded-lg px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-400 bg-white max-w-[280px]">
-                              <option value="">— Host siapa? —</option>
+                              <option value="">{tr('hostSiapa', lang)}</option>
                               {hosts.map(h => (
                                 <option key={h.id} value={h.id}>{h.username || h.full_name}</option>
                               ))}
@@ -816,22 +816,22 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                             <div className="flex items-center justify-center gap-1">
                               <button onClick={() => setPickingIdx(r.csvIdx)}
                                 className="inline-flex items-center gap-1 text-[10px] text-brand-600 hover:text-brand-800 border border-brand-200 rounded-lg px-2 py-1 hover:bg-brand-50 transition-colors whitespace-nowrap">
-                                <Link2 size={10}/> Match Manual
+                                <Link2 size={10}/> {tr('matchManual', lang)}
                               </button>
                               <button onClick={() => setPickingScheduleIdx(r.csvIdx)}
                                 className="inline-flex items-center gap-1 text-[10px] text-purple-600 hover:text-purple-800 border border-purple-200 rounded-lg px-2 py-1 hover:bg-purple-50 transition-colors whitespace-nowrap">
-                                <CalendarSearch size={10}/> Tidak Lapor
+                                <CalendarSearch size={10}/> {tr('tidakLapor', lang)}
                               </button>
                               <button onClick={() => makeScheduleFor(r.csvIdx)}
                                 className="inline-flex items-center gap-1 text-[10px] text-emerald-600 hover:text-emerald-800 border border-emerald-200 rounded-lg px-2 py-1 hover:bg-emerald-50 transition-colors whitespace-nowrap">
-                                <CalendarPlus size={10}/> Buat Jadwal
+                                <CalendarPlus size={10}/> {tr('buatJadwal', lang)}
                               </button>
                             </div>
                           )
                         ) : r.status === 'mismatch' ? (
                           <button onClick={() => openDetail(r)}
                             className="inline-flex items-center gap-1 text-[10px] text-pink-600 hover:text-pink-800 border border-pink-200 rounded-lg px-2 py-1 hover:bg-pink-50 transition-colors whitespace-nowrap">
-                            <ExternalLink size={10}/> Detail
+                            <ExternalLink size={10}/> {tr('detailBtn', lang)}
                           </button>
                         ) : (
                           <span className="text-gray-300 text-[10px]">—</span>
@@ -847,7 +847,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
           {extraAppReports.length > 0 && (
             <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4">
               <p className="text-xs font-bold text-amber-700 mb-2">
-                {extraAppReports.length} laporan di App tidak ditemukan di CSV (host melapor, tapi tidak ada di file rekonsiliasi)
+                {extraAppReports.length} {tr('laporanDiAppTidakDiCsv', lang)}
               </p>
               <div className="space-y-1">
                 {extraAppReports.map(r => (
@@ -882,7 +882,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                     <Sparkles size={16} className="text-brand-600"/>
                   </div>
                   <div>
-                    <h3 className="font-bold text-brand-900 text-base">Detail Perbandingan</h3>
+                    <h3 className="font-bold text-brand-900 text-base">{tr('detailPerbandingan', lang)}</h3>
                     <p className="text-xs text-brand-600/80 mt-0.5">
                       {detailRow.csv.host} · {fmtDate(detailRow.csv.tanggal)} · {detailRow.csv.startSesi} · {detailRow.csv.brand}
                     </p>
@@ -900,8 +900,8 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                     <div className="w-6 h-6 rounded-lg bg-brand-100 flex items-center justify-center">
                       <Pencil size={11} className="text-brand-600"/>
                     </div>
-                    <p className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">Data Aplikasi</p>
-                    <span className="text-[9px] bg-brand-50 text-brand-500 border border-brand-100 px-1.5 py-0.5 rounded-full font-semibold ml-auto">Bisa Diedit</span>
+                    <p className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">{tr('dataAplikasi', lang)}</p>
+                    <span className="text-[9px] bg-brand-50 text-brand-500 border border-brand-100 px-1.5 py-0.5 rounded-full font-semibold ml-auto">{tr('bisaDiedit', lang)}</span>
                   </div>
 
                   {detailRow.app?.screenshot_url ? (
@@ -911,59 +911,59 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                     </button>
                   ) : (
                     <div className="w-full h-28 rounded-2xl border border-dashed border-gray-200 flex items-center justify-center text-xs text-gray-300 mb-4">
-                      Tidak ada screenshot
+                      {tr('tidakAdaScreenshot', lang)}
                     </div>
                   )}
 
                   {editForm ? (
                     <div className="space-y-1">
-                      <EditRow label="Host">
+                      <EditRow label={tr('host', lang)}>
                         <select value={editForm.host_id} onChange={e => setEditForm(f => f && ({ ...f, host_id: e.target.value }))}
                           className="text-xs font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400 max-w-[160px]">
                           {hosts.map(h => <option key={h.id} value={h.id}>{h.full_name}</option>)}
                         </select>
                       </EditRow>
-                      <ReadRow label="Tanggal" value={fmtDate(detailRow.app!.report_date)}/>
-                      <EditRow label="Jam">
+                      <ReadRow label={tr('date', lang)} value={fmtDate(detailRow.app!.report_date)}/>
+                      <EditRow label={tr('jamMulaiCol', lang)}>
                         <div className="w-24">
                           <TimeInput value={editForm.start_time} onChange={v => setEditForm(f => f && ({ ...f, start_time: v }))}
                             className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-gray-50 focus:outline-none focus:ring-1 focus:ring-brand-400"/>
                         </div>
                       </EditRow>
-                      <ReadRow label="Durasi" value={detailRow.app!.duration_hours ? `${detailRow.app!.duration_hours} jam` : '—'}/>
-                      <ReadRow label="Brand" value={detailRow.app!.brand || '—'}/>
-                      <EditRow label="Platform">
+                      <ReadRow label={tr('durasiRow', lang)} value={detailRow.app!.duration_hours ? `${detailRow.app!.duration_hours} ${tr('durasiValue', lang)}` : '—'}/>
+                      <ReadRow label={tr('brand', lang)} value={detailRow.app!.brand || '—'}/>
+                      <EditRow label={tr('platform', lang)}>
                         <select value={editForm.platform} onChange={e => setEditForm(f => f && ({ ...f, platform: e.target.value }))}
                           className="text-xs font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400">
                           <option value="">—</option>
                           {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
                         </select>
                       </EditRow>
-                      <EditRow label="GMV" highlight={live.gmv}>
+                      <EditRow label={tr('gmvCol', lang)} highlight={live.gmv}>
                         <CurrencyInput value={editForm.gmv} onChange={v => setEditForm(f => f && ({ ...f, gmv: v }))}
                           wrapperClassName="flex items-center border border-gray-200 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-brand-400 bg-white"
                           prefixClassName="px-2 py-1.5 bg-gray-50 text-[10px] font-semibold text-gray-400 flex-shrink-0"
                           className="w-24 min-w-0 px-2 py-1.5 text-xs text-right focus:outline-none"/>
                       </EditRow>
-                      <EditRow label="Impresi" highlight={live.impression}>
+                      <EditRow label={tr('impresiCol', lang)} highlight={live.impression}>
                         <input type="number" value={editForm.impression} onChange={e => setEditForm(f => f && ({ ...f, impression: Number(e.target.value) || 0 }))}
                           className="w-24 text-xs text-right font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"/>
                       </EditRow>
-                      <EditRow label="Penonton" highlight={live.viewer}>
+                      <EditRow label={tr('penontonCol', lang)} highlight={live.viewer}>
                         <input type="number" value={editForm.viewer} onChange={e => setEditForm(f => f && ({ ...f, viewer: Number(e.target.value) || 0 }))}
                           className="w-24 text-xs text-right font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"/>
                       </EditRow>
-                      <EditRow label="Trans" highlight={live.trans}>
+                      <EditRow label={tr('transCol', lang)} highlight={live.trans}>
                         <input type="number" value={editForm.trans} onChange={e => setEditForm(f => f && ({ ...f, trans: Number(e.target.value) || 0 }))}
                           className="w-24 text-xs text-right font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"/>
                       </EditRow>
-                      <EditRow label="Komentar" highlight={live.comment}>
+                      <EditRow label={tr('komentarCol', lang)} highlight={live.comment}>
                         <input type="number" value={editForm.comment_count} onChange={e => setEditForm(f => f && ({ ...f, comment_count: Number(e.target.value) || 0 }))}
                           className="w-24 text-xs text-right font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"/>
                       </EditRow>
                     </div>
                   ) : (
-                    <p className="text-xs text-gray-300 text-center py-6">Tidak ada data aplikasi</p>
+                    <p className="text-xs text-gray-300 text-center py-6">{tr('tidakAdaDataAplikasi', lang)}</p>
                   )}
                 </div>
 
@@ -973,24 +973,24 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                     <div className="w-6 h-6 rounded-lg bg-gray-200 flex items-center justify-center">
                       <FileSpreadsheet size={11} className="text-gray-500"/>
                     </div>
-                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Data CSV</p>
-                    <span className="text-[9px] bg-gray-100 text-gray-400 border border-gray-200 px-1.5 py-0.5 rounded-full font-semibold ml-auto">Referensi</span>
+                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{tr('dataCsvLabel', lang)}</p>
+                    <span className="text-[9px] bg-gray-100 text-gray-400 border border-gray-200 px-1.5 py-0.5 rounded-full font-semibold ml-auto">{tr('referensiBadge', lang)}</span>
                   </div>
                   <div className="w-full h-28 rounded-2xl border border-dashed border-gray-200 flex items-center justify-center text-xs text-gray-300 mb-4">
-                    CSV tidak memiliki gambar
+                    {tr('csvTidakMemilikiGambar', lang)}
                   </div>
                   <div className="space-y-1">
-                    <ReadRow label="Host" value={detailRow.csv.host}/>
-                    <ReadRow label="Tanggal" value={fmtDate(detailRow.csv.tanggal)}/>
-                    <ReadRow label="Jam" value={detailRow.csv.startSesi}/>
-                    <ReadRow label="Durasi" value={`${detailRow.csv.totalJam} jam`}/>
-                    <ReadRow label="Brand" value={detailRow.csv.brand}/>
-                    <ReadRow label="Platform" value={detailRow.csv.platform}/>
-                    <ReadRow label="GMV" value={formatCurrency(detailRow.csv.gmv)} highlight={live.gmv}/>
-                    <ReadRow label="Impresi" value={fmtNum(detailRow.csv.impression)} highlight={live.impression}/>
-                    <ReadRow label="Penonton" value={fmtNum(detailRow.csv.viewer)} highlight={live.viewer}/>
-                    <ReadRow label="Trans" value={fmtNum(detailRow.csv.trans)} highlight={live.trans}/>
-                    <ReadRow label="Komentar" value={fmtNum(detailRow.csv.comment)} highlight={live.comment}/>
+                    <ReadRow label={tr('host', lang)} value={detailRow.csv.host}/>
+                    <ReadRow label={tr('date', lang)} value={fmtDate(detailRow.csv.tanggal)}/>
+                    <ReadRow label={tr('jamMulaiCol', lang)} value={detailRow.csv.startSesi}/>
+                    <ReadRow label={tr('durasiRow', lang)} value={`${detailRow.csv.totalJam} ${tr('durasiValue', lang)}`}/>
+                    <ReadRow label={tr('brand', lang)} value={detailRow.csv.brand}/>
+                    <ReadRow label={tr('platform', lang)} value={detailRow.csv.platform}/>
+                    <ReadRow label={tr('gmvCol', lang)} value={formatCurrency(detailRow.csv.gmv)} highlight={live.gmv}/>
+                    <ReadRow label={tr('impresiCol', lang)} value={fmtNum(detailRow.csv.impression)} highlight={live.impression}/>
+                    <ReadRow label={tr('penontonCol', lang)} value={fmtNum(detailRow.csv.viewer)} highlight={live.viewer}/>
+                    <ReadRow label={tr('transCol', lang)} value={fmtNum(detailRow.csv.trans)} highlight={live.trans}/>
+                    <ReadRow label={tr('komentarCol', lang)} value={fmtNum(detailRow.csv.comment)} highlight={live.comment}/>
                   </div>
                 </div>
               </div>
@@ -1000,16 +1000,16 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                 <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between gap-3 flex-shrink-0 bg-white">
                   {detailSaveError
                     ? <p className="text-xs text-red-600">{detailSaveError}</p>
-                    : <p className="text-[11px] text-gray-400">Perubahan disimpan langsung ke laporan live host.</p>}
+                    : <p className="text-[11px] text-gray-400">{tr('perubahanDisimpanLangsung', lang)}</p>}
                   <div className="flex gap-2 flex-shrink-0">
                     <button onClick={closeDetail} disabled={savingDetail}
                       className="px-4 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-500 hover:bg-gray-50 disabled:opacity-50 transition-colors">
-                      Batal
+                      {tr('cancel', lang)}
                     </button>
                     <button onClick={saveDetailEdit} disabled={savingDetail}
                       className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white rounded-xl shadow-sm hover:shadow-md disabled:opacity-60 transition-all"
                       style={{ background: 'linear-gradient(135deg,#7c3aed 0%,#6d28d9 100%)' }}>
-                      <Save size={14}/> {savingDetail ? 'Menyimpan...' : 'Simpan Perubahan'}
+                      <Save size={14}/> {savingDetail ? tr('saving', lang) : tr('simpanPerubahan', lang)}
                     </button>
                   </div>
                 </div>
