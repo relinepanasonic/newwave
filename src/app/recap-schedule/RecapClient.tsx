@@ -3,8 +3,11 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getPayPeriod, toLocalDateStr, PLATFORM_COLORS } from '@/lib/utils'
 import { CalendarDays, Clock, Users, Filter, Camera } from 'lucide-react'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 
 const DAYS_ID = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
+const DAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function slotTimeLabel(slot: { jam_mulai?: string; durasi?: number; session_no: number }): string {
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -53,16 +56,16 @@ function lookApprovalOnTime(slot: Slot): boolean {
   return approvalTime <= sessionStart
 }
 
-function LookStatusCell({ slot }: { slot: Slot }) {
+function LookStatusCell({ slot, lang }: { slot: Slot; lang: 'id' | 'en' }) {
   if (!slot.look_approval_at) {
-    return <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full whitespace-nowrap">— Belum</span>
+    return <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full whitespace-nowrap">{tr('lookBelum', lang)}</span>
   }
   const onTime = lookApprovalOnTime(slot)
   const timeFmt = new Date(slot.look_approval_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
   const classes = onTime
     ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
     : 'bg-red-100 text-red-700 hover:bg-red-200'
-  const label = `${onTime ? '✅ Tepat Waktu' : '🔴 Terlambat'} · ${timeFmt}`
+  const label = `${onTime ? '✅' : '🔴'} ${tr(onTime ? 'tepatWaktu' : 'terlambat', lang)} · ${timeFmt}`
 
   if (!slot.look_approval_url) {
     return <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap ${classes}`}>{label}</span>
@@ -76,6 +79,7 @@ function LookStatusCell({ slot }: { slot: Slot }) {
 }
 
 export default function RecapTab({ profile: _profile }: { profile: any }) {
+  const { lang } = useLang()
   const [slots, setSlots] = useState<Slot[]>([])
   const [hosts, setHosts] = useState<Host[]>([])
   const [reports, setReports] = useState<any[]>([])
@@ -134,7 +138,7 @@ export default function RecapTab({ profile: _profile }: { profile: any }) {
         <div className="flex items-center gap-3 mb-5 flex-wrap">
           <div className="flex items-center gap-2">
             <Filter size={14} className="text-gray-400"/>
-            <span className="text-xs text-gray-500 font-medium">Filter:</span>
+            <span className="text-xs text-gray-500 font-medium">{tr('filter', lang)}:</span>
           </div>
           <select value={periodIdx} onChange={e => setPeriodIdx(Number(e.target.value))}
             className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
@@ -142,7 +146,7 @@ export default function RecapTab({ profile: _profile }: { profile: any }) {
           </select>
           <select value={selectedHost} onChange={e => setSelectedHost(e.target.value)}
             className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white min-w-[160px]">
-            <option value="">Semua Host</option>
+            <option value="">{tr('allHosts', lang)}</option>
             {hosts.map(h => <option key={h.id} value={h.id}>{h.full_name}</option>)}
           </select>
         </div>
@@ -150,10 +154,10 @@ export default function RecapTab({ profile: _profile }: { profile: any }) {
         {/* Summary stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
           {[
-            { label: 'Total Sesi', value: slots.length, icon: CalendarDays, color: 'bg-brand-50 border-brand-100 text-brand-700' },
-            { label: selectedHost ? '1 Host' : `${hosts.length} Host`, value: '', icon: Users, color: 'bg-blue-50 border-blue-100 text-blue-700' },
-            { label: 'Laporan Masuk', value: `${totalWithReport}/${slots.length}`, icon: CalendarDays, color: 'bg-emerald-50 border-emerald-100 text-emerald-700' },
-            { label: 'Belum Laporan', value: `${slots.length - totalWithReport}`, icon: Clock, color: 'bg-orange-50 border-orange-100 text-orange-700' },
+            { label: tr('totalSesi', lang), value: slots.length, icon: CalendarDays, color: 'bg-brand-50 border-brand-100 text-brand-700' },
+            { label: selectedHost ? `1 ${tr('host', lang)}` : `${hosts.length} ${tr('host', lang)}`, value: '', icon: Users, color: 'bg-blue-50 border-blue-100 text-blue-700' },
+            { label: tr('laporanMasuk', lang), value: `${totalWithReport}/${slots.length}`, icon: CalendarDays, color: 'bg-emerald-50 border-emerald-100 text-emerald-700' },
+            { label: tr('belumLaporan', lang), value: `${slots.length - totalWithReport}`, icon: Clock, color: 'bg-orange-50 border-orange-100 text-orange-700' },
           ].map(({ label, value, icon: Icon, color }) => (
             <div key={label} className={`rounded-2xl border p-4 flex items-center gap-3 ${color}`}>
               <Icon size={18} className="flex-shrink-0 opacity-70"/>
@@ -167,10 +171,10 @@ export default function RecapTab({ profile: _profile }: { profile: any }) {
 
         {/* Slots grouped by date, each day rendered as a wide table */}
         {loading ? (
-          <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center text-sm text-gray-400">Memuat...</div>
+          <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center text-sm text-gray-400">{tr('loading', lang)}</div>
         ) : slots.length === 0 ? (
           <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center text-sm text-gray-400">
-            Tidak ada data jadwal untuk periode dan filter ini
+            {tr('noScheduleForPeriod', lang)}
           </div>
         ) : (
           <div className="space-y-5">
@@ -183,22 +187,22 @@ export default function RecapTab({ profile: _profile }: { profile: any }) {
                   <div key={date}>
                     <div className="flex items-center gap-2 mb-2">
                       <h3 className={`text-sm font-bold ${isToday ? 'text-brand-700' : 'text-gray-700'}`}>
-                        {DAYS_ID[d.getDay()]}, {d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
-                        {isToday && <span className="ml-2 text-[10px] bg-brand-600 text-white px-1.5 py-0.5 rounded-full">Hari Ini</span>}
+                        {(lang === 'id' ? DAYS_ID : DAYS_EN)[d.getDay()]}, {d.toLocaleDateString(lang === 'id' ? 'id-ID' : 'en-US', { day: 'numeric', month: 'long', year: 'numeric' })}
+                        {isToday && <span className="ml-2 text-[10px] bg-brand-600 text-white px-1.5 py-0.5 rounded-full">{tr('today', lang)}</span>}
                       </h3>
-                      <span className="text-xs text-gray-300 bg-gray-100 px-1.5 py-0.5 rounded-full">{daySlots.length} sesi</span>
+                      <span className="text-xs text-gray-300 bg-gray-100 px-1.5 py-0.5 rounded-full">{daySlots.length} {tr('sessionsCount', lang)}</span>
                     </div>
                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
-                              <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Jam</th>
-                              <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Host</th>
-                              <th className="px-3 py-2.5 text-left font-semibold">Brand</th>
-                              <th className="px-3 py-2.5 text-left font-semibold">Detail</th>
-                              <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Look Report</th>
-                              <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Status</th>
+                              <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('jamCol', lang)}</th>
+                              <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('host', lang)}</th>
+                              <th className="px-3 py-2.5 text-left font-semibold">{tr('brand', lang)}</th>
+                              <th className="px-3 py-2.5 text-left font-semibold">{tr('detailCol', lang)}</th>
+                              <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('lookReportCol', lang)}</th>
+                              <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('status', lang)}</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-50">
@@ -223,15 +227,15 @@ export default function RecapTab({ profile: _profile }: { profile: any }) {
                                     )}
                                   </td>
                                   <td className="px-3 py-3 text-xs text-gray-500 max-w-[260px] truncate">{details || '—'}</td>
-                                  <td className="px-3 py-3"><LookStatusCell slot={slot}/></td>
+                                  <td className="px-3 py-3"><LookStatusCell slot={slot} lang={lang}/></td>
                                   <td className="px-3 py-3">
                                     {report ? (
                                       <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">
-                                        Laporan ✓
+                                        {tr('laporanChecked', lang)}
                                       </span>
                                     ) : (
                                       <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full whitespace-nowrap">
-                                        No report
+                                        {tr('noReport', lang)}
                                       </span>
                                     )}
                                   </td>
