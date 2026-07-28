@@ -26,6 +26,19 @@ interface ClientMeter {
   planSlots: number       // total scheduled sessions (Scheduled)
   successSlots: number    // scheduled sessions with a live report (Succeed)
   packages: PackageCapacity[]  // per-package breakdown from invoice items
+  isAuto?: boolean        // surfaced from an invoice's brand, no client login/profile yet
+}
+
+// An "hour"-scaled invoice item bills hours, not sessions -- convert it to
+// slot-equivalent (hours ÷ hours-per-session) before adding to a client's
+// slot balance, instead of counting each hour as a whole slot.
+function itemSlots(it: { scale?: string | null; qty: number; jam_per_sesi?: number }): number {
+  const qty = Number(it.qty) || 0
+  if ((it.scale || '').toLowerCase() === 'hour') {
+    const jps = Number(it.jam_per_sesi) || 4
+    return jps > 0 ? qty / jps : 0
+  }
+  return qty
 }
 
 function getMonthOptions() {
@@ -46,6 +59,11 @@ function severity(pct: number, exceeds: boolean): 'low' | 'mid' | 'high' {
   if (exceeds) return 'high'
   if (pct >= 80) return 'mid'
   return 'low'
+}
+// Hour-scaled items can divide unevenly into slots (e.g. 10h / 4h-per-sesi =
+// 2.5) -- shown with one decimal instead of a misleadingly precise float.
+function fmtSlots(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1)
 }
 const DOT_CLASSES = { low: 'bg-brand-200', mid: 'bg-brand-400', high: 'bg-brand-700' }
 const BADGE_CLASSES = {
@@ -79,29 +97,42 @@ function ClientListTab() {
         .then(({ data }) => data || []),
       supabase.from('live_reports').select('id, slot_id')
         .then(({ data }) => data || []),
-      supabase.from('invoices').select('brand, invoice_items(tipe_live, jam_per_sesi, qty)')
+      supabase.from('invoices').select('brand, invoice_to, invoice_date, invoice_items(tipe_live, jam_per_sesi, qty, scale)')
+        .order('invoice_date', { ascending: true })
         .then(({ data }) => data || []),
     ]).then(([clients, slots, reports, invoices]) => {
       // Capacity per brand from invoice items — also track per package type
       const capacitySlotsByBrand: Record<string, number> = {}
       // packages: brand → tipe → { slots, jam_per_sesi }
       const pkgByBrand: Record<string, Record<string, { slots: number; jam_per_sesi: number }>> = {}
+      // Latest invoice_to seen per brand — used to auto-surface a client that
+      // was pushed in (e.g. via ProOne) but has no registered login/profile yet.
+      const invoiceToByBrand: Record<string, string> = {}
       ;(invoices as any[]).forEach((inv: any) => {
         if (!inv.brand) return
+        if (inv.invoice_to) invoiceToByBrand[inv.brand] = inv.invoice_to
         const slotsCount = (inv.invoice_items || []).reduce(
-          (s: number, it: any) => s + (Number(it.qty) || 0), 0)
+          (s: number, it: any) => s + itemSlots(it), 0)
         capacitySlotsByBrand[inv.brand] = (capacitySlotsByBrand[inv.brand] || 0) + slotsCount
         // Per-package breakdown
         if (!pkgByBrand[inv.brand]) pkgByBrand[inv.brand] = {}
         ;(inv.invoice_items || []).forEach((it: any) => {
           const tipe = it.tipe_live || 'Regular'
           const jps = Number(it.jam_per_sesi) || 0
-          const qty = Number(it.qty) || 0
           if (!pkgByBrand[inv.brand][tipe]) pkgByBrand[inv.brand][tipe] = { slots: 0, jam_per_sesi: jps }
-          pkgByBrand[inv.brand][tipe].slots += qty
+          pkgByBrand[inv.brand][tipe].slots += itemSlots(it)
           if (jps > 0) pkgByBrand[inv.brand][tipe].jam_per_sesi = jps  // keep last non-zero value
         })
       })
+
+      // Brands that show up in invoices but have no client profile/login yet —
+      // surface them in the list anyway using the invoice's own invoice_to as
+      // the display name, flagged isAuto so the UI can badge them as such.
+      const knownBrands = new Set((clients as ClientProfile[]).map(c => c.client_brand))
+      const autoClients: ClientProfile[] = Object.keys(capacitySlotsByBrand)
+        .filter(brand => !knownBrands.has(brand))
+        .map(brand => ({ id: `auto:${brand}`, full_name: invoiceToByBrand[brand] || brand, client_brand: brand }))
+      const allClients = [...(clients as ClientProfile[]), ...autoClients]
 
       // Which slots already have a live report (success)
       const reportedSlotIds = new Set(
@@ -132,7 +163,7 @@ function ClientListTab() {
       })
       setScheduleByBrand(scheduleMap)
 
-      setMeters(clients.map(c => {
+      setMeters(allClients.map(c => {
         const brandPkgs = pkgByBrand[c.client_brand] || {}
         const brandPlanPkg = planSlotsByBrandPkg[c.client_brand] || {}
         const brandSuccessPkg = successSlotsByBrandPkg[c.client_brand] || {}
@@ -146,6 +177,7 @@ function ClientListTab() {
           planSlots: planSlotsByBrand[c.client_brand] || 0,
           successSlots: successSlotsByBrand[c.client_brand] || 0,
           packages,
+          isAuto: c.id.startsWith('auto:'),
         }
       }))
       setLoading(false)
@@ -169,7 +201,7 @@ function ClientListTab() {
       {!loading && meters.length > 0 && (
         <div className="hidden sm:flex items-center gap-4 px-4 text-[11px] font-medium text-gray-400 uppercase tracking-wide">
           <span className="flex-1">Brand / Owner</span>
-          <span className="w-36 text-right">Succeed / Sched / Slot</span>
+          <span className="w-36 text-right">Succeed / Sched / Kuota</span>
           <span className="w-28">Progress</span>
           <span className="w-14 text-right">%</span>
           <span className="w-4"></span>
@@ -204,11 +236,18 @@ function ClientListTab() {
                   className={`flex items-center gap-4 px-4 py-3.5 ${canExpand ? 'cursor-pointer hover:bg-gray-50' : ''} transition-colors`}>
                   <span className={`w-2 h-2 rounded-full flex-shrink-0 ${DOT_CLASSES[sev]}`}/>
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-gray-900 text-sm truncate">{m.brand}</p>
+                    <p className="font-bold text-gray-900 text-sm truncate flex items-center gap-1.5">
+                      {m.brand}
+                      {m.isAuto && (
+                        <span className="text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap" title="Muncul dari invoice, belum punya akun login">
+                          Belum Terdaftar
+                        </span>
+                      )}
+                    </p>
                     <p className="text-xs text-gray-400 truncate">{m.clientName}</p>
                   </div>
                   <span className="w-36 text-right text-sm font-semibold text-gray-800 tabular-nums flex-shrink-0">
-                    {hasSlots ? `${m.successSlots} / ${m.planSlots} / ${m.capacitySlots}` : `${m.successSlots} / ${m.planSlots} / —`}
+                    {hasSlots ? `${m.successSlots} / ${m.planSlots} / ${fmtSlots(m.capacitySlots)}` : `${m.successSlots} / ${m.planSlots} / —`}
                   </span>
                   <div className="w-28 flex-shrink-0">
                     <div className="relative h-1.5 bg-brand-50 rounded-full overflow-hidden">
@@ -248,7 +287,7 @@ function ClientListTab() {
                                   <span className="text-[11px] text-gray-400 ml-1.5">{pkg.jam_per_sesi}j/sesi</span>
                                 </div>
                                 <span className="w-36 text-right text-xs font-semibold text-gray-700 tabular-nums flex-shrink-0">
-                                  {pkgHasSlots ? `${pkg.successSlots} / ${pkg.planSlots} / ${pkg.slots}` : `${pkg.successSlots} / ${pkg.planSlots} / —`}
+                                  {pkgHasSlots ? `${pkg.successSlots} / ${pkg.planSlots} / ${fmtSlots(pkg.slots)}` : `${pkg.successSlots} / ${pkg.planSlots} / —`}
                                 </span>
                                 <div className="w-28 flex-shrink-0">
                                   <div className="relative h-1.5 bg-white rounded-full overflow-hidden">
