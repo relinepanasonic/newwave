@@ -68,7 +68,7 @@ function ClientDashboard({ profile }: { profile: any }) {
         .eq('brand', brand)
         .gte('slot_date', todayStr).lte('slot_date', selectedMonth.end),
       supabase.from('invoices')
-        .select('id, invoice_items(qty, jam_per_sesi)')
+        .select('id, invoice_items(qty, jam_per_sesi, scale)')
         .eq('brand', brand)
         .order('invoice_date', { ascending: false })
         .limit(1)
@@ -84,9 +84,15 @@ function ClientDashboard({ profile }: { profile: any }) {
       // Scheduled hours = sum of each slot's duration (durasi); null/0 counts as 1h.
       const slotsArr: any[] = slotsRes.data || []
       const scheduledHours = slotsArr.reduce((s: number, x: any) => s + (Number(x.durasi) > 0 ? Number(x.durasi) : 1), 0)
-      // Contract hours = total hours on the most recent invoice (qty × jam_per_sesi).
+      // Contract hours = total hours on the most recent invoice. Legacy items store
+      // qty x jam_per_sesi; new scale-based items count qty directly when scale is Hour.
       const invItems: any[] = invoiceRes.data?.invoice_items || []
-      const totalHours = invItems.reduce((s: number, i: any) => s + (Number(i.qty) || 0) * (Number(i.jam_per_sesi) || 0), 0)
+      const totalHours = invItems.reduce((s: number, i: any) => {
+        const qty = Number(i.qty) || 0
+        const jps = Number(i.jam_per_sesi) || 0
+        if (jps > 0) return s + qty * jps
+        return s + (i.scale === 'Hour' ? qty : 0)
+      }, 0)
       setStats({ totalPlan: slotsArr.length, totalSucceed: reps.length, remainingPlan: remainingRes.count || 0, gmv: totGmv, impression: totImp, viewer: totView, comment: totCom, scheduledHours, totalHours })
       const byDate: Record<string, any> = {}
       ;[...reps].reverse().forEach((r: any) => {

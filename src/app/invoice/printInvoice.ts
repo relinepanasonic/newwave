@@ -6,6 +6,7 @@ interface InvoiceItem {
   description?: string
   tipe_live?: string
   jam_per_sesi?: number
+  scale?: string
   qty: number
   price: number
   amount: number
@@ -64,10 +65,9 @@ export function printInvoice(inv: Invoice) {
     <tr>
       <td class="c-name">
         <div class="nm">${esc(it.name)}</div>
-        ${it.tipe_live ? `<div class="tp">${esc(it.tipe_live)}${it.jam_per_sesi ? ` · ${it.jam_per_sesi} jam/sesi` : ''}</div>` : ''}
       </td>
       <td class="c-desc">${descToBullets(it.description || '')}</td>
-      <td class="c-qty">${it.qty}</td>
+      <td class="c-qty">${it.qty} ${esc(it.scale || 'Pc')}</td>
       <td class="c-price">${it.is_free ? 'Free' : rp(it.price)}</td>
       <td class="c-amt">${it.is_free ? '0' : rp(it.amount)}</td>
     </tr>`).join('')

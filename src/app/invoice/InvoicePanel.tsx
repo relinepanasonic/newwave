@@ -37,6 +37,8 @@ async function syncInvoiceToProone(
 }
 
 const TIPE_LIVE = ['Regular', 'Silver', 'Gold', 'Platinum', 'Rubi', 'UGC', 'Pre Content', 'Background Design', 'Other']
+const PACKAGE_NAMES = ['Regular', 'Silver', 'Gold', 'Platinum', 'Rubi']
+const SCALES = ['Month', 'Hour', 'Day', 'Pc']
 
 function fmtRp(n: number) {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n)
@@ -50,6 +52,7 @@ interface InvoiceItem {
   description: string
   tipe_live: string
   jam_per_sesi: number
+  scale: string
   qty: number
   price: number
   amount: number
@@ -78,7 +81,7 @@ interface Invoice {
 }
 
 const EMPTY_ITEM: InvoiceItem = {
-  name: '', description: '', tipe_live: 'Regular', jam_per_sesi: 4, qty: 1, price: 0, amount: 0, is_free: false,
+  name: 'Regular', description: '', tipe_live: 'Regular', jam_per_sesi: 4, scale: 'Pc', qty: 1, price: 0, amount: 0, is_free: false,
 }
 
 // Generate next invoice number: NW{YY}{MM}{SEQ}
@@ -169,9 +172,9 @@ export default function InvoicePanel({ profile }: { profile: any }) {
     setItems(prev => {
       const next = [...prev]
       next[idx] = { ...next[idx], [field]: value }
-      if (field === 'qty' || field === 'price' || field === 'is_free' || field === 'jam_per_sesi') {
+      if (field === 'qty' || field === 'price' || field === 'is_free') {
         const item = next[idx]
-        next[idx].amount = item.is_free ? 0 : Number(item.qty) * Number(item.jam_per_sesi) * Number(item.price)
+        next[idx].amount = item.is_free ? 0 : Number(item.qty) * Number(item.price)
       }
       return next
     })
@@ -204,7 +207,7 @@ export default function InvoicePanel({ profile }: { profile: any }) {
     setItems(inv.invoice_items?.map(i => ({
       name: i.name, description: i.description || '',
       tipe_live: i.tipe_live || 'Regular',
-      jam_per_sesi: i.jam_per_sesi, qty: i.qty,
+      jam_per_sesi: i.jam_per_sesi, scale: i.scale || 'Pc', qty: i.qty,
       price: i.price, amount: i.amount, is_free: i.is_free,
     })) || [{ ...EMPTY_ITEM }])
     setShowCreate(true)
@@ -236,7 +239,7 @@ export default function InvoicePanel({ profile }: { profile: any }) {
     }
     const itemsToInsert = items.filter(i => i.name.trim()).map(i => ({
       name: i.name, description: i.description, tipe_live: i.tipe_live,
-      jam_per_sesi: Number(i.jam_per_sesi), qty: Number(i.qty),
+      jam_per_sesi: Number(i.jam_per_sesi), scale: i.scale, qty: Number(i.qty),
       price: Number(i.price), amount: Number(i.amount), is_free: i.is_free,
     }))
 
@@ -282,7 +285,7 @@ export default function InvoicePanel({ profile }: { profile: any }) {
     if (!error && newInv) {
       const itemsToInsert = (inv.invoice_items || []).map(i => ({
         name: i.name, description: i.description, tipe_live: i.tipe_live,
-        jam_per_sesi: i.jam_per_sesi, qty: i.qty, price: i.price, amount: i.amount, is_free: i.is_free,
+        jam_per_sesi: i.jam_per_sesi, scale: i.scale, qty: i.qty, price: i.price, amount: i.amount, is_free: i.is_free,
         invoice_id: newInv.id,
       }))
       if (itemsToInsert.length > 0) await supabase.from('invoice_items').insert(itemsToInsert)
@@ -394,8 +397,9 @@ export default function InvoicePanel({ profile }: { profile: any }) {
                         if (!pkg) return
                         setItems(prev => {
                           const next = [...prev]
-                          next[idx] = { ...next[idx], name: pkg.name, tipe_live: pkg.tipe_live, jam_per_sesi: pkg.jam_per_sesi, price: pkg.price_per_jam,
-                            description: pkg.description || '', amount: next[idx].is_free ? 0 : next[idx].qty * pkg.jam_per_sesi * pkg.price_per_jam }
+                          const unitPrice = pkg.jam_per_sesi * pkg.price_per_jam
+                          next[idx] = { ...next[idx], name: pkg.tipe_live, tipe_live: pkg.tipe_live, jam_per_sesi: pkg.jam_per_sesi, price: unitPrice,
+                            description: pkg.description || '', amount: next[idx].is_free ? 0 : next[idx].qty * unitPrice }
                           return next
                         })
                         e.target.value = ''
@@ -410,20 +414,16 @@ export default function InvoicePanel({ profile }: { profile: any }) {
                   </div>
                 )}
                 <div className="flex items-start gap-2">
-                  <div className="flex-1 grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Nama Paket</label>
-                      <input value={item.name} onChange={e => updateItem(idx, 'name', e.target.value)}
-                        placeholder="NW Silver Package"
-                        className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"/>
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Tipe Live</label>
-                      <select value={item.tipe_live} onChange={e => updateItem(idx, 'tipe_live', e.target.value)}
-                        className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white">
-                        {TIPE_LIVE.map(t => <option key={t}>{t}</option>)}
-                      </select>
-                    </div>
+                  <div className="flex-1">
+                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Package Name</label>
+                    <select value={item.name} onChange={e => {
+                      updateItem(idx, 'tipe_live', e.target.value)
+                      updateItem(idx, 'name', e.target.value)
+                    }}
+                      className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white">
+                      {!PACKAGE_NAMES.includes(item.name) && item.name && <option value={item.name}>{item.name}</option>}
+                      {PACKAGE_NAMES.map(t => <option key={t}>{t}</option>)}
+                    </select>
                   </div>
                   {items.length > 1 && (
                     <button onClick={() => setItems(p => p.filter((_, i) => i !== idx))}
@@ -440,25 +440,26 @@ export default function InvoicePanel({ profile }: { profile: any }) {
                 </div>
                 <div className="grid grid-cols-4 gap-2">
                   <div>
-                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Jam/Sesi</label>
-                    <input type="number" min="0" step="0.5" value={item.jam_per_sesi}
-                      onChange={e => updateItem(idx, 'jam_per_sesi', parseFloat(e.target.value) || 0)}
-                      className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"/>
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">QTY (sesi)</label>
+                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">QTY</label>
                     <input type="number" min="0" value={item.qty}
                       onChange={e => updateItem(idx, 'qty', parseInt(e.target.value) || 0)}
                       className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"/>
                   </div>
                   <div>
-                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Harga/Jam</label>
+                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Scale</label>
+                    <select value={item.scale} onChange={e => updateItem(idx, 'scale', e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white">
+                      {SCALES.map(s => <option key={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Price</label>
                     <CurrencyInput value={item.price} disabled={item.is_free}
                       onChange={v => updateItem(idx, 'price', v)}
                       className="flex-1 min-w-0 w-0 px-1.5 py-2 text-xs focus:outline-none disabled:bg-gray-50"/>
                   </div>
                   <div>
-                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Amount</label>
+                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Total</label>
                     <div className="border border-gray-200 rounded-lg px-2 py-2 text-xs bg-gray-50 font-bold text-gray-700 text-right">
                       {item.is_free ? <span className="text-emerald-600">Free</span> : fmtRp(item.amount)}
                     </div>
@@ -714,26 +715,21 @@ export default function InvoicePanel({ profile }: { profile: any }) {
                                   <table className="w-full text-xs">
                                     <thead>
                                       <tr className="bg-gray-50 text-gray-400 uppercase tracking-wide">
-                                        <th className="px-3 py-2.5 text-left font-semibold">Nama Paket</th>
-                                        <th className="px-3 py-2.5 text-left font-semibold">Tipe</th>
-                                        <th className="px-3 py-2.5 text-center font-semibold">Jam</th>
-                                        <th className="px-3 py-2.5 text-center font-semibold">QTY</th>
-                                        <th className="px-3 py-2.5 text-right font-semibold">Harga</th>
-                                        <th className="px-3 py-2.5 text-right font-semibold">Amount</th>
+                                        <th className="px-3 py-2.5 text-left font-semibold">Package Name</th>
+                                        <th className="px-3 py-2.5 text-left font-semibold">Description</th>
+                                        <th className="px-3 py-2.5 text-center font-semibold">Qty</th>
+                                        <th className="px-3 py-2.5 text-right font-semibold">Price</th>
+                                        <th className="px-3 py-2.5 text-right font-semibold">Total</th>
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-50">
                                       {inv.invoice_items.map((item, idx) => (
                                         <tr key={idx} className="hover:bg-gray-50 transition-colors">
                                           <td className="px-3 py-2.5">
-                                            <p className="font-semibold text-gray-800">{item.name}</p>
-                                            {item.description && <p className="text-gray-400 text-[10px] mt-0.5">{item.description}</p>}
+                                            <span className="bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full font-semibold text-[10px]">{item.name}</span>
                                           </td>
-                                          <td className="px-3 py-2.5">
-                                            <span className="bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full font-semibold text-[10px]">{item.tipe_live}</span>
-                                          </td>
-                                          <td className="px-3 py-2.5 text-center text-gray-500">{item.jam_per_sesi}j</td>
-                                          <td className="px-3 py-2.5 text-center font-bold text-gray-800">{item.qty}</td>
+                                          <td className="px-3 py-2.5 text-gray-500">{item.description || '—'}</td>
+                                          <td className="px-3 py-2.5 text-center font-bold text-gray-800">{item.qty} {item.scale || 'Pc'}</td>
                                           <td className="px-3 py-2.5 text-right text-gray-500">{item.is_free ? 'Free' : fmtRp(item.price)}</td>
                                           <td className="px-3 py-2.5 text-right font-bold text-gray-800">{item.is_free ? '—' : fmtRp(item.amount)}</td>
                                         </tr>
