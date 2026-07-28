@@ -53,7 +53,8 @@
       "Bash(node --check scripts/migrate-invoices-to-proone.js)",
       "Bash(node scripts/migrate-invoices-to-proone.js --dry-run)",
       "Bash(node scripts/migrate-invoices-to-proone.js)",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "Bash(grep -n \"m.capacitySlots}\\\\`\\\\|pkg.slots}\\\\`\" src/app/clients/ClientsClient.tsx)"
     ]
   }
 }
