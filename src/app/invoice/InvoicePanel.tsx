@@ -207,7 +207,7 @@ export default function InvoicePanel({ profile }: { profile: any }) {
       invoice_to: inv.invoice_to || '',
       discount_pct: inv.discount_pct,
       ppn_pct: inv.ppn_pct,
-      pph_pct: inv.pph_pct ?? 2,
+      pph_pct: inv.pph_pct ?? 0,
       bank_name: inv.bank_name || BANK_ACCOUNTS[0].bank_name,
       bank_account_name: inv.bank_account_name || BANK_ACCOUNTS[0].bank_account_name,
       bank_account_number: inv.bank_account_number || BANK_ACCOUNTS[0].bank_account_number,
@@ -236,13 +236,12 @@ export default function InvoicePanel({ profile }: { profile: any }) {
     if (!form.invoice_number || !form.brand) { setError('Nomor invoice dan brand wajib diisi'); return }
     setSaving(true); setError('')
     const supabase = createClient()
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { pph_pct: _pph, ...formRest } = form
     const payload = {
-      ...formRest,
+      ...form,
       due_date: form.due_date || null,
       discount_pct: Number(form.discount_pct),
       ppn_pct: Number(form.ppn_pct),
+      pph_pct: Number(form.pph_pct),
       sub_total: subTotal,
       total_amount: totalAmount,
     }
@@ -284,7 +283,7 @@ export default function InvoicePanel({ profile }: { profile: any }) {
       invoice_date: today,
       due_date: addDays(today, 15),
       brand: inv.brand, invoice_to: inv.invoice_to,
-      discount_pct: inv.discount_pct, ppn_pct: inv.ppn_pct, pph_pct: inv.pph_pct ?? 2,
+      discount_pct: inv.discount_pct, ppn_pct: inv.ppn_pct, pph_pct: inv.pph_pct ?? 0,
       sub_total: inv.sub_total, total_amount: inv.total_amount,
       bank_name: inv.bank_name, bank_account_name: inv.bank_account_name, bank_account_number: inv.bank_account_number,
       notes: inv.notes, created_by: profile.id, status: 'unpaid',
@@ -315,7 +314,7 @@ export default function InvoicePanel({ profile }: { profile: any }) {
     setInvoices(prev => prev.map(inv => inv.id === id ? { ...inv, status: 'paid' } : inv))
   }
 
-  function calcPph(inv: Invoice) { return Math.round(inv.total_amount * ((inv.pph_pct ?? 2) / 100)) }
+  function calcPph(inv: Invoice) { return Math.round(inv.total_amount * ((inv.pph_pct ?? 0) / 100)) }
 
   const apiSample = `curl -X POST https://app.newwave.id/api/accounting/invoices \\
   -H "Authorization: Bearer <ACCOUNTING_API_KEY>" \\
@@ -326,8 +325,6 @@ export default function InvoicePanel({ profile }: { profile: any }) {
     "due_date": "2026-08-11",
     "brand": "Niko Electronic",
     "invoice_to": "Niko Electronic",
-    "ppn_pct": 11,
-    "pph_pct": 2,
     "items": [
       { "name": "Silver Package", "description": "8 sesi live", "qty": 8, "price": 750000, "scale": "pc" }
     ],
@@ -798,7 +795,7 @@ export default function InvoicePanel({ profile }: { profile: any }) {
                                   <div className="flex justify-between font-bold text-brand-700 text-sm pt-2 border-t border-gray-100">
                                     <span>Total Invoice</span><span>{fmtRp(inv.total_amount)}</span>
                                   </div>
-                                  <div className="flex justify-between text-gray-400"><span>PPH {inv.pph_pct ?? 2}%</span><span className="text-red-400">− {fmtRp(invPphAmt)}</span></div>
+                                  <div className="flex justify-between text-gray-400"><span>PPH {inv.pph_pct ?? 0}%</span><span className="text-red-400">− {fmtRp(invPphAmt)}</span></div>
                                   <div className="flex justify-between font-bold text-emerald-700 pt-1 border-t border-dashed border-gray-100">
                                     <span>Total Diterima</span><span>{fmtRp(invRealTotal)}</span>
                                   </div>
