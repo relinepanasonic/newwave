@@ -711,6 +711,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                   <tr className="text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
                     <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('date', lang)}</th>
                     <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('jamMulaiCol', lang)}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">{tr('totalJamLiveCol', lang)}</th>
                     <th className="px-3 py-2.5 text-left font-semibold">{tr('host', lang)}</th>
                     <th className="px-3 py-2.5 text-left font-semibold">{tr('brandCsvCol', lang)}</th>
                     <th className="px-3 py-2.5 text-left font-semibold">{tr('platform', lang)}</th>
@@ -728,6 +729,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                     <tr key={idx} className={r.status === 'missing_in_app' ? 'bg-red-50/50' : r.status === 'not_reported_confirmed' ? 'bg-purple-50/40' : ''}>
                       <td className="px-3 py-2 whitespace-nowrap text-gray-600">{fmtDate(r.csv.tanggal)}</td>
                       <td className="px-3 py-2 whitespace-nowrap"><span className="font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded-lg">{r.csv.startSesi}</span></td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap text-gray-600">{r.csv.totalJam ? `${r.csv.totalJam}${tr('jamSuffix', lang)}` : '—'}</td>
                       <td className="px-3 py-2 font-medium text-gray-800 whitespace-nowrap">{r.csv.host}</td>
                       <td className="px-3 py-2 text-gray-600 max-w-[160px] truncate">{r.csv.brand}</td>
                       <td className="px-3 py-2">
@@ -783,7 +785,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                                 const nick = p?.username || p?.full_name?.split(' ')[0] || '—'
                                 return (
                                   <option key={c.id} value={c.id}>
-                                    {shortDate(c.report_date)} · {c.start_time?.slice(0,5) || '—'} · {nick} · {c.brand || '—'}
+                                    {shortDate(c.report_date)} · {c.start_time?.slice(0,5) || '—'} · {c.duration_hours ? `${c.duration_hours}${tr('jamSuffix', lang)}` : '—'} · {nick} · {c.brand || '—'}
                                   </option>
                                 )
                               })}
@@ -798,7 +800,7 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                               <option value="">{tr('pilihJadwal', lang)}</option>
                               {scheduleCandidatesFor(r.csv).map(s => (
                                 <option key={s.id} value={s.id}>
-                                  {shortDate(s.slot_date)} · {slotTime(s)} · {hostNameById[s.host_id] || '—'} · {s.brand || '—'}
+                                  {shortDate(s.slot_date)} · {slotTime(s)} · {s.durasi ? `${s.durasi}${tr('jamSuffix', lang)}` : '—'} · {hostNameById[s.host_id] || '—'} · {s.brand || '—'}
                                 </option>
                               ))}
                             </select>
