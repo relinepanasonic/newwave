@@ -1054,6 +1054,7 @@ interface KasbonFull extends Kasbon {
 }
 
 function KasbonTab() {
+  const { lang } = useLang()
   const [hosts, setHosts] = useState<{ id: string; full_name: string }[]>([])
   const [kasbons, setKasbons] = useState<KasbonFull[]>([])
   const [loading, setLoading] = useState(true)
@@ -1094,7 +1095,7 @@ function KasbonTab() {
       setKasbons(prev => [data as KasbonFull, ...prev])
       setForm({ host_id: '', amount: 0, reason: '' }); setAdding(false)
     } else if (error) {
-      alert('Gagal simpan kasbon: ' + error.message)
+      alert(tr('gagalSimpanKasbon', lang) + error.message)
     }
   }
 
@@ -1130,7 +1131,7 @@ function KasbonTab() {
   }
 
   async function remove(id: string) {
-    if (!confirm('Hapus kasbon ini?')) return
+    if (!confirm(tr('hapusKasbonConfirm', lang))) return
     await createClient().from('kasbon').delete().eq('id', id)
     setKasbons(prev => prev.filter(x => x.id !== id))
   }
@@ -1142,7 +1143,7 @@ function KasbonTab() {
   const totalUnpaid = nonPending.filter(k => k.status === 'unpaid' && k.request_status !== 'rejected')
     .reduce((s, k) => s + Math.max(0, Number(k.amount) - Number(k.paid_amount || 0)), 0)
 
-  if (loading) return <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">Memuat kasbon...</div>
+  if (loading) return <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">{tr('memuatKasbon', lang)}</div>
 
   return (
     <div className="space-y-5">
@@ -1151,7 +1152,7 @@ function KasbonTab() {
         <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
           <div className="px-4 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
             <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"/>
-            <p className="text-sm font-bold text-amber-800">{pending.length} Request Kasbon Masuk</p>
+            <p className="text-sm font-bold text-amber-800">{pending.length} {tr('requestKasbonMasuk', lang)}</p>
           </div>
           <div className="divide-y divide-gray-50">
             {pending.map(k => (
@@ -1166,14 +1167,14 @@ function KasbonTab() {
                       <p className="text-xs text-gray-600 mt-1 italic">"{k.request_note || k.reason}"</p>
                     )}
                     <p className="text-xs text-gray-500 mt-1">
-                      Diajukan: <span className="font-bold text-gray-900">{formatCurrency(Number(k.requested_amount || k.amount))}</span>
+                      {tr('diajukanLabel', lang)} <span className="font-bold text-gray-900">{formatCurrency(Number(k.requested_amount || k.amount))}</span>
                     </p>
                   </div>
                 </div>
                 {/* Approve with editable amount */}
                 <div className="flex items-center gap-2 flex-wrap">
                   <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">ACC Nominal:</span>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">{tr('accNominal', lang)}</span>
                     <CurrencyInput
                       value={Number(approveAmounts[k.id] ?? k.requested_amount ?? k.amount)}
                       onChange={v => setApproveAmounts(a => ({ ...a, [k.id]: String(v) }))}
@@ -1182,11 +1183,11 @@ function KasbonTab() {
                   </div>
                   <button onClick={() => approveRequest(k)} disabled={actioningId === k.id}
                     className="flex items-center gap-1 bg-emerald-600 text-white text-xs font-bold px-3 py-2 rounded-xl hover:bg-emerald-700 disabled:opacity-60 flex-shrink-0">
-                    <CheckCircle size={12}/> ACC
+                    <CheckCircle size={12}/> {tr('accBtn', lang)}
                   </button>
                   <button onClick={() => rejectRequest(k)} disabled={actioningId === k.id}
                     className="flex items-center gap-1 bg-red-100 text-red-600 text-xs font-bold px-3 py-2 rounded-xl hover:bg-red-200 disabled:opacity-60 flex-shrink-0">
-                    <XCircle size={12}/> Tolak
+                    <XCircle size={12}/> {tr('tolakBtn', lang)}
                   </button>
                 </div>
               </div>
@@ -1197,9 +1198,9 @@ function KasbonTab() {
 
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Total Kasbon', value: `${nonPending.length}` },
-          { label: 'Belum Lunas', value: `${nonPending.filter(k => k.status === 'unpaid' && k.request_status !== 'rejected').length}` },
-          { label: 'Sisa Hutang', value: formatCurrency(totalUnpaid) },
+          { label: tr('totalKasbonCard', lang), value: `${nonPending.length}` },
+          { label: tr('belumLunasCard', lang), value: `${nonPending.filter(k => k.status === 'unpaid' && k.request_status !== 'rejected').length}` },
+          { label: tr('sisaHutangCard', lang), value: formatCurrency(totalUnpaid) },
         ].map(({ label, value }) => (
           <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
             <p className="text-xs text-gray-500 font-medium mb-1">{label}</p>
@@ -1213,13 +1214,13 @@ function KasbonTab() {
           {(['all', 'unpaid', 'paid'] as const).map(f => (
             <button key={f} onClick={() => setFilter(f)}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${filter === f ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
-              {f === 'all' ? 'Semua' : f === 'unpaid' ? 'Belum Lunas' : 'Lunas'}
+              {f === 'all' ? tr('semuaFilter', lang) : f === 'unpaid' ? tr('belumLunasCard', lang) : tr('lunasFilter', lang)}
             </button>
           ))}
         </div>
         <button onClick={() => setAdding(a => !a)}
           className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors">
-          <Plus size={14}/> Tambah Kasbon
+          <Plus size={14}/> {tr('tambahKasbon', lang)}
         </button>
       </div>
 
@@ -1227,49 +1228,49 @@ function KasbonTab() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Host</label>
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{tr('host', lang)}</label>
               <select value={form.host_id} onChange={e => setForm(f => ({ ...f, host_id: e.target.value }))}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
-                <option value="">— Pilih host —</option>
+                <option value="">{tr('pilihHostDash', lang)}</option>
                 {hosts.map(h => <option key={h.id} value={h.id}>{h.full_name}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Jumlah (Rp)</label>
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{tr('jumlahRpLabel', lang)}</label>
               <CurrencyInput value={form.amount} onChange={v => setForm(f => ({ ...f, amount: v }))}
                 placeholder="500.000"/>
             </div>
             <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Keterangan</label>
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{tr('keteranganLabel', lang)}</label>
               <input value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
-                placeholder="Kasbon transport, dll"
+                placeholder={tr('kasbonTransportPlaceholder', lang)}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
             </div>
           </div>
           <div className="flex gap-2">
             <button onClick={addKasbon} disabled={saving || !form.host_id || form.amount <= 0}
               className="bg-brand-600 text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">
-              {saving ? 'Menyimpan...' : 'Simpan Kasbon'}
+              {saving ? tr('saving', lang) : tr('simpanKasbon', lang)}
             </button>
             <button onClick={() => { setAdding(false); setForm({ host_id: '', amount: 0, reason: '' }) }}
-              className="px-4 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50">Batal</button>
+              className="px-4 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50">{tr('cancel', lang)}</button>
           </div>
         </div>
       )}
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         {filtered.length === 0 ? (
-          <div className="p-10 text-center text-sm text-gray-400">Belum ada kasbon</div>
+          <div className="p-10 text-center text-sm text-gray-400">{tr('belumAdaKasbon', lang)}</div>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
-                <th className="px-4 py-3 text-left font-semibold">Host</th>
-                <th className="px-4 py-3 text-left font-semibold">Keterangan</th>
-                <th className="px-4 py-3 text-left font-semibold">Tanggal</th>
-                <th className="px-4 py-3 text-right font-semibold">Jumlah</th>
-                <th className="px-4 py-3 text-center font-semibold">Status</th>
-                <th className="px-4 py-3 text-center font-semibold">Aksi</th>
+                <th className="px-4 py-3 text-left font-semibold">{tr('host', lang)}</th>
+                <th className="px-4 py-3 text-left font-semibold">{tr('keteranganCol', lang)}</th>
+                <th className="px-4 py-3 text-left font-semibold">{tr('date', lang)}</th>
+                <th className="px-4 py-3 text-right font-semibold">{tr('jumlahCol', lang)}</th>
+                <th className="px-4 py-3 text-center font-semibold">{tr('status', lang)}</th>
+                <th className="px-4 py-3 text-center font-semibold">{tr('aksiCol', lang)}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -1278,10 +1279,10 @@ function KasbonTab() {
                   <td className="px-4 py-3 font-semibold text-gray-900">
                     {nameOf(k.host_id)}
                     {k.request_status === 'approved' && k.requested_amount && Number(k.requested_amount) !== Number(k.amount) && (
-                      <span className="block text-[10px] font-normal text-gray-400">Req: {formatCurrency(Number(k.requested_amount))}</span>
+                      <span className="block text-[10px] font-normal text-gray-400">{tr('reqLabel', lang)} {formatCurrency(Number(k.requested_amount))}</span>
                     )}
                     {k.request_status === 'rejected' && (
-                      <span className="block text-[10px] font-normal text-red-400">Ditolak</span>
+                      <span className="block text-[10px] font-normal text-red-400">{tr('ditolakLabel', lang)}</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-gray-500">{k.reason || k.request_note || '—'}</td>
@@ -1292,7 +1293,7 @@ function KasbonTab() {
                     {formatCurrency(Number(k.amount))}
                     {k.status === 'unpaid' && Number(k.paid_amount || 0) > 0 && (
                       <span className="block text-[10px] font-normal text-emerald-600">
-                        Terbayar {formatCurrency(Number(k.paid_amount))} · Sisa {formatCurrency(Number(k.amount) - Number(k.paid_amount || 0))}
+                        {tr('terbayarLabel', lang)} {formatCurrency(Number(k.paid_amount))} · {tr('sisaLabel', lang)} {formatCurrency(Number(k.amount) - Number(k.paid_amount || 0))}
                       </span>
                     )}
                   </td>
@@ -1302,7 +1303,7 @@ function KasbonTab() {
                         className={`text-xs font-bold px-2.5 py-1 rounded-full transition-colors ${
                           k.status === 'paid' ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
                         }`}>
-                        {k.status === 'paid' ? 'Lunas' : 'Belum Lunas'}
+                        {k.status === 'paid' ? tr('lunasFilter', lang) : tr('belumLunasBadge', lang)}
                       </button>
                     )}
                   </td>
@@ -1318,7 +1319,7 @@ function KasbonTab() {
         )}
       </div>
       <p className="text-xs text-gray-400 flex items-center gap-1.5">
-        <Wallet size={12}/> Sisa hutang (belum lunas) otomatis dipotong di tab Gaji.
+        <Wallet size={12}/> {tr('sisaHutangOtomatis', lang)}
       </p>
     </div>
   )
@@ -1360,6 +1361,7 @@ function fmtClockTime(iso: string) {
 }
 
 function AbsensiOpsTab() {
+  const { lang } = useLang()
   const [operators, setOperators] = useState<OperatorRow[]>([])
   const [attendance, setAttendance] = useState<AttendanceRow[]>([])
   const [lemburs, setLemburs] = useState<LemburRow[]>([])
@@ -1471,7 +1473,7 @@ function AbsensiOpsTab() {
   const pendingLembur = lemburs.filter(l => l.request_status === 'pending')
   const filteredAttendance = attendance.filter(a => !selectedOp || a.operator_id === selectedOp)
 
-  if (loading) return <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">Memuat absensi...</div>
+  if (loading) return <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">{tr('memuatAbsensi', lang)}</div>
 
   const totalNetPay = payRows.reduce((s, r) => s + r.netPay, 0)
 
@@ -1488,24 +1490,24 @@ function AbsensiOpsTab() {
         <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
           <div className="px-4 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
             <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"/>
-            <p className="text-sm font-bold text-amber-800">{pendingLembur.length} Request Lembur Masuk</p>
+            <p className="text-sm font-bold text-amber-800">{pendingLembur.length} {tr('requestLemburMasuk', lang)}</p>
           </div>
           <div className="divide-y divide-gray-50">
             {pendingLembur.map(l => (
               <div key={l.id} className="px-4 py-4 flex items-start justify-between gap-3 flex-wrap">
                 <div>
                   <p className="font-bold text-gray-900 text-sm">{nameOf(l.operator_id)}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{fmtShortDateFull(l.date)} · {l.hours} jam</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{fmtShortDateFull(l.date)} · {l.hours} {tr('durasiValue', lang)}</p>
                   {l.reason && <p className="text-xs text-gray-600 mt-1 italic">"{l.reason}"</p>}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button onClick={() => approveLembur(l)} disabled={actioningId === l.id}
                     className="flex items-center gap-1 bg-emerald-600 text-white text-xs font-bold px-3 py-2 rounded-xl hover:bg-emerald-700 disabled:opacity-60">
-                    <CheckCircle size={12}/> ACC
+                    <CheckCircle size={12}/> {tr('accBtn', lang)}
                   </button>
                   <button onClick={() => rejectLembur(l)} disabled={actioningId === l.id}
                     className="flex items-center gap-1 bg-red-100 text-red-600 text-xs font-bold px-3 py-2 rounded-xl hover:bg-red-200 disabled:opacity-60">
-                    <XCircle size={12}/> Tolak
+                    <XCircle size={12}/> {tr('tolakBtn', lang)}
                   </button>
                 </div>
               </div>
@@ -1517,12 +1519,12 @@ function AbsensiOpsTab() {
       {/* Payroll Operator */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-bold text-gray-900">Payroll Operator</p>
-          <p className="text-sm font-bold text-gray-900">Total: {formatCurrency(totalNetPay)}</p>
+          <p className="text-sm font-bold text-gray-900">{tr('payrollOperatorTitle', lang)}</p>
+          <p className="text-sm font-bold text-gray-900">{tr('totalColon', lang)} {formatCurrency(totalNetPay)}</p>
         </div>
         {payRows.length === 0 ? (
           <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center text-sm text-gray-400">
-            Belum ada operator
+            {tr('belumAdaOperator', lang)}
           </div>
         ) : (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -1530,15 +1532,15 @@ function AbsensiOpsTab() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
-                    <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Operator</th>
-                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Tarif Harian</th>
-                    <th className="px-3 py-2.5 text-center font-semibold whitespace-nowrap">Hari Penuh (&ge;8j)</th>
-                    <th className="px-3 py-2.5 text-center font-semibold whitespace-nowrap">Perlu Review</th>
-                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Gaji Pokok</th>
-                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Tunjangan</th>
-                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Bonus</th>
-                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Pinalti</th>
-                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Gaji Bersih</th>
+                    <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('operatorCol', lang)}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">{tr('tarifHarianCol', lang)}</th>
+                    <th className="px-3 py-2.5 text-center font-semibold whitespace-nowrap">{tr('hariPenuhCol', lang)}</th>
+                    <th className="px-3 py-2.5 text-center font-semibold whitespace-nowrap">{tr('perluReviewCol', lang)}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">{tr('gajiPokokCol', lang)}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">{tr('allowance', lang)}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">{tr('bonus', lang)}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">{tr('penalty', lang)}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">{tr('netSalary', lang)}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -1568,10 +1570,10 @@ function AbsensiOpsTab() {
                         ) : (
                           <div className="flex flex-col items-center gap-0.5">
                             {row.shortDays > 0 && (
-                              <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">{row.shortDays} hari &lt;8j</span>
+                              <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">{row.shortDays} {tr('hariKurang8j', lang)}</span>
                             )}
                             {row.openDays > 0 && (
-                              <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">{row.openDays} belum checkout</span>
+                              <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">{row.openDays} {tr('belumCheckout', lang)}</span>
                             )}
                           </div>
                         )}
@@ -1604,21 +1606,21 @@ function AbsensiOpsTab() {
           </div>
         )}
         <p className="text-[11px] text-gray-400 mt-2">
-          "Perlu Review" hari (&lt;8 jam atau belum checkout) tidak otomatis dihitung ke Gaji Pokok — sesuaikan lewat Bonus/Pinalti jika perlu.
+          {tr('perluReviewNote', lang)}
         </p>
       </div>
 
       {/* Filter */}
       <select value={selectedOp} onChange={e => setSelectedOp(e.target.value)}
         className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white min-w-[180px]">
-        <option value="">Semua Operator</option>
+        <option value="">{tr('semuaOperator', lang)}</option>
         {operators.map(o => <option key={o.id} value={o.id}>{o.full_name}</option>)}
       </select>
 
       {/* Attendance table */}
       {filteredAttendance.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center text-sm text-gray-400">
-          Belum ada data absensi
+          {tr('belumAdaDataAbsensi', lang)}
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -1626,10 +1628,10 @@ function AbsensiOpsTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
-                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Tanggal</th>
-                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Operator</th>
-                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Masuk</th>
-                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">Keluar</th>
+                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('date', lang)}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('operatorCol', lang)}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('masukCol', lang)}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('keluarCol', lang)}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -1664,7 +1666,7 @@ function AbsensiOpsTab() {
                           <span className="text-xs font-semibold text-blue-700">{fmtClockTime(a.clock_out)}</span>
                         </div>
                       ) : a.clock_in ? (
-                        <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 w-fit"><Clock size={9}/>Belum keluar</span>
+                        <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 w-fit"><Clock size={9}/>{tr('belumKeluar', lang)}</span>
                       ) : <span className="text-xs text-gray-300">—</span>}
                     </td>
                   </tr>
@@ -1677,10 +1679,10 @@ function AbsensiOpsTab() {
 
       {/* Lembur history */}
       <div>
-        <p className="text-sm font-bold text-gray-900 mb-2">Riwayat Lembur</p>
+        <p className="text-sm font-bold text-gray-900 mb-2">{tr('riwayatLembur', lang)}</p>
         {lemburs.filter(l => l.request_status !== 'pending').length === 0 ? (
           <div className="bg-white rounded-2xl border border-gray-100 p-6 text-center text-sm text-gray-400">
-            Belum ada riwayat lembur
+            {tr('belumAdaRiwayatLembur', lang)}
           </div>
         ) : (
           <div className="space-y-2">
@@ -1688,12 +1690,12 @@ function AbsensiOpsTab() {
               <div key={l.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3 flex items-center justify-between gap-3">
                 <div>
                   <p className="font-bold text-gray-900 text-sm">{nameOf(l.operator_id)}</p>
-                  <p className="text-xs text-gray-400">{fmtShortDateFull(l.date)} · {l.hours} jam{l.reason ? ` · ${l.reason}` : ''}</p>
+                  <p className="text-xs text-gray-400">{fmtShortDateFull(l.date)} · {l.hours} {tr('durasiValue', lang)}{l.reason ? ` · ${l.reason}` : ''}</p>
                 </div>
                 {l.request_status === 'approved' ? (
-                  <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 flex-shrink-0"><CheckCircle size={9}/>Disetujui</span>
+                  <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 flex-shrink-0"><CheckCircle size={9}/>{tr('disetujuiBadge', lang)}</span>
                 ) : (
-                  <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 flex-shrink-0"><XCircle size={9}/>Ditolak</span>
+                  <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 flex-shrink-0"><XCircle size={9}/>{tr('ditolakLabel', lang)}</span>
                 )}
               </div>
             ))}
@@ -1725,7 +1727,7 @@ export default function HRDClient({ profile }: { profile: any }) {
               className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
                 tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}>
-              {t === 'hosts' ? 'Data Host' : t === 'gaji' ? 'Gaji' : t === 'kasbon' ? 'Kasbon' : t === 'pettycash' ? 'Petty Cash' : 'Absensi Ops'}
+              {t === 'hosts' ? tr('dataHostTab', lang) : t === 'gaji' ? tr('gajiTab', lang) : t === 'kasbon' ? tr('kasbonTab', lang) : t === 'pettycash' ? tr('pettyCashTab', lang) : tr('absensiOpsTab', lang)}
             </button>
           ))}
         </div>
