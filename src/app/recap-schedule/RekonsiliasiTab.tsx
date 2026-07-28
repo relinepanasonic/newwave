@@ -139,11 +139,11 @@ interface CompareRow {
 }
 
 function MetricCell({ csvVal, appVal, mismatch, fmt }: { csvVal: number; appVal?: number; mismatch: boolean; fmt: (n: number) => string }) {
-  if (!mismatch) return <td className="px-3 py-2 text-right text-gray-700 whitespace-nowrap">{fmt(csvVal)}</td>
+  if (!mismatch) return <td className="px-1.5 py-1.5 text-right text-gray-700 whitespace-nowrap text-[11px]">{fmt(csvVal)}</td>
   return (
-    <td className="px-3 py-2 text-right whitespace-nowrap bg-pink-50">
+    <td className="px-1.5 py-1.5 text-right whitespace-nowrap bg-pink-50 text-[11px]">
       <div className="text-pink-700 font-bold">{fmt(csvVal)}</div>
-      <div className="text-[10px] text-pink-400">App: {appVal !== undefined ? fmt(appVal) : '—'}</div>
+      <div className="text-[9px] text-pink-400">App: {appVal !== undefined ? fmt(appVal) : '—'}</div>
     </td>
   )
 }
@@ -708,32 +708,32 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
-                    <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('date', lang)}</th>
-                    <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">{tr('jamMulaiCol', lang)}</th>
-                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">{tr('totalJamLiveCol', lang)}</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">{tr('host', lang)}</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">{tr('brandCsvCol', lang)}</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">{tr('platform', lang)}</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">{tr('gmvCol', lang)}</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">{tr('impresiCol', lang)}</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">{tr('penontonCol', lang)}</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">{tr('transCol', lang)}</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">{tr('komentarCol', lang)}</th>
-                    <th className="px-3 py-2.5 text-center font-semibold">{tr('status', lang)}</th>
-                    <th className="px-3 py-2.5 text-center font-semibold">{tr('aksiCol', lang)}</th>
+                  <tr className="text-[10px] text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
+                    <th className="px-1.5 py-2 text-left font-semibold whitespace-nowrap">{tr('date', lang)}</th>
+                    <th className="px-1.5 py-2 text-left font-semibold whitespace-nowrap">{tr('jamMulaiCol', lang)}</th>
+                    <th className="px-1.5 py-2 text-right font-semibold whitespace-nowrap">{tr('totalJamLiveCol', lang)}</th>
+                    <th className="px-1.5 py-2 text-left font-semibold">{tr('host', lang)}</th>
+                    <th className="px-1.5 py-2 text-left font-semibold">{tr('brandCsvCol', lang)}</th>
+                    <th className="px-1.5 py-2 text-left font-semibold">{tr('platform', lang)}</th>
+                    <th className="px-1.5 py-2 text-right font-semibold">{tr('gmvCol', lang)}</th>
+                    <th className="px-1.5 py-2 text-right font-semibold">{tr('impresiCol', lang)}</th>
+                    <th className="px-1.5 py-2 text-right font-semibold">{tr('penontonCol', lang)}</th>
+                    <th className="px-1.5 py-2 text-right font-semibold">{tr('transCol', lang)}</th>
+                    <th className="px-1.5 py-2 text-right font-semibold">{tr('komentarCol', lang)}</th>
+                    <th className="px-1.5 py-2 text-center font-semibold">{tr('status', lang)}</th>
+                    <th className="px-1.5 py-2 text-center font-semibold">{tr('aksiCol', lang)}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {visibleRows.map((r, idx) => (
                     <tr key={idx} className={r.status === 'missing_in_app' ? 'bg-red-50/50' : r.status === 'not_reported_confirmed' ? 'bg-purple-50/40' : ''}>
-                      <td className="px-3 py-2 whitespace-nowrap text-gray-600">{fmtDate(r.csv.tanggal)}</td>
-                      <td className="px-3 py-2 whitespace-nowrap"><span className="font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded-lg">{r.csv.startSesi}</span></td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap text-gray-600">{r.csv.totalJam ? `${r.csv.totalJam}${tr('jamSuffix', lang)}` : '—'}</td>
-                      <td className="px-3 py-2 font-medium text-gray-800 whitespace-nowrap">{r.csv.host}</td>
-                      <td className="px-3 py-2 text-gray-600 max-w-[160px] truncate">{r.csv.brand}</td>
-                      <td className="px-3 py-2">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${PLATFORM_COLORS[r.csv.platform] || PLATFORM_COLORS.Other}`}>
+                      <td className="px-1.5 py-1.5 whitespace-nowrap text-gray-600 text-[11px]">{fmtDate(r.csv.tanggal)}</td>
+                      <td className="px-1.5 py-1.5 whitespace-nowrap"><span className="font-bold text-gray-900 bg-gray-100 px-1.5 py-0.5 rounded-lg text-[11px]">{r.csv.startSesi}</span></td>
+                      <td className="px-1.5 py-1.5 text-right whitespace-nowrap text-gray-600 text-[11px]">{r.csv.totalJam ? `${r.csv.totalJam}${tr('jamSuffix', lang)}` : '—'}</td>
+                      <td className="px-1.5 py-1.5 font-medium text-gray-800 whitespace-nowrap text-[11px]">{r.csv.host}</td>
+                      <td className="px-1.5 py-1.5 text-gray-600 max-w-[110px] truncate text-[11px]">{r.csv.brand}</td>
+                      <td className="px-1.5 py-1.5">
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${PLATFORM_COLORS[r.csv.platform] || PLATFORM_COLORS.Other}`}>
                           {r.csv.platform}
                         </span>
                       </td>
@@ -742,27 +742,27 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
                       <MetricCell csvVal={r.csv.viewer} appVal={r.app ? Number(r.app.viewer) : undefined} mismatch={r.mismatches.has('viewer')} fmt={fmtNum}/>
                       <MetricCell csvVal={r.csv.trans} appVal={r.app ? Number(r.app.trans) : undefined} mismatch={r.mismatches.has('trans')} fmt={fmtNum}/>
                       <MetricCell csvVal={r.csv.comment} appVal={r.app ? Number(r.app.comment_count) : undefined} mismatch={r.mismatches.has('comment')} fmt={fmtNum}/>
-                      <td className="px-3 py-2 text-center">
+                      <td className="px-1.5 py-1.5 text-center">
                         <div className="flex items-center justify-center gap-1 flex-wrap">
                           {r.status === 'match' && (
                             fixedLog[r.csvIdx] ? (
-                              <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">
+                              <span className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">
                                 {tr('fixedLabel', lang)} · {fmtFixedDate(fixedLog[r.csvIdx])}
                               </span>
                             ) : (
-                              <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('cocokCard', lang)}</span>
+                              <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('cocokCard', lang)}</span>
                             )
                           )}
-                          {r.status === 'mismatch' && <span className="text-[10px] bg-pink-100 text-pink-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('bedaCard', lang)}</span>}
-                          {r.status === 'missing_in_app' && <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('takAdaDiApp', lang)}</span>}
-                          {r.status === 'not_reported_confirmed' && <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('takLaporCsv', lang)}</span>}
-                          {r.isManual && <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('manualBadge', lang)}</span>}
+                          {r.status === 'mismatch' && <span className="text-[9px] bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('bedaCard', lang)}</span>}
+                          {r.status === 'missing_in_app' && <span className="text-[9px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('takAdaDiApp', lang)}</span>}
+                          {r.status === 'not_reported_confirmed' && <span className="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('takLaporCsv', lang)}</span>}
+                          {r.isManual && <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('manualBadge', lang)}</span>}
                         </div>
                         {r.status === 'not_reported_confirmed' && (
                           <p className="text-[9px] text-purple-400 italic mt-0.5">CSV</p>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-center">
+                      <td className="px-1.5 py-1.5 text-center">
                         {r.isManual ? (
                           <button onClick={() => clearManualMatch(r.csvIdx)}
                             className="inline-flex items-center gap-1 text-[10px] text-gray-400 hover:text-red-500 border border-gray-200 hover:border-red-200 rounded-lg px-2 py-1 transition-colors">

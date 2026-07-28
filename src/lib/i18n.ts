@@ -208,7 +208,7 @@ export const t: Record<string, Record<Lang, string>> = {
   gagalCard:     { id: 'gagal',          en: 'failed' },
   lihatBarisGagal: { id: 'baris yang gagal', en: 'failed rows' },
   jamMulaiCol:   { id: 'Jam Mulai',      en: 'Start Time' },
-  totalJamLiveCol: { id: 'Total Jam Live', en: 'Total Live Hours' },
+  totalJamLiveCol: { id: 'Durasi', en: 'Duration' },
   jamSuffix:     { id: 'j',              en: 'h' },
   brandCsvCol:   { id: 'Brand (CSV)',    en: 'Brand (CSV)' },
   transCol:      { id: 'Trans',          en: 'Orders' },
