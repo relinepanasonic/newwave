@@ -6,6 +6,8 @@ import { formatCurrency, getPayPeriod } from '@/lib/utils'
 import { Clock, Wallet, CreditCard, Plus, X, AlertCircle, CheckCircle, XCircle, Timer } from 'lucide-react'
 import PettyCashHostPanel from '@/app/my-schedule/PettyCashHostPanel'
 import CurrencyInput from '@/components/CurrencyInput'
+import { tr } from '@/lib/i18n'
+import { useLang } from '@/lib/lang-context'
 
 type Tab = 'gaji' | 'kasbon' | 'pettycash'
 
@@ -28,6 +30,7 @@ function fmtDate(s: string) {
 
 // ── Gaji Tab ──────────────────────────────────────────────────────────────────
 function GajiTab({ profile }: { profile: any }) {
+  const { lang } = useLang()
   const [checkIns, setCheckIns] = useState<CheckInRow[]>([])
   const [kasbonTotal, setKasbonTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -68,34 +71,34 @@ function GajiTab({ profile }: { profile: any }) {
   const grossSalary = totalHours * hourlyRate
   const netSalary = Math.max(0, grossSalary - kasbonTotal)
 
-  if (loading) return <div className="p-12 text-center text-sm text-gray-400">Memuat data gaji...</div>
+  if (loading) return <div className="p-12 text-center text-sm text-gray-400">{tr('belumAdaDataGajiMemuat', lang)}</div>
 
   return (
     <div className="space-y-5">
       {/* Period & Summary cards */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Periode Gaji</p>
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">{tr('periodeGaji', lang)}</p>
         <p className="text-sm font-semibold text-gray-800">{periodLabel}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4">
-          <p className="text-xs text-brand-500 font-medium mb-1">Tarif per Jam</p>
+          <p className="text-xs text-brand-500 font-medium mb-1">{tr('hourlyRate', lang)}</p>
           <p className="text-xl font-bold text-brand-700">{formatCurrency(hourlyRate)}</p>
         </div>
         <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
-          <p className="text-xs text-emerald-600 font-medium mb-1">Total Jam Tercatat</p>
-          <p className="text-xl font-bold text-emerald-700">{totalHours.toFixed(2)} jam</p>
-          <p className="text-[10px] text-emerald-500 mt-0.5">{checkIns.length} sesi</p>
+          <p className="text-xs text-emerald-600 font-medium mb-1">{tr('totalJamTercatat', lang)}</p>
+          <p className="text-xl font-bold text-emerald-700">{totalHours.toFixed(2)} {tr('durasiValue', lang)}</p>
+          <p className="text-[10px] text-emerald-500 mt-0.5">{checkIns.length} {tr('sessionsCount', lang)}</p>
         </div>
         <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
-          <p className="text-xs text-gray-500 font-medium mb-1">Gaji Kotor</p>
+          <p className="text-xs text-gray-500 font-medium mb-1">{tr('gajiKotor', lang)}</p>
           <p className="text-xl font-bold text-gray-900">{formatCurrency(grossSalary)}</p>
-          <p className="text-[10px] text-gray-400 mt-0.5">{totalHours.toFixed(2)} jam × {formatCurrency(hourlyRate)}</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">{totalHours.toFixed(2)} {tr('durasiValue', lang)} × {formatCurrency(hourlyRate)}</p>
         </div>
         {kasbonTotal > 0 && (
           <div className="bg-red-50 border border-red-100 rounded-2xl p-4">
-            <p className="text-xs text-red-500 font-medium mb-1">Potongan Kasbon</p>
+            <p className="text-xs text-red-500 font-medium mb-1">{tr('potonganKasbon', lang)}</p>
             <p className="text-xl font-bold text-red-600">- {formatCurrency(kasbonTotal)}</p>
           </div>
         )}
@@ -103,18 +106,18 @@ function GajiTab({ profile }: { profile: any }) {
 
       {/* Net salary highlight */}
       <div className="bg-brand-600 rounded-2xl p-5 text-white">
-        <p className="text-sm font-medium opacity-80 mb-1">Estimasi Gaji Bersih</p>
+        <p className="text-sm font-medium opacity-80 mb-1">{tr('estimasiGajiBersih', lang)}</p>
         <p className="text-3xl font-bold">{formatCurrency(netSalary)}</p>
         {kasbonTotal > 0 && (
-          <p className="text-xs opacity-70 mt-1">Sudah dipotong kasbon {formatCurrency(kasbonTotal)}</p>
+          <p className="text-xs opacity-70 mt-1">{tr('sudahDipotongKasbon', lang)} {formatCurrency(kasbonTotal)}</p>
         )}
-        <p className="text-[10px] opacity-60 mt-2">* Berdasarkan live report yang sudah disubmit periode ini</p>
+        <p className="text-[10px] opacity-60 mt-2">{tr('berdasarkanLiveReport', lang)}</p>
       </div>
 
       {/* Session breakdown */}
       {checkIns.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <p className="px-4 py-3 text-xs font-bold text-gray-500 border-b border-gray-50">Detail Sesi</p>
+          <p className="px-4 py-3 text-xs font-bold text-gray-500 border-b border-gray-50">{tr('detailSesi', lang)}</p>
           <div className="divide-y divide-gray-50">
             {checkIns.map(ci => {
               const slot = ci.schedule_slots
@@ -126,10 +129,10 @@ function GajiTab({ profile }: { profile: any }) {
                     <p className="text-sm font-semibold text-gray-900 truncate">
                       {slot.brand || '—'} {slot.platform ? `· ${slot.platform}` : ''}
                     </p>
-                    <p className="text-xs text-gray-400">{fmtDate(slot.slot_date)} · {slot.rooms?.name || 'Room ?'}</p>
+                    <p className="text-xs text-gray-400">{fmtDate(slot.slot_date)} · {slot.rooms?.name || tr('roomUnknown', lang)}</p>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <p className="text-sm font-bold text-emerald-700">{hours.toFixed(2)} jam</p>
+                    <p className="text-sm font-bold text-emerald-700">{hours.toFixed(2)} {tr('durasiValue', lang)}</p>
                     <p className="text-[10px] text-gray-400">{formatCurrency(hours * hourlyRate)}</p>
                   </div>
                 </div>
@@ -141,7 +144,7 @@ function GajiTab({ profile }: { profile: any }) {
 
       {checkIns.length === 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
-          <p className="text-sm text-gray-400">Belum ada live report yang disubmit periode ini</p>
+          <p className="text-sm text-gray-400">{tr('belumAdaLiveReportPeriode', lang)}</p>
         </div>
       )}
     </div>
@@ -150,6 +153,7 @@ function GajiTab({ profile }: { profile: any }) {
 
 // ── Kasbon Tab ────────────────────────────────────────────────────────────────
 function KasbonTab({ profile }: { profile: any }) {
+  const { lang } = useLang()
   const [kasbons, setKasbons] = useState<KasbonRow[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -168,7 +172,7 @@ function KasbonTab({ profile }: { profile: any }) {
 
   async function submitRequest() {
     const amt = form.amount
-    if (!amt || amt <= 0) { setFormError('Isi nominal kasbon'); return }
+    if (!amt || amt <= 0) { setFormError(tr('isiNominalKasbon', lang)); return }
     setSaving(true); setFormError('')
     const { error } = await createClient().from('kasbon').insert({
       host_id: profile.id,
@@ -189,13 +193,13 @@ function KasbonTab({ profile }: { profile: any }) {
     .reduce((s, k) => s + Number(k.amount), 0)
 
   function statusBadge(k: KasbonRow) {
-    if (k.request_status === 'pending') return <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1"><Timer size={9}/>Menunggu ACC</span>
-    if (k.request_status === 'rejected') return <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold flex items-center gap-1"><XCircle size={9}/>Ditolak</span>
-    if (k.status === 'paid') return <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1"><CheckCircle size={9}/>Lunas</span>
-    return <span className="text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-bold">Belum Lunas</span>
+    if (k.request_status === 'pending') return <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1"><Timer size={9}/>{tr('menungguAcc', lang)}</span>
+    if (k.request_status === 'rejected') return <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold flex items-center gap-1"><XCircle size={9}/>{tr('ditolakLabel', lang)}</span>
+    if (k.status === 'paid') return <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1"><CheckCircle size={9}/>{tr('lunasFilter', lang)}</span>
+    return <span className="text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-bold">{tr('belumLunasBadge', lang)}</span>
   }
 
-  if (loading) return <div className="p-12 text-center text-sm text-gray-400">Memuat kasbon...</div>
+  if (loading) return <div className="p-12 text-center text-sm text-gray-400">{tr('memuatKasbon', lang)}</div>
 
   return (
     <div className="space-y-4">
@@ -204,9 +208,9 @@ function KasbonTab({ profile }: { profile: any }) {
         <div className="bg-orange-50 border border-orange-100 rounded-2xl p-4 flex items-center gap-3">
           <AlertCircle size={18} className="text-orange-500 flex-shrink-0"/>
           <div>
-            <p className="text-sm font-bold text-orange-800">Sisa Hutang Kasbon</p>
+            <p className="text-sm font-bold text-orange-800">{tr('sisaHutangKasbon', lang)}</p>
             <p className="text-xl font-bold text-orange-700 mt-0.5">{formatCurrency(totalUnpaid)}</p>
-            <p className="text-xs text-orange-500 mt-0.5">Akan dipotong dari gaji periode berikutnya</p>
+            <p className="text-xs text-orange-500 mt-0.5">{tr('akanDipotongPeriodeBerikutnya', lang)}</p>
           </div>
         </div>
       )}
@@ -215,48 +219,48 @@ function KasbonTab({ profile }: { profile: any }) {
       {showForm ? (
         <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <p className="font-bold text-gray-900 text-sm">Ajukan Kasbon</p>
+            <p className="font-bold text-gray-900 text-sm">{tr('ajukanKasbon', lang)}</p>
             <button onClick={() => { setShowForm(false); setFormError('') }}><X size={16} className="text-gray-400"/></button>
           </div>
           {/* Important note */}
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
             <AlertCircle size={14} className="text-amber-600 mt-0.5 flex-shrink-0"/>
             <p className="text-xs text-amber-800 font-medium">
-              Request Kasbon tetap harus kontak <strong>Koko & Cici</strong> untuk memastikan ACC
+              {tr('requestKasbonKontak', lang)} <strong>Koko & Cici</strong> {tr('untukMemastikanAcc', lang)}
             </p>
           </div>
           <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Nominal yang Diajukan (Rp) *</label>
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{tr('nominalDiajukanRp', lang)}</label>
             <CurrencyInput value={form.amount} onChange={v => setForm(f => ({ ...f, amount: v }))}
               placeholder="500.000"/>
           </div>
           <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Keperluan / Alasan</label>
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{tr('keperluanAlasan', lang)}</label>
             <input value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
-              placeholder="Transport ke lokasi event, dll."
+              placeholder={tr('transportEventDllPlaceholder', lang)}
               className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
           </div>
           {formError && <p className="text-xs text-red-600">{formError}</p>}
           <div className="flex gap-2">
             <button onClick={() => { setShowForm(false); setFormError('') }}
-              className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500 hover:bg-gray-50">Batal</button>
+              className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500 hover:bg-gray-50">{tr('cancel', lang)}</button>
             <button onClick={submitRequest} disabled={saving}
               className="flex-1 bg-brand-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-brand-700 disabled:opacity-60">
-              {saving ? 'Mengirim...' : 'Kirim Request'}
+              {saving ? tr('mengirim', lang) : tr('kirimRequest', lang)}
             </button>
           </div>
         </div>
       ) : (
         <button onClick={() => setShowForm(true)}
           className="flex items-center gap-2 bg-brand-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:bg-brand-700 transition-colors shadow-sm">
-          <Plus size={15}/> Ajukan Kasbon
+          <Plus size={15}/> {tr('ajukanKasbon', lang)}
         </button>
       )}
 
       {/* Kasbon list */}
       {kasbons.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
-          <p className="text-sm text-gray-400">Belum ada kasbon</p>
+          <p className="text-sm text-gray-400">{tr('belumAdaKasbon', lang)}</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -274,14 +278,14 @@ function KasbonTab({ profile }: { profile: any }) {
                   {k.request_status === 'pending' ? (
                     <p className="font-bold text-gray-900">
                       {formatCurrency(Number(k.requested_amount || k.amount))}
-                      <span className="text-xs font-normal text-gray-400 ml-1">(diajukan)</span>
+                      <span className="text-xs font-normal text-gray-400 ml-1">{tr('diajukanSuffix', lang)}</span>
                     </p>
                   ) : k.request_status === 'approved' && k.requested_amount && Number(k.requested_amount) !== Number(k.amount) ? (
                     <div>
                       <p className="font-bold text-gray-900">{formatCurrency(Number(k.amount))}
-                        <span className="text-xs font-normal text-gray-400 ml-1">(disetujui)</span>
+                        <span className="text-xs font-normal text-gray-400 ml-1">{tr('disetujuiSuffix', lang)}</span>
                       </p>
-                      <p className="text-xs text-gray-400">Diajukan: {formatCurrency(Number(k.requested_amount))}</p>
+                      <p className="text-xs text-gray-400">{tr('diajukanLabel', lang)} {formatCurrency(Number(k.requested_amount))}</p>
                     </div>
                   ) : (
                     <p className="font-bold text-gray-900">{formatCurrency(Number(k.amount))}</p>
@@ -301,20 +305,21 @@ function KasbonTab({ profile }: { profile: any }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function HostHRDClient({ profile }: { profile: any }) {
+  const { lang } = useLang()
   const [tab, setTab] = useState<Tab>('gaji')
 
   const TAB_LABELS: Record<Tab, string> = {
-    gaji: 'Gaji',
-    kasbon: 'Kasbon',
-    pettycash: 'Petty Cash',
+    gaji: tr('gajiTab', lang),
+    kasbon: tr('kasbonTab', lang),
+    pettycash: tr('pettyCashTab', lang),
   }
 
   return (
     <AppShell role="host" userName={profile.full_name}>
       <div className="p-4 md:p-6 max-w-2xl mx-auto">
         <div className="mb-5">
-          <h1 className="text-xl font-bold text-gray-900">HRD</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Informasi gaji, kasbon & petty cash kamu</p>
+          <h1 className="text-xl font-bold text-gray-900">{tr('hrd', lang)}</h1>
+          <p className="text-sm text-gray-500 mt-0.5">{tr('hrdHostDesc', lang)}</p>
         </div>
 
         {/* Tabs */}
