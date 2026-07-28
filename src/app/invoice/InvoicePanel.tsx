@@ -13,7 +13,7 @@ async function syncInvoiceToProone(
   invoiceNumber: string,
   invoiceDate: string,
   clientName: string,
-  items: { name: string; description: string; is_free: boolean; amount: number }[]
+  items: { name: string; description: string; amount: number }[]
 ) {
   if (!PROONE_KEY) return
   try {
@@ -29,16 +29,20 @@ async function syncInvoiceToProone(
         items: items.filter(i => i.name.trim()).map(i => ({
           description: i.name + (i.description ? ` — ${i.description}` : ''),
           quantity: 1,
-          unit_price: i.is_free ? 0 : i.amount,
+          unit_price: i.amount,
         })),
       }),
     })
   } catch { /* non-blocking */ }
 }
 
-const TIPE_LIVE = ['Regular', 'Silver', 'Gold', 'Platinum', 'Rubi', 'UGC', 'Pre Content', 'Background Design', 'Other']
-const PACKAGE_NAMES = ['Regular', 'Silver', 'Gold', 'Platinum', 'Rubi']
-const SCALES = ['Month', 'Hour', 'Day', 'Pc']
+const SCALES = ['pc', 'month', 'hour', 'day']
+
+// Bank accounts offered in the invoice form's "Bank Payment Account Option"
+// dropdown. Add more entries here as New Wave opens new accounts.
+const BANK_ACCOUNTS = [
+  { bank_name: 'Bank BCA', bank_account_number: '4295775788', bank_account_name: 'PT Pintu Langit Inovasi Global' },
+]
 
 function fmtRp(n: number) {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n)
@@ -50,13 +54,10 @@ interface InvoiceItem {
   id?: string
   name: string
   description: string
-  tipe_live: string
-  jam_per_sesi: number
   scale: string
   qty: number
   price: number
   amount: number
-  is_free: boolean
 }
 
 interface Invoice {
@@ -83,7 +84,7 @@ interface Invoice {
 }
 
 const EMPTY_ITEM: InvoiceItem = {
-  name: 'Regular', description: '', tipe_live: 'Regular', jam_per_sesi: 4, scale: 'Pc', qty: 1, price: 0, amount: 0, is_free: false,
+  name: '', description: '', scale: 'pc', qty: 1, price: 0, amount: 0,
 }
 
 // Generate next invoice number: NW{YY}{MM}{SEQ}
@@ -109,10 +110,10 @@ function addDays(dateStr: string, days: number): string {
 
 const FORM_DEFAULT = {
   invoice_number: '', invoice_date: new Date().toISOString().slice(0, 10),
-  due_date: addDays(new Date().toISOString().slice(0, 10), 14),
+  due_date: addDays(new Date().toISOString().slice(0, 10), 15),
   brand: '', invoice_to: '', discount_pct: 0, ppn_pct: 0, pph_pct: 0,
-  bank_name: 'Bank BCA', bank_account_name: 'PT Pintu Langit Inovasi Global',
-  bank_account_number: '4295775788', notes: '',
+  bank_name: BANK_ACCOUNTS[0].bank_name, bank_account_name: BANK_ACCOUNTS[0].bank_account_name,
+  bank_account_number: BANK_ACCOUNTS[0].bank_account_number, notes: '',
 }
 
 const STATUS_CONFIG: Record<string, { label: string; badge: string; border: string }> = {
@@ -142,6 +143,10 @@ export default function InvoicePanel({ profile }: { profile: any }) {
 
   const [form, setForm] = useState({ ...FORM_DEFAULT })
   const [items, setItems] = useState<InvoiceItem[]>([{ ...EMPTY_ITEM }])
+  // Net-15: due date auto-snaps to 15 days after issue date, unless the user
+  // has manually edited it themselves (tracked here so a later issue-date
+  // change doesn't stomp their override).
+  const [dueDateTouched, setDueDateTouched] = useState(false)
 
   const clientBrand = profile.client_brand
 
@@ -176,9 +181,9 @@ export default function InvoicePanel({ profile }: { profile: any }) {
     setItems(prev => {
       const next = [...prev]
       next[idx] = { ...next[idx], [field]: value }
-      if (field === 'qty' || field === 'price' || field === 'is_free') {
+      if (field === 'qty' || field === 'price') {
         const item = next[idx]
-        next[idx].amount = item.is_free ? 0 : Number(item.qty) * Number(item.price)
+        next[idx].amount = Number(item.qty) * Number(item.price)
       }
       return next
     })
@@ -197,23 +202,22 @@ export default function InvoicePanel({ profile }: { profile: any }) {
     setForm({
       invoice_number: inv.invoice_number,
       invoice_date: inv.invoice_date,
-      due_date: inv.due_date || addDays(inv.invoice_date, 14),
+      due_date: inv.due_date || addDays(inv.invoice_date, 15),
       brand: inv.brand,
       invoice_to: inv.invoice_to || '',
       discount_pct: inv.discount_pct,
       ppn_pct: inv.ppn_pct,
       pph_pct: inv.pph_pct ?? 2,
-      bank_name: inv.bank_name || 'Bank BCA',
-      bank_account_name: inv.bank_account_name || 'PT Pintu Langit Inovasi Global',
-      bank_account_number: inv.bank_account_number || '4295775788',
+      bank_name: inv.bank_name || BANK_ACCOUNTS[0].bank_name,
+      bank_account_name: inv.bank_account_name || BANK_ACCOUNTS[0].bank_account_name,
+      bank_account_number: inv.bank_account_number || BANK_ACCOUNTS[0].bank_account_number,
       notes: inv.notes || '',
     })
     setItems(inv.invoice_items?.map(i => ({
       name: i.name, description: i.description || '',
-      tipe_live: i.tipe_live || 'Regular',
-      jam_per_sesi: i.jam_per_sesi, scale: i.scale || 'Pc', qty: i.qty,
-      price: i.price, amount: i.amount, is_free: i.is_free,
+      scale: i.scale || 'pc', qty: i.qty, price: i.price, amount: i.amount,
     })) || [{ ...EMPTY_ITEM }])
+    setDueDateTouched(true) // editing an existing invoice keeps its own due date
     setShowCreate(true)
     setError('')
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -224,6 +228,7 @@ export default function InvoicePanel({ profile }: { profile: any }) {
     setEditingId(null)
     setForm({ ...FORM_DEFAULT })
     setItems([{ ...EMPTY_ITEM }])
+    setDueDateTouched(false)
     setError('')
   }
 
@@ -242,9 +247,8 @@ export default function InvoicePanel({ profile }: { profile: any }) {
       total_amount: totalAmount,
     }
     const itemsToInsert = items.filter(i => i.name.trim()).map(i => ({
-      name: i.name, description: i.description, tipe_live: i.tipe_live,
-      jam_per_sesi: Number(i.jam_per_sesi), scale: i.scale, qty: Number(i.qty),
-      price: Number(i.price), amount: Number(i.amount), is_free: i.is_free,
+      name: i.name, description: i.description, scale: i.scale,
+      qty: Number(i.qty), price: Number(i.price), amount: Number(i.amount),
     }))
 
     if (editingId) {
@@ -278,7 +282,7 @@ export default function InvoicePanel({ profile }: { profile: any }) {
     const payload = {
       invoice_number: nextInvoiceNumber(today, invoices.map(i => i.invoice_number)),
       invoice_date: today,
-      due_date: addDays(today, 14),
+      due_date: addDays(today, 15),
       brand: inv.brand, invoice_to: inv.invoice_to,
       discount_pct: inv.discount_pct, ppn_pct: inv.ppn_pct, pph_pct: inv.pph_pct ?? 2,
       sub_total: inv.sub_total, total_amount: inv.total_amount,
@@ -288,8 +292,8 @@ export default function InvoicePanel({ profile }: { profile: any }) {
     const { data: newInv, error } = await supabase.from('invoices').insert(payload).select().single()
     if (!error && newInv) {
       const itemsToInsert = (inv.invoice_items || []).map(i => ({
-        name: i.name, description: i.description, tipe_live: i.tipe_live,
-        jam_per_sesi: i.jam_per_sesi, scale: i.scale, qty: i.qty, price: i.price, amount: i.amount, is_free: i.is_free,
+        name: i.name, description: i.description, scale: i.scale,
+        qty: i.qty, price: i.price, amount: i.amount,
         invoice_id: newInv.id,
       }))
       if (itemsToInsert.length > 0) await supabase.from('invoice_items').insert(itemsToInsert)
@@ -325,265 +329,255 @@ export default function InvoicePanel({ profile }: { profile: any }) {
     "ppn_pct": 11,
     "pph_pct": 2,
     "items": [
-      { "name": "Silver", "description": "8 sesi live", "qty": 8, "price": 750000, "scale": "Pc" }
+      { "name": "Silver Package", "description": "8 sesi live", "qty": 8, "price": 750000, "scale": "pc" }
     ],
     "source": "proone",
     "external_id": "proone-inv-1029"
   }'`
 
+  const goldLabel = "text-[10px] font-mono font-bold text-[#d4af37]/70 uppercase tracking-widest block mb-1.5"
+  const goldInput = "w-full border border-[#d4af37]/20 bg-black/40 text-[#f5d77f] rounded-lg px-3 py-2.5 text-sm font-mono placeholder-zinc-600 focus:outline-none focus:border-[#d4af37] focus:ring-1 focus:ring-[#d4af37]/40 transition-colors"
+
+  // Selected bank account row, matched against the form's current
+  // bank_* triple (falls back to showing that triple as its own option if it
+  // doesn't match a configured account, e.g. from an older invoice).
+  const selectedBankIdx = BANK_ACCOUNTS.findIndex(b =>
+    b.bank_name === form.bank_name && b.bank_account_number === form.bank_account_number && b.bank_account_name === form.bank_account_name)
+
   const createForm = showCreate && isSuperadmin && (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between"
-        style={{ background: 'linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%)' }}>
+    <div className="bg-[#0a0a0a] rounded-2xl border border-[#d4af37]/20 shadow-lg shadow-black/40 overflow-hidden">
+      <div className="px-5 py-4 border-b border-[#d4af37]/15 flex items-center justify-between bg-[#111111]">
         <div>
-          <h2 className="font-bold text-brand-900 text-sm">
-            {editingId ? `Edit Invoice — ${form.invoice_number}` : 'Buat Invoice Baru'}
+          <h2 className="font-mono font-bold text-[#f5d77f] text-sm uppercase tracking-wide flex items-center gap-2">
+            <Pencil size={14} className="text-[#d4af37]"/> {editingId ? `Edit Invoice • ${form.invoice_number}` : 'New Invoice'}
           </h2>
-          <p className="text-[10px] text-brand-500 mt-0.5">
-            {editingId ? 'Perbarui data invoice & item layanan' : 'Isi detail invoice dan item layanan'}
+          <p className="text-[10px] text-[#d4af37]/50 mt-0.5 font-mono uppercase tracking-widest">
+            {editingId ? 'Updating existing record' : 'Creating a new record'}
           </p>
         </div>
-        <button onClick={cancelForm} className="p-1.5 rounded-lg hover:bg-brand-100 transition-colors">
-          <X size={16} className="text-brand-400"/>
+        <button onClick={cancelForm} className="p-1.5 rounded-lg hover:bg-[#d4af37]/10 transition-colors">
+          <X size={16} className="text-[#d4af37]/60"/>
         </button>
       </div>
       <div className="p-5 space-y-5">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
-              No. Invoice {!editingId && <span className="text-brand-400 normal-case">(otomatis)</span>}
-            </label>
-            <input value={form.invoice_number} readOnly={!editingId}
-              onChange={e => editingId && setForm(f => ({ ...f, invoice_number: e.target.value }))}
-              className={`w-full border rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none transition-shadow ${
-                !editingId
-                  ? 'border-brand-200 bg-brand-50 text-brand-700 font-bold cursor-default'
-                  : 'border-gray-200 focus:ring-2 focus:ring-brand-400'
-              }`}/>
+            <label className={goldLabel}>Select Client *</label>
+            <select value={form.brand} onChange={e => handleBrandChange(e.target.value)}
+              className={`${goldInput} bg-black/40`}>
+              <option value="">— Select Client —</option>
+              {clients.map(c => <option key={c.id} value={c.client_brand}>{c.client_brand}</option>)}
+            </select>
           </div>
           <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Tanggal</label>
+            <label className={goldLabel}>Invoice Reference Number *</label>
+            <input value={form.invoice_number} readOnly={!editingId}
+              onChange={e => editingId && setForm(f => ({ ...f, invoice_number: e.target.value }))}
+              className={`${goldInput} ${!editingId ? 'cursor-default font-bold' : ''}`}/>
+          </div>
+          <div>
+            <label className={goldLabel}>Issue Date</label>
             <input type="date" value={form.invoice_date} onChange={e => {
               const newDate = e.target.value
               setForm(f => ({
                 ...f,
                 invoice_date: newDate,
-                // Re-generate number + due date when date changes on a new invoice (not when editing)
-                ...(!editingId ? {
-                  invoice_number: nextInvoiceNumber(newDate, invoices.map(i => i.invoice_number)),
-                  due_date: addDays(newDate, 14),
-                } : {}),
+                // Re-generate number on a new invoice (not when editing); due
+                // date auto-snaps to Net-15 unless the user already overrode it.
+                ...(!editingId ? { invoice_number: nextInvoiceNumber(newDate, invoices.map(i => i.invoice_number)) } : {}),
+                ...(!dueDateTouched ? { due_date: addDays(newDate, 15) } : {}),
               }))
             }}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+              className={goldInput}/>
           </div>
           <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Due Date</label>
-            <input type="date" value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+            <label className={goldLabel}>Due Date (Auto Net-15 Terms)</label>
+            <input type="date" value={form.due_date}
+              onChange={e => { setDueDateTouched(true); setForm(f => ({ ...f, due_date: e.target.value })) }}
+              className={goldInput}/>
           </div>
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Brand *</label>
-            <select value={form.brand} onChange={e => handleBrandChange(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
-              <option value="">— Pilih Brand —</option>
-              {clients.map(c => <option key={c.id} value={c.client_brand}>{c.client_brand}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Invoice To</label>
+          <div className="col-span-2">
+            <label className={goldLabel}>Invoice To (Client Display Name)</label>
             <input value={form.invoice_to} onChange={e => setForm(f => ({ ...f, invoice_to: e.target.value }))}
-              placeholder="Otomatis dari client"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+              placeholder="Auto-filled from client"
+              className={goldInput}/>
           </div>
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-3">
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Item Layanan</label>
+            <div>
+              <p className="text-[10px] font-mono font-bold text-[#d4af37]/70 uppercase tracking-widest">Deliverable Line Items &amp; Subtotals</p>
+              <p className="text-[9px] font-mono text-[#d4af37]/40 uppercase tracking-widest mt-0.5">Instant client-side calculation engine</p>
+            </div>
             <button type="button" onClick={() => setItems(p => [...p, { ...EMPTY_ITEM }])}
-              className="flex items-center gap-1.5 text-xs text-brand-600 font-semibold hover:text-brand-700 transition-colors">
-              <Plus size={12}/> Tambah Item
+              className="flex items-center gap-1.5 text-[10px] text-[#d4af37] font-bold uppercase tracking-wide border border-[#d4af37]/40 rounded-full px-3 py-1.5 hover:bg-[#d4af37]/10 transition-colors">
+              <Plus size={12}/> Add Item
             </button>
           </div>
           <div className="space-y-3">
             {items.map((item, idx) => (
-              <div key={idx} className="bg-gray-50/70 rounded-xl border border-gray-100 p-3 space-y-2.5">
-                {/* Load from NW Package shortcut */}
+              <div key={idx} className="bg-black/30 rounded-xl border border-[#d4af37]/15 p-3 space-y-2.5">
+                {/* Auto-fill from catalog shortcut */}
                 {nwPackages.length > 0 && (
-                  <div>
-                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Load Paket NW</label>
-                    <select defaultValue=""
-                      onChange={e => {
-                        const pkg = nwPackages.find(p => p.id === e.target.value)
-                        if (!pkg) return
-                        setItems(prev => {
-                          const next = [...prev]
-                          const unitPrice = pkg.jam_per_sesi * pkg.price_per_jam
-                          next[idx] = { ...next[idx], name: pkg.tipe_live, tipe_live: pkg.tipe_live, jam_per_sesi: pkg.jam_per_sesi, price: unitPrice,
-                            description: pkg.description || '', amount: next[idx].is_free ? 0 : next[idx].qty * unitPrice }
-                          return next
-                        })
-                        e.target.value = ''
-                      }}
-                      className="w-full border border-brand-200 bg-brand-50 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400">
-                      <option value="">— Pilih paket untuk auto-isi —</option>
-                      {nwPackages.map(p => (
-                        <option key={p.id} value={p.id}>{p.name} · {p.tipe_live} · {p.jam_per_sesi}j · {fmtRp(p.price_per_jam)}/j</option>
-                      ))}
-                      <option value="__blank__">✏️  Isi Manual (Blank)</option>
-                    </select>
-                  </div>
+                  <select defaultValue=""
+                    onChange={e => {
+                      const pkg = nwPackages.find(p => p.id === e.target.value)
+                      if (!pkg) return
+                      setItems(prev => {
+                        const next = [...prev]
+                        const unitPrice = pkg.jam_per_sesi * pkg.price_per_jam
+                        next[idx] = { ...next[idx], name: pkg.name, price: unitPrice,
+                          description: pkg.description || '', amount: next[idx].qty * unitPrice }
+                        return next
+                      })
+                      e.target.value = ''
+                    }}
+                    className={`${goldInput} text-xs`}>
+                    <option value="">⚡ Auto-fill from catalog...</option>
+                    {nwPackages.map(p => (
+                      <option key={p.id} value={p.id}>{p.name} · {p.tipe_live} · {fmtRp(p.jam_per_sesi * p.price_per_jam)}</option>
+                    ))}
+                  </select>
                 )}
                 <div className="flex items-start gap-2">
-                  <div className="flex-1">
-                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Package Name</label>
-                    <select value={item.name} onChange={e => {
-                      updateItem(idx, 'tipe_live', e.target.value)
-                      updateItem(idx, 'name', e.target.value)
-                    }}
-                      className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white">
-                      {!PACKAGE_NAMES.includes(item.name) && item.name && <option value={item.name}>{item.name}</option>}
-                      {PACKAGE_NAMES.map(t => <option key={t}>{t}</option>)}
-                    </select>
-                  </div>
+                  <input value={item.name} onChange={e => updateItem(idx, 'name', e.target.value)}
+                    placeholder="Package Name (e.g. Bronze Package)"
+                    className={`${goldInput} flex-1 text-xs`}/>
                   {items.length > 1 && (
                     <button onClick={() => setItems(p => p.filter((_, i) => i !== idx))}
-                      className="mt-5 p-1.5 text-gray-300 hover:text-red-400 hover:bg-red-50 rounded-lg transition-colors">
-                      <X size={13}/>
+                      className="p-2.5 text-[#d4af37]/40 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
+                      <Trash2 size={13}/>
                     </button>
                   )}
                 </div>
-                <div>
-                  <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Deskripsi</label>
-                  <input value={item.description} onChange={e => updateItem(idx, 'description', e.target.value)}
-                    placeholder="4 jam per sesi · Concept Live"
-                    className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"/>
-                </div>
+                <textarea value={item.description} onChange={e => updateItem(idx, 'description', e.target.value)}
+                  rows={3} placeholder={'* 3 month Contracts\n* 50 jam 1 Bulan (25 Hari)\n* Regular Host'}
+                  className={`${goldInput} text-xs resize-y`}/>
                 <div className="grid grid-cols-4 gap-2">
                   <div>
-                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">QTY</label>
+                    <label className="text-[9px] text-[#d4af37]/50 font-mono font-semibold mb-1 block uppercase">Qty</label>
                     <input type="number" min="0" value={item.qty}
                       onChange={e => updateItem(idx, 'qty', parseInt(e.target.value) || 0)}
-                      className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"/>
+                      className={`${goldInput} text-xs`}/>
                   </div>
                   <div>
-                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Scale</label>
+                    <label className="text-[9px] text-[#d4af37]/50 font-mono font-semibold mb-1 block uppercase">Scale</label>
                     <select value={item.scale} onChange={e => updateItem(idx, 'scale', e.target.value)}
-                      className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white">
+                      className={`${goldInput} text-xs`}>
                       {SCALES.map(s => <option key={s}>{s}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Price</label>
-                    <CurrencyInput value={item.price} disabled={item.is_free}
-                      onChange={v => updateItem(idx, 'price', v)}
-                      className="flex-1 min-w-0 w-0 px-1.5 py-2 text-xs focus:outline-none disabled:bg-gray-50"/>
+                    <label className="text-[9px] text-[#d4af37]/50 font-mono font-semibold mb-1 block uppercase">Price</label>
+                    <CurrencyInput value={item.price} onChange={v => updateItem(idx, 'price', v)}
+                      wrapperClassName="flex items-center border border-[#d4af37]/20 bg-black/40 rounded-lg overflow-hidden focus-within:border-[#d4af37] focus-within:ring-1 focus-within:ring-[#d4af37]/40"
+                      prefixClassName="px-2 py-2 bg-[#d4af37]/10 text-[10px] font-mono font-semibold text-[#d4af37]/70 border-r border-[#d4af37]/20 flex-shrink-0"
+                      className="flex-1 min-w-0 px-1.5 py-2 text-xs font-mono bg-transparent text-[#f5d77f] focus:outline-none"/>
                   </div>
                   <div>
-                    <label className="text-[10px] text-gray-400 font-semibold mb-1 block">Total</label>
-                    <div className="border border-gray-200 rounded-lg px-2 py-2 text-xs bg-gray-50 font-bold text-gray-700 text-right">
-                      {item.is_free ? <span className="text-emerald-600">Free</span> : fmtRp(item.amount)}
+                    <label className="text-[9px] text-[#d4af37]/50 font-mono font-semibold mb-1 block uppercase">Amount</label>
+                    <div className="border border-[#d4af37]/20 rounded-lg px-2 py-2 text-xs font-mono bg-black/20 font-bold text-[#f5d77f] text-right">
+                      {fmtRp(item.amount)}
                     </div>
                   </div>
                 </div>
-                <label className="flex items-center gap-2 cursor-pointer w-fit">
-                  <input type="checkbox" checked={item.is_free} onChange={e => updateItem(idx, 'is_free', e.target.checked)} className="rounded accent-brand-600"/>
-                  <span className="text-xs text-gray-500">Gratis (Free)</span>
-                </label>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="bg-gray-50 rounded-xl border border-gray-100 p-4">
+        <div className="bg-black/30 rounded-xl border border-[#d4af37]/15 p-4">
           <div className="grid grid-cols-3 gap-3 mb-4">
-            {/* Diskon — plain input */}
             <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Diskon (%)</label>
+              <label className={goldLabel}>Diskon (%)</label>
               <input type="number" min="0" max="100" value={form.discount_pct}
                 onChange={e => setForm(f => ({ ...f, discount_pct: parseFloat(e.target.value) || 0 }))}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"/>
+                className={goldInput}/>
             </div>
-            {/* PPN — checkbox + input */}
             <div>
               <label className="flex items-center gap-1.5 cursor-pointer mb-1.5">
                 <input type="checkbox" checked={form.ppn_pct > 0}
                   onChange={e => setForm(f => ({ ...f, ppn_pct: e.target.checked ? 11 : 0 }))}
-                  className="rounded accent-brand-600"/>
-                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">PPN (%)</span>
+                  className="rounded accent-[#d4af37]"/>
+                <span className={goldLabel + ' !mb-0'}>PPN (%)</span>
               </label>
               <input type="number" min="0" max="100" value={form.ppn_pct}
                 onChange={e => setForm(f => ({ ...f, ppn_pct: parseFloat(e.target.value) || 0 }))}
                 disabled={form.ppn_pct === 0}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white disabled:bg-gray-100 disabled:text-gray-300"/>
+                className={`${goldInput} disabled:opacity-40`}/>
             </div>
-            {/* PPH — checkbox + input */}
             <div>
               <label className="flex items-center gap-1.5 cursor-pointer mb-1.5">
                 <input type="checkbox" checked={form.pph_pct > 0}
                   onChange={e => setForm(f => ({ ...f, pph_pct: e.target.checked ? 2 : 0 }))}
-                  className="rounded accent-brand-600"/>
-                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">PPH (%)</span>
+                  className="rounded accent-[#d4af37]"/>
+                <span className={goldLabel + ' !mb-0'}>PPH (%)</span>
               </label>
               <input type="number" min="0" max="100" value={form.pph_pct}
                 onChange={e => setForm(f => ({ ...f, pph_pct: parseFloat(e.target.value) || 0 }))}
                 disabled={form.pph_pct === 0}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white disabled:bg-gray-100 disabled:text-gray-300"/>
+                className={`${goldInput} disabled:opacity-40`}/>
             </div>
           </div>
-          <div className="space-y-1.5 text-sm">
-            <div className="flex justify-between text-gray-500"><span>Sub Total</span><span className="font-medium text-gray-700">{fmtRp(subTotal)}</span></div>
-            {discountAmt > 0 && <div className="flex justify-between text-gray-500"><span>Diskon {form.discount_pct}%</span><span className="font-medium text-red-500">− {fmtRp(discountAmt)}</span></div>}
-            <div className="flex justify-between text-gray-500"><span>PPN {form.ppn_pct}%</span><span className="font-medium text-gray-700">+ {fmtRp(ppnAmt)}</span></div>
-            <div className="flex justify-between font-bold text-brand-700 text-base pt-2 border-t border-gray-200 mt-2">
-              <span>Total Invoice</span><span>{fmtRp(totalAmount)}</span>
+          <div className="space-y-1.5 text-sm font-mono">
+            <div className="flex justify-between text-[#d4af37]/50"><span>Sub Total</span><span className="font-medium text-[#f5d77f]">{fmtRp(subTotal)}</span></div>
+            {discountAmt > 0 && <div className="flex justify-between text-[#d4af37]/50"><span>Diskon {form.discount_pct}%</span><span className="font-medium text-red-400">− {fmtRp(discountAmt)}</span></div>}
+            <div className="flex justify-between text-[#d4af37]/50"><span>PPN {form.ppn_pct}%</span><span className="font-medium text-[#f5d77f]">+ {fmtRp(ppnAmt)}</span></div>
+            <div className="flex justify-between font-bold text-[#f5d77f] text-base pt-2 border-t border-[#d4af37]/20 mt-2">
+              <span>Total Invoice Amount</span><span>{fmtRp(totalAmount)}</span>
             </div>
-            <div className="flex justify-between text-xs text-gray-400">
+            <div className="flex justify-between text-xs text-[#d4af37]/40">
               <span>PPH {form.pph_pct}% (dipotong client)</span>
               <span className="text-red-400">− {fmtRp(pphAmt)}</span>
             </div>
-            <div className="flex justify-between text-sm font-bold text-emerald-700 pt-1.5 border-t border-dashed border-gray-200">
+            <div className="flex justify-between text-sm font-bold text-emerald-400 pt-1.5 border-t border-dashed border-[#d4af37]/20">
               <span>Total Diterima</span><span>{fmtRp(realTotal)}</span>
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: 'Bank', key: 'bank_name' as const },
-            { label: 'Nama Rekening', key: 'bank_account_name' as const },
-            { label: 'No. Rekening', key: 'bank_account_number' as const },
-          ].map(({ label, key }) => (
-            <div key={key}>
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{label}</label>
-              <input value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
-            </div>
-          ))}
-        </div>
-
-        <div>
-          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Catatan</label>
-          <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-            rows={2} placeholder="For any question please contact us"
-            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none"/>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={goldLabel}>Bank Payment Account Option</label>
+            <select value={selectedBankIdx}
+              onChange={e => {
+                const b = BANK_ACCOUNTS[Number(e.target.value)]
+                if (!b) return
+                setForm(f => ({ ...f, bank_name: b.bank_name, bank_account_name: b.bank_account_name, bank_account_number: b.bank_account_number }))
+              }}
+              className={goldInput}>
+              {selectedBankIdx === -1 && (
+                <option value={-1}>{form.bank_name} | {form.bank_account_number} | {form.bank_account_name}</option>
+              )}
+              {BANK_ACCOUNTS.map((b, i) => (
+                <option key={i} value={i}>{b.bank_name} | {b.bank_account_number} | {b.bank_account_name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={goldLabel}>Additional Notes &amp; Terms (optional)</label>
+            <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+              rows={1} placeholder="Special notes or contractual terms displayed at the bottom of the invoice..."
+              className={`${goldInput} resize-none`}/>
+          </div>
         </div>
 
         {error && (
-          <div className="flex items-center gap-2.5 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
-            <X size={14} className="text-red-500 flex-shrink-0"/>
-            <p className="text-xs text-red-600">{error}</p>
+          <div className="flex items-center gap-2.5 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
+            <X size={14} className="text-red-400 flex-shrink-0"/>
+            <p className="text-xs text-red-400">{error}</p>
           </div>
         )}
 
-        <div className="flex gap-2.5">
-          <button onClick={cancelForm} className="px-4 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors">
-            Batal
+        <div className="flex justify-end gap-2.5">
+          <button onClick={cancelForm}
+            className="px-5 py-2.5 border border-[#d4af37]/30 rounded-full text-sm font-bold uppercase tracking-wide text-[#d4af37] hover:bg-[#d4af37]/10 transition-colors">
+            Cancel
           </button>
           <button onClick={handleSave} disabled={saving}
-            className="flex-1 bg-brand-600 text-white py-3 rounded-xl font-semibold text-sm hover:bg-brand-700 disabled:opacity-60 flex items-center justify-center gap-2 transition-colors shadow-sm">
-            <Save size={14}/> {saving ? 'Menyimpan...' : editingId ? 'Perbarui Invoice' : 'Simpan Invoice'}
+            className="px-5 py-2.5 bg-[#d4af37] text-black rounded-full font-bold text-sm uppercase tracking-wide hover:bg-[#f5d77f] disabled:opacity-60 flex items-center justify-center gap-2 transition-colors shadow-sm shadow-[#d4af37]/30">
+            <Save size={14}/> {saving ? 'Saving...' : editingId ? 'Update Invoice' : 'Save Invoice'}
           </button>
         </div>
       </div>
@@ -609,7 +603,8 @@ export default function InvoicePanel({ profile }: { profile: any }) {
               <button onClick={() => {
                 const today = new Date().toISOString().slice(0, 10)
                 const num = nextInvoiceNumber(today, invoices.map(i => i.invoice_number))
-                setForm(f => ({ ...f, invoice_date: today, invoice_number: num, due_date: addDays(today, 14) }))
+                setForm(f => ({ ...f, invoice_date: today, invoice_number: num, due_date: addDays(today, 15) }))
+                setDueDateTouched(false)
                 setShowCreate(true)
               }}
                 className="flex items-center gap-2 bg-brand-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-brand-700 transition-colors shadow-sm">
@@ -784,10 +779,10 @@ export default function InvoicePanel({ profile }: { profile: any }) {
                                           <td className="px-3 py-2.5">
                                             <span className="bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full font-semibold text-[10px]">{item.name}</span>
                                           </td>
-                                          <td className="px-3 py-2.5 text-gray-500">{item.description || '—'}</td>
-                                          <td className="px-3 py-2.5 text-center font-bold text-gray-800">{item.qty} {item.scale || 'Pc'}</td>
-                                          <td className="px-3 py-2.5 text-right text-gray-500">{item.is_free ? 'Free' : fmtRp(item.price)}</td>
-                                          <td className="px-3 py-2.5 text-right font-bold text-gray-800">{item.is_free ? '—' : fmtRp(item.amount)}</td>
+                                          <td className="px-3 py-2.5 text-gray-500 whitespace-pre-line">{item.description || '—'}</td>
+                                          <td className="px-3 py-2.5 text-center font-bold text-gray-800">{item.qty} {item.scale || 'pc'}</td>
+                                          <td className="px-3 py-2.5 text-right text-gray-500">{fmtRp(item.price)}</td>
+                                          <td className="px-3 py-2.5 text-right font-bold text-gray-800">{fmtRp(item.amount)}</td>
                                         </tr>
                                       ))}
                                     </tbody>

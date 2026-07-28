@@ -91,7 +91,7 @@ function ClientDashboard({ profile }: { profile: any }) {
         const qty = Number(i.qty) || 0
         const jps = Number(i.jam_per_sesi) || 0
         if (jps > 0) return s + qty * jps
-        return s + (i.scale === 'Hour' ? qty : 0)
+        return s + ((i.scale || '').toLowerCase() === 'hour' ? qty : 0)
       }, 0)
       setStats({ totalPlan: slotsArr.length, totalSucceed: reps.length, remainingPlan: remainingRes.count || 0, gmv: totGmv, impression: totImp, viewer: totView, comment: totCom, scheduledHours, totalHours })
       const byDate: Record<string, any> = {}

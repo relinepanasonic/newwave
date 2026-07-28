@@ -4,13 +4,10 @@
 interface InvoiceItem {
   name: string
   description?: string
-  tipe_live?: string
-  jam_per_sesi?: number
   scale?: string
   qty: number
   price: number
   amount: number
-  is_free?: boolean
 }
 
 interface Invoice {
@@ -38,12 +35,17 @@ function esc(s: string) {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-// Description lines → bullet list (split on newline or " · " or "•")
+// Description lines → bullet list. Each newline is its own bullet (falls
+// back to splitting on " · " / "•" for old single-line descriptions); a
+// leading "*", "•", "·" or "-" marker on a line is stripped since the <li>
+// itself already renders as a bullet.
 function descToBullets(desc: string): string {
   if (!desc?.trim()) return ''
-  const parts = desc.split(/\n|•|·/).map(s => s.trim()).filter(Boolean)
-  if (parts.length <= 1) return `<span>${esc(desc)}</span>`
-  return `<ul>${parts.map(p => `<li>${esc(p)}</li>`).join('')}</ul>`
+  const lines = desc.split('\n').map(s => s.trim()).filter(Boolean)
+  const parts = lines.length > 1 ? lines : desc.split(/•|·/).map(s => s.trim()).filter(Boolean)
+  const clean = parts.map(p => p.replace(/^[*•·-]\s*/, ''))
+  if (clean.length <= 1) return `<span>${esc(clean[0] || '')}</span>`
+  return `<ul>${clean.map(p => `<li>${esc(p)}</li>`).join('')}</ul>`
 }
 
 export function printInvoice(inv: Invoice) {
@@ -67,9 +69,9 @@ export function printInvoice(inv: Invoice) {
         <div class="nm">${esc(it.name)}</div>
       </td>
       <td class="c-desc">${descToBullets(it.description || '')}</td>
-      <td class="c-qty">${it.qty} ${esc(it.scale || 'Pc')}</td>
-      <td class="c-price">${it.is_free ? 'Free' : rp(it.price)}</td>
-      <td class="c-amt">${it.is_free ? '0' : rp(it.amount)}</td>
+      <td class="c-qty">${it.qty} ${esc(it.scale || 'pc')}</td>
+      <td class="c-price">${rp(it.price)}</td>
+      <td class="c-amt">${rp(it.amount)}</td>
     </tr>`).join('')
 
   const html = `<!DOCTYPE html>

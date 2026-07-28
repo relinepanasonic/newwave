@@ -25,12 +25,9 @@ function admin() {
 interface InvoiceItemPayload {
   name: string
   description?: string
-  tipe_live?: string
-  jam_per_sesi?: number
   scale?: string
   qty: number
   price: number
-  is_free?: boolean
 }
 
 interface InvoicePayload {
@@ -62,7 +59,7 @@ function validate(row: any): string | null {
 // Mirrors the totals math InvoicePanel.tsx uses for in-app invoices, so a
 // pushed-in invoice lands with the same sub_total/total_amount semantics.
 function computeTotals(items: InvoiceItemPayload[], discountPct: number, ppnPct: number) {
-  const subTotal = items.reduce((s, i) => s + (i.is_free ? 0 : Number(i.qty || 0) * Number(i.price || 0)), 0)
+  const subTotal = items.reduce((s, i) => s + Number(i.qty || 0) * Number(i.price || 0), 0)
   const discountAmt = Math.round(subTotal * (discountPct / 100))
   const afterDiscount = subTotal - discountAmt
   const ppnAmt = Math.round(afterDiscount * (ppnPct / 100))
@@ -116,10 +113,9 @@ export async function POST(req: Request) {
     }
 
     const itemRows = items.map(i => ({
-      name: i.name, description: i.description || null, tipe_live: i.tipe_live || null,
-      jam_per_sesi: i.jam_per_sesi ?? 4, scale: i.scale || 'Pc', qty: Number(i.qty) || 0,
-      price: Number(i.price) || 0, amount: i.is_free ? 0 : Number(i.qty || 0) * Number(i.price || 0),
-      is_free: !!i.is_free,
+      name: i.name, description: i.description || null, scale: i.scale || 'pc',
+      qty: Number(i.qty) || 0, price: Number(i.price) || 0,
+      amount: Number(i.qty || 0) * Number(i.price || 0),
     }))
 
     let invoiceId: string | null = null
