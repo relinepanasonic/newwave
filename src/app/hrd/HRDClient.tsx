@@ -62,6 +62,7 @@ function periodLabel(start: string): string {
 
 // ── Host List Tab ─────────────────────────────────────────────────────────────
 function HostListTab() {
+  const { lang } = useLang()
   const [hosts, setHosts] = useState<Host[]>([])
   const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -164,7 +165,7 @@ function HostListTab() {
       setClearData(false)
     } else {
       const body = await res.json().catch(() => ({}))
-      alert('Gagal hapus host: ' + (body.error || res.statusText))
+      alert(tr('gagalHapusHost', lang) + (body.error || res.statusText))
     }
   }
 
@@ -201,41 +202,41 @@ function HostListTab() {
       <div className="flex items-start justify-between flex-wrap gap-3 mb-6">
         <div>
           <p className="text-sm text-gray-500">
-            {hosts.length} host terdaftar · {activeCount} aktif
-            {blockedCount > 0 && ` · ${blockedCount} diblokir`}
+            {hosts.length} {tr('hostTerdaftar', lang)} · {activeCount} {tr('aktifCount', lang)}
+            {blockedCount > 0 && ` · ${blockedCount} ${tr('diblokirCount', lang)}`}
           </p>
           <a href="https://drive.google.com/drive/folders/16J8ZA8R0nc0IshWnJpKv1a0mhksZ44ji?usp=sharing"
             target="_blank" rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 mt-1.5 text-xs text-brand-600 hover:underline font-medium">
-            <ExternalLink size={12}/> Buka Folder Google Drive KTP
+            <ExternalLink size={12}/> {tr('bukaFolderKtp', lang)}
           </a>
         </div>
         <button onClick={downloadCSV}
           className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors">
-          <Download size={14}/> Download CSV
+          <Download size={14}/> {tr('downloadCsvBtn', lang)}
         </button>
       </div>
 
       {loading ? (
-        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">Memuat...</div>
+        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">{tr('loading', lang)}</div>
       ) : hosts.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">Belum ada host terdaftar</div>
+        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">{tr('belumAdaHostTerdaftar', lang)}</div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
-                  <th className="px-4 py-3 text-left font-semibold w-8">No</th>
-                  <th className="px-4 py-3 text-left font-semibold min-w-[140px]">Nama</th>
-                  <th className="px-4 py-3 text-left font-semibold min-w-[90px]">Panggilan</th>
-                  <th className="px-4 py-3 text-left font-semibold min-w-[70px]">Status</th>
-                  <th className="px-4 py-3 text-left font-semibold min-w-[100px]">Tipe</th>
-                  <th className="px-4 py-3 text-left font-semibold min-w-[110px]">No HP</th>
-                  <th className="px-4 py-3 text-left font-semibold min-w-[140px]">NIK</th>
-                  <th className="px-4 py-3 text-left font-semibold min-w-[80px]">Foto KTP</th>
-                  <th className="px-4 py-3 text-left font-semibold min-w-[180px]">Link GDrive</th>
-                  <th className="px-4 py-3 text-left font-semibold w-24">Aksi</th>
+                  <th className="px-4 py-3 text-left font-semibold w-8">{tr('noCol', lang)}</th>
+                  <th className="px-4 py-3 text-left font-semibold min-w-[140px]">{tr('namaCol', lang)}</th>
+                  <th className="px-4 py-3 text-left font-semibold min-w-[90px]">{tr('panggilanCol', lang)}</th>
+                  <th className="px-4 py-3 text-left font-semibold min-w-[70px]">{tr('status', lang)}</th>
+                  <th className="px-4 py-3 text-left font-semibold min-w-[100px]">{tr('tipeCol', lang)}</th>
+                  <th className="px-4 py-3 text-left font-semibold min-w-[110px]">{tr('noHpCol', lang)}</th>
+                  <th className="px-4 py-3 text-left font-semibold min-w-[140px]">{tr('nikCol', lang)}</th>
+                  <th className="px-4 py-3 text-left font-semibold min-w-[80px]">{tr('fotoKtpCol', lang)}</th>
+                  <th className="px-4 py-3 text-left font-semibold min-w-[180px]">{tr('linkGdriveCol', lang)}</th>
+                  <th className="px-4 py-3 text-left font-semibold w-24">{tr('aksiCol', lang)}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -248,7 +249,7 @@ function HostListTab() {
                         <div className="flex items-center gap-1.5">
                           <p className="font-semibold text-gray-900">{host.full_name}</p>
                           {host.role === 'host_manager' && (
-                            <span className="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide">Manager</span>
+                            <span className="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide">{tr('managerBadge', lang)}</span>
                           )}
                         </div>
                         {host.phone && <p className="text-[10px] text-gray-400">{host.phone}</p>}
@@ -267,7 +268,7 @@ function HostListTab() {
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
                           isBlocked ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-700'
                         }`}>
-                          {isBlocked ? 'Cuti' : 'Aktif'}
+                          {isBlocked ? tr('cutiStatus', lang) : tr('active', lang)}
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -293,7 +294,7 @@ function HostListTab() {
                         {host.ktp_photo_url ? (
                           <a href={host.ktp_photo_url} target="_blank" rel="noopener noreferrer"
                             className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline">
-                            <ExternalLink size={11}/> Lihat
+                            <ExternalLink size={11}/> {tr('view', lang)}
                           </a>
                         ) : <span className="text-xs text-gray-300">—</span>}
                       </td>
@@ -306,15 +307,15 @@ function HostListTab() {
                         ) : host.gdrive_folder_url ? (
                           <a href={host.gdrive_folder_url} target="_blank" rel="noopener noreferrer"
                             className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline max-w-[160px] truncate">
-                            <ExternalLink size={11}/> Folder Host
+                            <ExternalLink size={11}/> {tr('folderHost', lang)}
                           </a>
                         ) : host.gdrive_ktp_url ? (
                           <a href={host.gdrive_ktp_url} target="_blank" rel="noopener noreferrer"
                             className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline max-w-[160px] truncate">
-                            <ExternalLink size={11}/> Drive Link
+                            <ExternalLink size={11}/> {tr('driveLink', lang)}
                           </a>
                         ) : (
-                          <span className="text-xs text-gray-300">— belum ada</span>
+                          <span className="text-xs text-gray-300">{tr('belumAda', lang)}</span>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -333,7 +334,7 @@ function HostListTab() {
                           ) : (
                             <>
                               <button onClick={() => startEdit(host)}
-                                title="Edit"
+                                title={tr('editTitle', lang)}
                                 className="p-1.5 bg-gray-100 text-gray-500 rounded-lg hover:bg-brand-100 hover:text-brand-700 transition-colors">
                                 <Edit2 size={13}/>
                               </button>
@@ -341,21 +342,21 @@ function HostListTab() {
                                 <button
                                   onClick={() => reactivate(host)}
                                   disabled={blockingId === host.id}
-                                  title="Aktifkan kembali"
+                                  title={tr('aktifkanKembali', lang)}
                                   className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors disabled:opacity-50">
                                   <CheckCircle size={13}/>
                                 </button>
                               ) : (
                                 <button
                                   onClick={() => { setCutiHost(host); setCutiReason('') }}
-                                  title="Cuti / On Leave"
+                                  title={tr('cutiOnLeaveTitle', lang)}
                                   className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-amber-100 hover:text-amber-600 transition-colors">
                                   <Plane size={13}/>
                                 </button>
                               )}
                               <button
                                 onClick={() => setDeleteHost(host)}
-                                title="Hapus host (fired)"
+                                title={tr('hapusHostFired', lang)}
                                 className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-600 transition-colors">
                                 <Trash2 size={13}/>
                               </button>
@@ -381,26 +382,26 @@ function HostListTab() {
                 <Plane size={16} className="text-amber-500"/>
               </div>
               <div>
-                <h3 className="font-bold text-gray-900 text-sm">Cuti / On Leave</h3>
+                <h3 className="font-bold text-gray-900 text-sm">{tr('cutiOnLeaveTitle', lang)}</h3>
                 <p className="text-[11px] text-gray-400">{cutiHost.full_name}</p>
               </div>
             </div>
             <div className="p-5 space-y-3">
-              <p className="text-xs text-gray-500">Host yang sedang cuti tidak bisa login sampai diaktifkan kembali.</p>
+              <p className="text-xs text-gray-500">{tr('hostSedangCutiDesc', lang)}</p>
               <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Alasan / Keterangan (opsional)</label>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{tr('alasanKeteranganOpsional', lang)}</label>
                 <textarea value={cutiReason} onChange={e => setCutiReason(e.target.value)}
-                  rows={2} placeholder="Cuti melahirkan, sakit, dll."
+                  rows={2} placeholder={tr('cutiPlaceholder', lang)}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"/>
               </div>
               <div className="flex gap-2.5 pt-1">
                 <button onClick={() => setCutiHost(null)} disabled={cutiSaving}
                   className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors">
-                  Batal
+                  {tr('cancel', lang)}
                 </button>
                 <button onClick={confirmCuti} disabled={cutiSaving}
                   className="flex-1 bg-amber-500 text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-amber-600 disabled:opacity-60 transition-colors">
-                  {cutiSaving ? 'Menyimpan...' : 'Set Cuti'}
+                  {cutiSaving ? tr('saving', lang) : tr('setCuti', lang)}
                 </button>
               </div>
             </div>
@@ -417,13 +418,13 @@ function HostListTab() {
                 <Trash2 size={16} className="text-red-500"/>
               </div>
               <div>
-                <h3 className="font-bold text-gray-900 text-sm">Hapus Host</h3>
+                <h3 className="font-bold text-gray-900 text-sm">{tr('hapusHostTitle', lang)}</h3>
                 <p className="text-[11px] text-gray-400">{deleteHost.full_name}</p>
               </div>
             </div>
             <div className="p-5 space-y-3">
               <p className="text-xs text-gray-500">
-                Akun host ini akan dihapus permanen (fired). Tindakan ini tidak bisa dibatalkan.
+                {tr('hapusHostPermanenDesc', lang)}
               </p>
               {/* Toggle: clear data or keep history */}
               <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
@@ -433,23 +434,21 @@ function HostListTab() {
                   className="mt-0.5 accent-red-500 w-4 h-4 flex-shrink-0"/>
                 <div>
                   <p className={`text-xs font-semibold ${clearData ? 'text-red-700' : 'text-gray-700'}`}>
-                    Hapus jadwal &amp; laporan
+                    {tr('hapusJadwalLaporan', lang)}
                   </p>
                   <p className="text-[10px] text-gray-400 mt-0.5">
-                    {clearData
-                      ? 'Semua jadwal dan laporan host ini akan ikut dihapus.'
-                      : 'Default: jadwal & laporan tetap tersimpan, hanya akun yang dihapus.'}
+                    {clearData ? tr('hapusJadwalLaporanOn', lang) : tr('hapusJadwalLaporanOff', lang)}
                   </p>
                 </div>
               </label>
               <div className="flex gap-2.5 pt-1">
                 <button onClick={() => { setDeleteHost(null); setClearData(false) }} disabled={deleting}
                   className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors">
-                  Batal
+                  {tr('cancel', lang)}
                 </button>
                 <button onClick={confirmDelete} disabled={deleting}
                   className="flex-1 bg-red-500 text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-red-600 disabled:opacity-60 transition-colors">
-                  {deleting ? 'Menghapus...' : 'Hapus Permanen'}
+                  {deleting ? tr('menghapus', lang) : tr('hapusPermanen', lang)}
                 </button>
               </div>
             </div>
@@ -462,6 +461,7 @@ function HostListTab() {
 
 // ── Gaji Tab ──────────────────────────────────────────────────────────────────
 function GajiTab() {
+  const { lang } = useLang()
   const [rows, setRows] = useState<PayRow[]>([])
   const [excludedRows, setExcludedRows] = useState<PayRow[]>([])
   const [kasbonByHost, setKasbonByHost] = useState<Record<string, number>>({})
@@ -817,13 +817,13 @@ function GajiTab() {
   }
 
   if (loading) {
-    return <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">Memuat data gaji...</div>
+    return <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">{tr('belumAdaDataGajiMemuat', lang)}</div>
   }
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <p className="text-sm text-gray-500">Periode: 21 – 20 tiap bulan</p>
+        <p className="text-sm text-gray-500">{tr('periode21_20', lang)}</p>
         <div className="flex items-center gap-3">
           <select value={selectedPeriod} onChange={e => setSelectedPeriod(e.target.value)}
             className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
@@ -840,11 +840,11 @@ function GajiTab() {
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {[
-          { label: 'Total Host', value: `${rows.length}` },
-          { label: 'Total Jam Dilaporkan', value: `${Number(totalReportedHours.toFixed(1))} jam` },
-          { label: 'Total Gaji Aktual', value: formatCurrency(totalActualSalary) },
-          { label: 'Total Gaji Bersih', value: formatCurrency(totalNetSalary) },
-          { label: 'Sisa Kasbon Belum Lunas', value: formatCurrency(totalKasbon) },
+          { label: tr('totalHostCard', lang), value: `${rows.length}` },
+          { label: tr('totalJamDilaporkan', lang), value: `${Number(totalReportedHours.toFixed(1))} ${tr('durasiValue', lang)}` },
+          { label: tr('totalGajiAktual', lang), value: formatCurrency(totalActualSalary) },
+          { label: tr('totalGajiBersih', lang), value: formatCurrency(totalNetSalary) },
+          { label: tr('sisaKasbonBelumLunas', lang), value: formatCurrency(totalKasbon) },
         ].map(({ label, value }) => (
           <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
             <p className="text-xs text-gray-500 font-medium mb-1">{label}</p>
@@ -855,11 +855,11 @@ function GajiTab() {
 
       {excludedRows.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap text-xs bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5">
-          <span className="text-gray-400">{excludedRows.length} host disembunyikan periode ini:</span>
+          <span className="text-gray-400">{excludedRows.length} {tr('hostDisembunyikan', lang)}</span>
           {excludedRows.map(r => (
             <button key={r.host_id} onClick={() => restoreHost(r.host_id)}
               className="flex items-center gap-1 bg-white border border-gray-200 rounded-full px-2.5 py-1 text-gray-600 hover:border-brand-400 hover:text-brand-700 transition-colors">
-              {r.full_name} <span className="text-brand-500 font-semibold">↺ Tampilkan</span>
+              {r.full_name} <span className="text-brand-500 font-semibold">{tr('tampilkanBtn', lang)}</span>
             </button>
           ))}
         </div>
@@ -867,24 +867,24 @@ function GajiTab() {
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         {rows.length === 0 ? (
-          <div className="p-10 text-center text-sm text-gray-400">Belum ada data gaji untuk periode ini</div>
+          <div className="p-10 text-center text-sm text-gray-400">{tr('belumAdaDataGajiPeriode', lang)}</div>
         ) : (
           <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
-                <th className="px-4 py-3 text-left font-semibold sticky left-0 z-20 bg-gray-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">Nama Host</th>
-                <th className="px-4 py-3 text-right font-semibold">Tarif/Jam</th>
-                <th className="px-4 py-3 text-right font-semibold">Jam Terjadwal</th>
-                <th className="px-4 py-3 text-right font-semibold">Forecast Gaji</th>
-                <th className="px-4 py-3 text-right font-semibold">Jam Dilaporkan</th>
-                <th className="px-4 py-3 text-right font-semibold">Gaji Aktual</th>
-                <th className="px-4 py-3 text-right font-semibold">Tunjangan</th>
-                <th className="px-4 py-3 text-right font-semibold">Bonus</th>
-                <th className="px-4 py-3 text-right font-semibold">Bayar Kasbon</th>
-                <th className="px-4 py-3 text-right font-semibold">Pinalti</th>
-                <th className="px-4 py-3 text-right font-semibold">Gaji Bersih</th>
-                <th className="px-4 py-3 text-center font-semibold w-40">Aksi</th>
+                <th className="px-4 py-3 text-left font-semibold sticky left-0 z-20 bg-gray-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">{tr('namaCol', lang)} {tr('host', lang)}</th>
+                <th className="px-4 py-3 text-right font-semibold">{tr('hourlyRate', lang)}</th>
+                <th className="px-4 py-3 text-right font-semibold">{tr('scheduledHours', lang)}</th>
+                <th className="px-4 py-3 text-right font-semibold">{tr('forecastGaji', lang)}</th>
+                <th className="px-4 py-3 text-right font-semibold">{tr('reportedHours', lang)}</th>
+                <th className="px-4 py-3 text-right font-semibold">{tr('actualSalary', lang)}</th>
+                <th className="px-4 py-3 text-right font-semibold">{tr('allowance', lang)}</th>
+                <th className="px-4 py-3 text-right font-semibold">{tr('bonus', lang)}</th>
+                <th className="px-4 py-3 text-right font-semibold">{tr('bayarKasbon', lang)}</th>
+                <th className="px-4 py-3 text-right font-semibold">{tr('penalty', lang)}</th>
+                <th className="px-4 py-3 text-right font-semibold">{tr('netSalary', lang)}</th>
+                <th className="px-4 py-3 text-center font-semibold w-40">{tr('aksiCol', lang)}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -928,25 +928,25 @@ function GajiTab() {
                   <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                     {confirmExcludeId === row.host_id ? (
                       <div className="flex items-center justify-center gap-1">
-                        <span className="text-[10px] text-gray-500">Sembunyikan?</span>
+                        <span className="text-[10px] text-gray-500">{tr('sembunyikanQuestion', lang)}</span>
                         <button onClick={() => excludeHost(row.host_id)}
-                          className="text-[10px] bg-red-500 text-white px-2 py-1 rounded-lg font-semibold">Ya</button>
+                          className="text-[10px] bg-red-500 text-white px-2 py-1 rounded-lg font-semibold">{tr('yes', lang)}</button>
                         <button onClick={() => setConfirmExcludeId(null)}
-                          className="text-[10px] bg-gray-100 text-gray-600 px-2 py-1 rounded-lg font-semibold">Batal</button>
+                          className="text-[10px] bg-gray-100 text-gray-600 px-2 py-1 rounded-lg font-semibold">{tr('cancel', lang)}</button>
                       </div>
                     ) : (
                       <div className="flex items-center justify-center gap-1">
-                        <button onClick={() => { setEditHost(row); setEditRate(row.hourly_rate) }} title="Edit Tarif/Jam"
+                        <button onClick={() => { setEditHost(row); setEditRate(row.hourly_rate) }} title={tr('editTarifJam', lang)}
                           className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors">
                           <Edit2 size={13}/>
                         </button>
-                        <button onClick={() => setConfirmExcludeId(row.host_id)} title="Sembunyikan dari periode ini"
+                        <button onClick={() => setConfirmExcludeId(row.host_id)} title={tr('sembunyikanDariPeriode', lang)}
                           className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
                           <Trash2 size={13}/>
                         </button>
-                        <button onClick={() => exportPDF(row)} title="Generate Slip Gaji"
+                        <button onClick={() => exportPDF(row)} title={tr('generateSlipGaji', lang)}
                           className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-medium border border-brand-200 rounded-lg px-2 py-1 hover:bg-brand-50 transition-colors">
-                          <FileText size={12}/> Slip
+                          <FileText size={12}/> {tr('slipLabel', lang)}
                         </button>
                       </div>
                     )}
@@ -964,16 +964,16 @@ function GajiTab() {
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setEditHost(null)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <p className="font-bold text-gray-900 text-sm">Edit Tarif/Jam — {editHost.full_name}</p>
+              <p className="font-bold text-gray-900 text-sm">{tr('editTarifJam', lang)} — {editHost.full_name}</p>
               <button onClick={() => setEditHost(null)}><X size={16} className="text-gray-400"/></button>
             </div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Tarif per Jam (Rp)</label>
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">{tr('tarifPerJamRp', lang)}</label>
             <CurrencyInput value={editRate} onChange={setEditRate}/>
             <div className="flex gap-2 mt-4">
-              <button onClick={() => setEditHost(null)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500">Batal</button>
+              <button onClick={() => setEditHost(null)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500">{tr('cancel', lang)}</button>
               <button onClick={saveRate} disabled={savingRate}
                 className="flex-1 bg-brand-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-brand-700 disabled:opacity-60">
-                {savingRate ? 'Menyimpan...' : 'Simpan'}
+                {savingRate ? tr('saving', lang) : tr('save', lang)}
               </button>
             </div>
           </div>
@@ -993,24 +993,24 @@ function GajiTab() {
             </div>
             <div className="overflow-auto">
               {detailLoading ? (
-                <div className="p-10 text-center text-sm text-gray-400">Memuat...</div>
+                <div className="p-10 text-center text-sm text-gray-400">{tr('loading', lang)}</div>
               ) : detailRows.length === 0 ? (
-                <div className="p-10 text-center text-sm text-gray-400">Tidak ada sesi terjadwal pada periode ini</div>
+                <div className="p-10 text-center text-sm text-gray-400">{tr('noScheduledSessionsPeriod', lang)}</div>
               ) : (
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-gray-50">
                     <tr className="text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
-                      <th className="px-4 py-2.5 text-left font-semibold whitespace-nowrap">Tanggal</th>
-                      <th className="px-4 py-2.5 text-left font-semibold">Jam</th>
-                      <th className="px-4 py-2.5 text-right font-semibold">Durasi</th>
-                      <th className="px-4 py-2.5 text-left font-semibold">Brand</th>
-                      <th className="px-4 py-2.5 text-left font-semibold">Platform</th>
-                      <th className="px-4 py-2.5 text-center font-semibold">Report</th>
-                      <th className="px-4 py-2.5 text-right font-semibold">GMV</th>
-                      <th className="px-4 py-2.5 text-right font-semibold">Impresi</th>
-                      <th className="px-4 py-2.5 text-right font-semibold">Penonton</th>
-                      <th className="px-4 py-2.5 text-right font-semibold">Transaksi</th>
-                      <th className="px-4 py-2.5 text-right font-semibold">Komentar</th>
+                      <th className="px-4 py-2.5 text-left font-semibold whitespace-nowrap">{tr('date', lang)}</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">{tr('jamMulaiCol', lang)}</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">{tr('durasiRow', lang)}</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">{tr('brand', lang)}</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">{tr('platform', lang)}</th>
+                      <th className="px-4 py-2.5 text-center font-semibold">{tr('reportShort', lang)}</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">{tr('gmvCol', lang)}</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">{tr('impresiCol', lang)}</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">{tr('penontonCol', lang)}</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">{tr('transaksiLabel', lang)}</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">{tr('komentarCol', lang)}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
