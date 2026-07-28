@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, X, Save, ChevronDown, ChevronUp, FileText, CheckCircle, Pencil, Trash2, Printer, Copy } from 'lucide-react'
+import { Plus, X, Save, ChevronDown, ChevronUp, FileText, CheckCircle, Pencil, Trash2, Printer, Copy, Check } from 'lucide-react'
 import { printInvoice } from './printInvoice'
 import CurrencyInput from '@/components/CurrencyInput'
 
@@ -77,6 +77,8 @@ interface Invoice {
   notes: string
   status: string
   created_at: string
+  source?: string
+  external_id?: string | null
   invoice_items?: InvoiceItem[]
 }
 
@@ -131,6 +133,8 @@ export default function InvoicePanel({ profile }: { profile: any }) {
   const [showCreate, setShowCreate] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [showApiInfo, setShowApiInfo] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -308,6 +312,24 @@ export default function InvoicePanel({ profile }: { profile: any }) {
   }
 
   function calcPph(inv: Invoice) { return Math.round(inv.total_amount * ((inv.pph_pct ?? 2) / 100)) }
+
+  const apiSample = `curl -X POST https://app.newwave.id/api/accounting/invoices \\
+  -H "Authorization: Bearer <ACCOUNTING_API_KEY>" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "invoice_number": "PRO-2607001",
+    "invoice_date": "2026-07-28",
+    "due_date": "2026-08-11",
+    "brand": "Niko Electronic",
+    "invoice_to": "Niko Electronic",
+    "ppn_pct": 11,
+    "pph_pct": 2,
+    "items": [
+      { "name": "Silver", "description": "8 sesi live", "qty": 8, "price": 750000, "scale": "Pc" }
+    ],
+    "source": "proone",
+    "external_id": "proone-inv-1029"
+  }'`
 
   const createForm = showCreate && isSuperadmin && (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
@@ -577,18 +599,47 @@ export default function InvoicePanel({ profile }: { profile: any }) {
             {isSuperadmin ? `${invoices.length} invoice terdaftar` : `Invoice untuk brand ${clientBrand}`}
           </p>
         </div>
-        {isSuperadmin && !showCreate && (
-          <button onClick={() => {
-            const today = new Date().toISOString().slice(0, 10)
-            const num = nextInvoiceNumber(today, invoices.map(i => i.invoice_number))
-            setForm(f => ({ ...f, invoice_date: today, invoice_number: num, due_date: addDays(today, 14) }))
-            setShowCreate(true)
-          }}
-            className="flex items-center gap-2 bg-brand-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-brand-700 transition-colors shadow-sm">
-            <Plus size={15}/> Buat Invoice
-          </button>
+        {isSuperadmin && (
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowApiInfo(s => !s)}
+              className="text-sm border border-gray-200 rounded-xl px-3 py-2.5 text-gray-600 hover:bg-gray-50 transition-colors">
+              API
+            </button>
+            {!showCreate && (
+              <button onClick={() => {
+                const today = new Date().toISOString().slice(0, 10)
+                const num = nextInvoiceNumber(today, invoices.map(i => i.invoice_number))
+                setForm(f => ({ ...f, invoice_date: today, invoice_number: num, due_date: addDays(today, 14) }))
+                setShowCreate(true)
+              }}
+                className="flex items-center gap-2 bg-brand-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-brand-700 transition-colors shadow-sm">
+                <Plus size={15}/> Buat Invoice
+              </button>
+            )}
+          </div>
         )}
       </div>
+
+      {showApiInfo && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+          <p className="text-sm font-bold text-gray-900">Push Invoice via API (ProOne ↔ New Wave)</p>
+          <p className="text-xs text-gray-500">
+            New Wave otomatis push invoice yang dibuat di sini ke ProOne. Untuk arah sebaliknya, endpoint ini menerima push dari ProOne (atau aplikasi lain). Butuh env var <code className="bg-gray-100 px-1 py-0.5 rounded text-[11px]">ACCOUNTING_API_KEY</code> di server.
+            Kirim <code className="bg-gray-100 px-1 py-0.5 rounded text-[11px]">source</code> + <code className="bg-gray-100 px-1 py-0.5 rounded text-[11px]">external_id</code> supaya push ulang tidak duplikat (upsert otomatis).
+            Bisa juga kirim banyak sekaligus lewat <code className="bg-gray-100 px-1 py-0.5 rounded text-[11px]">{'{ "invoices": [...] }'}</code>.
+          </p>
+          <div className="relative">
+            <pre className="bg-gray-900 text-gray-100 text-[11px] rounded-xl p-3 overflow-x-auto whitespace-pre-wrap">{apiSample}</pre>
+            <button onClick={() => { navigator.clipboard.writeText(apiSample); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
+              className="absolute top-2 right-2 p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors">
+              {copied ? <Check size={12} className="text-emerald-400"/> : <Copy size={12}/>}
+            </button>
+          </div>
+          <p className="text-[11px] text-gray-400">
+            GET dan DELETE tersedia di endpoint yang sama (dengan Authorization header yang sama) untuk baca-balik atau hapus data yang sudah dipush.
+          </p>
+        </div>
+      )}
 
       {createForm}
 
@@ -639,6 +690,11 @@ export default function InvoicePanel({ profile }: { profile: any }) {
                         <td className="px-3 py-3 whitespace-nowrap">
                           <span className={`inline-block w-1 h-4 rounded-full align-middle mr-2 ${st.border.replace('border-l-', 'bg-')}`}/>
                           <span className="font-bold text-gray-900 text-xs align-middle">{inv.invoice_number}</span>
+                          {inv.source && inv.source !== 'newwave' && (
+                            <span className="ml-1.5 text-[9px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-semibold align-middle whitespace-nowrap">
+                              via {inv.source}
+                            </span>
+                          )}
                         </td>
                         <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600">
                           {new Date(inv.invoice_date + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
