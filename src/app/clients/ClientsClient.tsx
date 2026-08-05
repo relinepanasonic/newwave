@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import InvoicePanel from '@/app/invoice/InvoicePanel'
@@ -9,36 +9,37 @@ import { ChevronDown, ChevronUp, Plus, Trash2, Ban, AlertTriangle } from 'lucide
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
 import TimeInput from '@/components/TimeInput'
+import { formatCurrency, PLATFORM_COLORS } from '@/lib/utils'
 
 type Tab = 'clients' | 'invoice' | 'servicepkg' | 'products' | 'blackout'
 
 interface ClientProfile { id: string; full_name: string; client_brand: string }
-interface PackageCapacity {
-  tipe: string    // e.g. "Regular", "Silver"
-  slots: number   // purchased slot count (Slot)
-  jam_per_sesi: number
-  planSlots: number     // scheduled slots carrying this tipe_live (Scheduled)
-  successSlots: number  // of those, how many already have a live report (Succeed)
+interface LiveReportRow {
+  id: string; report_date: string; brand: string | null; platform: string | null
+  start_time: string | null; duration_hours: number | null
+  gmv: number; impression: number; viewer: number; trans: number; comment_count: number
+  hostName: string
 }
 interface ClientMeter {
   brand: string; clientName: string
-  capacitySlots: number   // total slots purchased, all packages (Slot)
-  planSlots: number       // total scheduled sessions (Scheduled)
-  successSlots: number    // scheduled sessions with a live report (Succeed)
-  packages: PackageCapacity[]  // per-package breakdown from invoice items
-  isAuto?: boolean        // surfaced from an invoice's brand, no client login/profile yet
+  lastMonthKuota: number   // carried-over unused Kuota balance from before the selected month
+  topUp: number            // new hour-based Kuota purchased within the selected month
+  totalKuota: number       // lastMonthKuota + topUp — the meter's 100% baseline
+  activeLive: number       // reported live sessions within the selected month
+  planThisMonth: number    // scheduled sessions within the selected month
+  reports: LiveReportRow[] // that brand's live reports within the selected month
+  isAuto?: boolean         // surfaced from an invoice's brand, no client login/profile yet
 }
 
-// An "hour"-scaled invoice item bills hours, not sessions -- convert it to
-// slot-equivalent (hours ÷ hours-per-session) before adding to a client's
-// slot balance, instead of counting each hour as a whole slot.
+// Only "hour"-scaled invoice items count toward a client's Kuota (converted
+// hours ÷ hours-per-session → slot-equivalent). Other scales (pc, month, day)
+// are addon/one-off billing lines, not session quota, so they contribute 0 --
+// e.g. a "50 pc" Prime Time addon shouldn't inflate the live-session quota.
 function itemSlots(it: { scale?: string | null; qty: number; jam_per_sesi?: number }): number {
+  if ((it.scale || '').toLowerCase() !== 'hour') return 0
   const qty = Number(it.qty) || 0
-  if ((it.scale || '').toLowerCase() === 'hour') {
-    const jps = Number(it.jam_per_sesi) || 4
-    return jps > 0 ? qty / jps : 0
-  }
-  return qty
+  const jps = Number(it.jam_per_sesi) || 4
+  return jps > 0 ? qty / jps : 0
 }
 
 function getMonthOptions() {
@@ -65,6 +66,14 @@ function severity(pct: number, exceeds: boolean): 'low' | 'mid' | 'high' {
 function fmtSlots(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1)
 }
+function monthNameID(dateStr: string): string {
+  const name = new Date(dateStr + 'T00:00:00').toLocaleDateString('id-ID', { month: 'long' })
+  return name.charAt(0).toUpperCase() + name.slice(1)
+}
+function fmtDetailDate(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  return `${d.getDate()}-${d.toLocaleDateString('en-US', { month: 'short' })}-${d.getFullYear()}`
+}
 const DOT_CLASSES = { low: 'bg-brand-200', mid: 'bg-brand-400', high: 'bg-brand-700' }
 const BADGE_CLASSES = {
   low: 'bg-brand-50 text-brand-600', mid: 'bg-brand-100 text-brand-700', high: 'bg-brand-700 text-white',
@@ -72,8 +81,10 @@ const BADGE_CLASSES = {
 
 function ClientListTab() {
   const { lang } = useLang()
-  const [meters, setMeters] = useState<ClientMeter[]>([])
-  const [scheduleByBrand, setScheduleByBrand] = useState<Record<string, any[]>>({})
+  const [clients, setClients] = useState<ClientProfile[]>([])
+  const [invoiceRows, setInvoiceRows] = useState<any[]>([])
+  const [scheduleRows, setScheduleRows] = useState<any[]>([])
+  const [reportRows, setReportRows] = useState<any[]>([])
   const [expandedBrand, setExpandedBrand] = useState<string | null>(null)
   const [monthIdx, setMonthIdx] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -81,8 +92,8 @@ function ClientListTab() {
   const monthOptions = getMonthOptions()
   const selectedMonth = monthOptions[monthIdx]
 
-  // Capacity (slot purchased) and usage are cumulative balances → fetched all-time,
-  // independent of the month dropdown (which only scopes the jadwal table below).
+  // Raw data is fetched once, all-time; Kuota/Active Live/plan are recomputed
+  // per selected month client-side (useMemo below) so switching months doesn't refetch.
   useEffect(() => {
     const supabase = createClient()
     setLoading(true)
@@ -91,98 +102,81 @@ function ClientListTab() {
         .eq('role', 'client').not('client_brand', 'is', null)
         .then(({ data }) => (data || []) as ClientProfile[]),
       supabase.from('schedule_slots')
-        .select('id, brand, slot_date, session_no, durasi, tipe_live, profiles:host_id(full_name)')
+        .select('id, brand, slot_date, session_no')
         .not('host_id', 'is', null)
         .order('slot_date')
         .then(({ data }) => data || []),
-      supabase.from('live_reports').select('id, slot_id')
+      supabase.from('live_reports')
+        .select('id, report_date, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, profiles:host_id(full_name)')
+        .order('report_date')
         .then(({ data }) => data || []),
-      supabase.from('invoices').select('brand, invoice_to, invoice_date, invoice_items(tipe_live, jam_per_sesi, qty, scale)')
+      supabase.from('invoices').select('brand, invoice_to, invoice_date, invoice_items(qty, scale, jam_per_sesi)')
         .order('invoice_date', { ascending: true })
         .then(({ data }) => data || []),
-    ]).then(([clients, slots, reports, invoices]) => {
-      // Capacity per brand from invoice items — also track per package type
-      const capacitySlotsByBrand: Record<string, number> = {}
-      // packages: brand → tipe → { slots, jam_per_sesi }
-      const pkgByBrand: Record<string, Record<string, { slots: number; jam_per_sesi: number }>> = {}
-      // Latest invoice_to seen per brand — used to auto-surface a client that
-      // was pushed in (e.g. via ProOne) but has no registered login/profile yet.
-      const invoiceToByBrand: Record<string, string> = {}
-      ;(invoices as any[]).forEach((inv: any) => {
-        if (!inv.brand) return
-        if (inv.invoice_to) invoiceToByBrand[inv.brand] = inv.invoice_to
-        const slotsCount = (inv.invoice_items || []).reduce(
-          (s: number, it: any) => s + itemSlots(it), 0)
-        capacitySlotsByBrand[inv.brand] = (capacitySlotsByBrand[inv.brand] || 0) + slotsCount
-        // Per-package breakdown
-        if (!pkgByBrand[inv.brand]) pkgByBrand[inv.brand] = {}
-        ;(inv.invoice_items || []).forEach((it: any) => {
-          const tipe = it.tipe_live || 'Regular'
-          const jps = Number(it.jam_per_sesi) || 0
-          if (!pkgByBrand[inv.brand][tipe]) pkgByBrand[inv.brand][tipe] = { slots: 0, jam_per_sesi: jps }
-          pkgByBrand[inv.brand][tipe].slots += itemSlots(it)
-          if (jps > 0) pkgByBrand[inv.brand][tipe].jam_per_sesi = jps  // keep last non-zero value
-        })
-      })
-
-      // Brands that show up in invoices but have no client profile/login yet —
-      // surface them in the list anyway using the invoice's own invoice_to as
-      // the display name, flagged isAuto so the UI can badge them as such.
-      const knownBrands = new Set((clients as ClientProfile[]).map(c => c.client_brand))
-      const autoClients: ClientProfile[] = Object.keys(capacitySlotsByBrand)
-        .filter(brand => !knownBrands.has(brand))
-        .map(brand => ({ id: `auto:${brand}`, full_name: invoiceToByBrand[brand] || brand, client_brand: brand }))
-      const allClients = [...(clients as ClientProfile[]), ...autoClients]
-
-      // Which slots already have a live report (success)
-      const reportedSlotIds = new Set(
-        (reports as any[]).map((r: any) => r.slot_id).filter(Boolean))
-
-      const planSlotsByBrand: Record<string, number> = {}
-      const successSlotsByBrand: Record<string, number> = {}
-      // per-package plan/success slots: brand → tipe → count
-      const planSlotsByBrandPkg: Record<string, Record<string, number>> = {}
-      const successSlotsByBrandPkg: Record<string, Record<string, number>> = {}
-      const scheduleMap: Record<string, any[]> = {}
-      ;(slots as any[]).forEach((s: any) => {
-        if (!s.brand) return
-        planSlotsByBrand[s.brand] = (planSlotsByBrand[s.brand] || 0) + 1
-        const slotTipe = s.tipe_live || ''
-        const reported = reportedSlotIds.has(s.id)
-        if (slotTipe) {
-          if (!planSlotsByBrandPkg[s.brand]) planSlotsByBrandPkg[s.brand] = {}
-          planSlotsByBrandPkg[s.brand][slotTipe] = (planSlotsByBrandPkg[s.brand][slotTipe] || 0) + 1
-          if (reported) {
-            if (!successSlotsByBrandPkg[s.brand]) successSlotsByBrandPkg[s.brand] = {}
-            successSlotsByBrandPkg[s.brand][slotTipe] = (successSlotsByBrandPkg[s.brand][slotTipe] || 0) + 1
-          }
-        }
-        if (reported) successSlotsByBrand[s.brand] = (successSlotsByBrand[s.brand] || 0) + 1
-        if (!scheduleMap[s.brand]) scheduleMap[s.brand] = []
-        scheduleMap[s.brand].push(s)
-      })
-      setScheduleByBrand(scheduleMap)
-
-      setMeters(allClients.map(c => {
-        const brandPkgs = pkgByBrand[c.client_brand] || {}
-        const brandPlanPkg = planSlotsByBrandPkg[c.client_brand] || {}
-        const brandSuccessPkg = successSlotsByBrandPkg[c.client_brand] || {}
-        const packages: PackageCapacity[] = Object.entries(brandPkgs)
-          .map(([tipe, d]) => ({ tipe, ...d, planSlots: brandPlanPkg[tipe] || 0, successSlots: brandSuccessPkg[tipe] || 0 }))
-          .sort((a, b) => a.tipe.localeCompare(b.tipe))
-        return {
-          brand: c.client_brand,
-          clientName: c.full_name,
-          capacitySlots: capacitySlotsByBrand[c.client_brand] || 0,
-          planSlots: planSlotsByBrand[c.client_brand] || 0,
-          successSlots: successSlotsByBrand[c.client_brand] || 0,
-          packages,
-          isAuto: c.id.startsWith('auto:'),
-        }
-      }))
+    ]).then(([clientsData, slots, reports, invoices]) => {
+      setClients(clientsData)
+      setScheduleRows(slots as any[])
+      setReportRows(reports as any[])
+      setInvoiceRows(invoices as any[])
       setLoading(false)
     })
   }, [])
+
+  const meters: ClientMeter[] = useMemo(() => {
+    // Latest invoice_to seen per brand — used to auto-surface a client that
+    // was pushed in (e.g. via ProOne) but has no registered login/profile yet.
+    const invoiceToByBrand: Record<string, string> = {}
+    // Per-invoice Kuota (hour-scaled items only), kept per invoice_date so it
+    // can be split into "before selected month" vs "within selected month".
+    const kuotaRows: { brand: string; date: string; slots: number }[] = []
+    invoiceRows.forEach((inv: any) => {
+      if (!inv.brand) return
+      if (inv.invoice_to) invoiceToByBrand[inv.brand] = inv.invoice_to
+      const slots = (inv.invoice_items || []).reduce((s: number, it: any) => s + itemSlots(it), 0)
+      kuotaRows.push({ brand: inv.brand, date: inv.invoice_date, slots })
+    })
+
+    // Brands that show up in invoices but have no client profile/login yet —
+    // surface them anyway using the invoice's own invoice_to as the display
+    // name, flagged isAuto so the UI can badge them as such.
+    const knownBrands = new Set(clients.map(c => c.client_brand))
+    const autoBrands = new Set(kuotaRows.map(r => r.brand).filter(b => !knownBrands.has(b)))
+    const autoClients: ClientProfile[] = Array.from(autoBrands)
+      .map(brand => ({ id: `auto:${brand}`, full_name: invoiceToByBrand[brand] || brand, client_brand: brand }))
+    const allClients = [...clients, ...autoClients]
+
+    return allClients.map(c => {
+      const brand = c.client_brand
+      const lastMonthKuota = kuotaRows
+        .filter(r => r.brand === brand && r.date < selectedMonth.start)
+        .reduce((s, r) => s + r.slots, 0)
+        - reportRows.filter((r: any) => r.brand === brand && r.report_date < selectedMonth.start).length
+      const topUp = kuotaRows
+        .filter(r => r.brand === brand && r.date >= selectedMonth.start && r.date <= selectedMonth.end)
+        .reduce((s, r) => s + r.slots, 0)
+      const totalKuota = lastMonthKuota + topUp
+      const activeLive = reportRows.filter((r: any) =>
+        r.brand === brand && r.report_date >= selectedMonth.start && r.report_date <= selectedMonth.end).length
+      const planThisMonth = scheduleRows.filter((s: any) =>
+        s.brand === brand && s.slot_date >= selectedMonth.start && s.slot_date <= selectedMonth.end).length
+      const reports: LiveReportRow[] = reportRows
+        .filter((r: any) => r.brand === brand && r.report_date >= selectedMonth.start && r.report_date <= selectedMonth.end)
+        .map((r: any) => ({
+          id: r.id, report_date: r.report_date, brand: r.brand, platform: r.platform,
+          start_time: r.start_time, duration_hours: r.duration_hours,
+          gmv: Number(r.gmv) || 0, impression: Number(r.impression) || 0, viewer: Number(r.viewer) || 0,
+          trans: Number(r.trans) || 0, comment_count: Number(r.comment_count) || 0,
+          hostName: (r.profiles as any)?.full_name || '—',
+        }))
+        .sort((a, b) => a.report_date.localeCompare(b.report_date))
+
+      return {
+        brand, clientName: c.full_name,
+        lastMonthKuota, topUp, totalKuota, activeLive, planThisMonth, reports,
+        isAuto: c.id.startsWith('auto:'),
+      }
+    })
+  }, [clients, invoiceRows, scheduleRows, reportRows, selectedMonth.start, selectedMonth.end])
 
   return (
     <div className="space-y-5">
@@ -200,9 +194,11 @@ function ClientListTab() {
       {/* Column headers */}
       {!loading && meters.length > 0 && (
         <div className="hidden sm:flex items-center gap-4 px-4 text-[11px] font-medium text-gray-400 uppercase tracking-wide">
-          <span className="flex-1">Brand / Owner</span>
-          <span className="w-36 text-right">Succeed / Sched / Kuota</span>
-          <span className="w-28">Progress</span>
+          <span className="flex-1">Client Name</span>
+          <span className="w-24 text-right">Active Live</span>
+          <span className="w-28 text-right">Last Month Kuota</span>
+          <span className="w-20 text-right">Top Up</span>
+          <span className="w-32">Meter</span>
           <span className="w-14 text-right">%</span>
           <span className="w-4"></span>
         </div>
@@ -219,16 +215,14 @@ function ClientListTab() {
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-50">
           {meters.map(m => {
-            const hasSlots = m.capacitySlots > 0
-            const pct = hasSlots ? Math.round((m.planSlots / m.capacitySlots) * 100) : 0
-            const exceeds = m.planSlots > m.capacitySlots
+            const hasKuota = m.totalKuota > 0
+            const pct = hasKuota ? Math.round((m.activeLive / m.totalKuota) * 100) : 0
+            const exceeds = m.activeLive > m.totalKuota
             const sev = severity(pct, exceeds)
             const isExpanded = expandedBrand === m.brand
-            const allSlots = scheduleByBrand[m.brand] || []
-            // jadwal table is scoped to the selected month
-            const slots = allSlots.filter((s: any) =>
-              s.slot_date >= selectedMonth.start && s.slot_date <= selectedMonth.end)
-            const canExpand = m.packages.length > 0 || slots.length > 0
+            const canExpand = m.reports.length > 0
+            const planPct = hasKuota ? Math.min((m.planThisMonth / m.totalKuota) * 100, 100) : 0
+            const succeedPct = hasKuota ? Math.min((m.activeLive / m.totalKuota) * 100, 100) : 0
             return (
               <div key={m.brand}>
                 <div
@@ -246,21 +240,31 @@ function ClientListTab() {
                     </p>
                     <p className="text-xs text-gray-400 truncate">{m.clientName}</p>
                   </div>
-                  <span className="w-36 text-right text-sm font-semibold text-gray-800 tabular-nums flex-shrink-0">
-                    {hasSlots ? `${m.successSlots} / ${m.planSlots} / ${fmtSlots(m.capacitySlots)}` : `${m.successSlots} / ${m.planSlots} / —`}
+                  <span className="w-24 text-right text-sm font-semibold text-gray-800 tabular-nums flex-shrink-0">
+                    {m.activeLive}
                   </span>
-                  <div className="w-28 flex-shrink-0">
-                    <div className="relative h-1.5 bg-brand-50 rounded-full overflow-hidden">
-                      <div className="absolute inset-y-0 left-0 bg-brand-300 rounded-full transition-all duration-500"
-                        style={{ width: hasSlots ? `${Math.min(pct, 100)}%` : '0%' }}/>
+                  <span className="w-28 text-right text-sm text-gray-600 tabular-nums flex-shrink-0">
+                    {fmtSlots(m.lastMonthKuota)}
+                  </span>
+                  <span className="w-20 text-right text-sm text-gray-600 tabular-nums flex-shrink-0">
+                    {m.topUp > 0 ? `+${fmtSlots(m.topUp)}` : '—'}
+                  </span>
+                  {/* 3-layer meter: background = total Kuota, light purple = plan this month, dark purple = succeed (reported) */}
+                  <div className="w-32 flex-shrink-0">
+                    <div className="relative h-1.5 bg-white border border-gray-200 rounded-full overflow-hidden">
+                      <div className="absolute inset-y-0 left-0 bg-brand-200 rounded-full transition-all duration-500"
+                        style={{ width: hasKuota ? `${planPct}%` : '0%' }}/>
                       <div className="absolute inset-y-0 left-0 bg-brand-600 rounded-full transition-all duration-500"
-                        style={{ width: hasSlots ? `${Math.min((m.successSlots / m.capacitySlots) * 100, 100)}%` : '0%' }}/>
+                        style={{ width: hasKuota ? `${succeedPct}%` : '0%' }}/>
                     </div>
+                    <p className="text-[10px] text-gray-400 mt-1 tabular-nums">
+                      {hasKuota ? `${m.activeLive} / ${fmtSlots(m.totalKuota)}` : '— Kuota'}
+                    </p>
                   </div>
                   <span className="w-14 flex justify-end flex-shrink-0">
                     <span className={`inline-flex items-center gap-0.5 whitespace-nowrap text-xs font-bold px-2 py-0.5 rounded-full ${BADGE_CLASSES[sev]}`}>
                       {sev === 'high' && <AlertTriangle size={9}/>}
-                      {hasSlots ? `${pct}%` : '—'}
+                      {hasKuota ? `${pct}%` : '—'}
                     </span>
                   </span>
                   {canExpand ? (
@@ -269,75 +273,52 @@ function ClientListTab() {
                 </div>
 
                 {isExpanded && (
-                  <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-4 space-y-4">
-                    {/* Per-package breakdown — same shape as the header row, one per purchased package */}
-                    {m.packages.length > 0 && (
-                      <div>
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 pl-5">Paket</p>
-                        <div className="space-y-2.5">
-                          {m.packages.map(pkg => {
-                            const pkgHasSlots = pkg.slots > 0
-                            const pkgPct = pkgHasSlots ? Math.round((pkg.planSlots / pkg.slots) * 100) : 0
-                            const pkgExceeds = pkg.planSlots > pkg.slots
-                            const pkgSev = severity(pkgPct, pkgExceeds)
-                            return (
-                              <div key={pkg.tipe} className="flex items-center gap-4">
-                                <div className="flex-1 min-w-0 pl-5">
-                                  <span className="text-xs font-semibold text-gray-700">{pkg.tipe} Live</span>
-                                  <span className="text-[11px] text-gray-400 ml-1.5">{pkg.jam_per_sesi}j/sesi</span>
-                                </div>
-                                <span className="w-36 text-right text-xs font-semibold text-gray-700 tabular-nums flex-shrink-0">
-                                  {pkgHasSlots ? `${pkg.successSlots} / ${pkg.planSlots} / ${fmtSlots(pkg.slots)}` : `${pkg.successSlots} / ${pkg.planSlots} / —`}
+                  <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-4">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 pl-1">
+                      Live {selectedMonth.label}
+                    </p>
+                    <div className="overflow-x-auto max-h-72 overflow-y-auto rounded-xl border border-gray-100 bg-white">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0">
+                          <tr className="bg-gray-50 text-gray-500 uppercase tracking-wide text-[10px]">
+                            <th className="px-3 py-2 text-left font-semibold whitespace-nowrap">Bulan</th>
+                            <th className="px-3 py-2 text-left font-semibold whitespace-nowrap">Tanggal</th>
+                            <th className="px-3 py-2 text-left font-semibold">Brand</th>
+                            <th className="px-3 py-2 text-left font-semibold whitespace-nowrap">Start Sesi</th>
+                            <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">Total Jam</th>
+                            <th className="px-3 py-2 text-left font-semibold">Host</th>
+                            <th className="px-3 py-2 text-left font-semibold">Platform</th>
+                            <th className="px-3 py-2 text-right font-semibold">GMV</th>
+                            <th className="px-3 py-2 text-right font-semibold">Impression</th>
+                            <th className="px-3 py-2 text-right font-semibold">Viewer</th>
+                            <th className="px-3 py-2 text-right font-semibold">Trans</th>
+                            <th className="px-3 py-2 text-right font-semibold">Comment</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                          {m.reports.map(r => (
+                            <tr key={r.id} className="hover:bg-gray-50 transition-colors">
+                              <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{monthNameID(r.report_date)}</td>
+                              <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{fmtDetailDate(r.report_date)}</td>
+                              <td className="px-3 py-2 font-medium text-gray-800 max-w-[140px] truncate">{r.brand || '—'}</td>
+                              <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{r.start_time ? r.start_time.slice(0, 5).replace(':', '.') : '—'}</td>
+                              <td className="px-3 py-2 text-right text-gray-600">{r.duration_hours ?? '—'}</td>
+                              <td className="px-3 py-2 font-medium text-gray-800 whitespace-nowrap">{r.hostName}</td>
+                              <td className="px-3 py-2">
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${PLATFORM_COLORS[r.platform || ''] || PLATFORM_COLORS.Other}`}>
+                                  {r.platform || '—'}
                                 </span>
-                                <div className="w-28 flex-shrink-0">
-                                  <div className="relative h-1.5 bg-white rounded-full overflow-hidden">
-                                    <div className="absolute inset-y-0 left-0 bg-brand-300 rounded-full transition-all duration-500"
-                                      style={{ width: pkgHasSlots ? `${Math.min(pkgPct, 100)}%` : '0%' }}/>
-                                    <div className="absolute inset-y-0 left-0 bg-brand-600 rounded-full transition-all duration-500"
-                                      style={{ width: pkgHasSlots ? `${Math.min((pkg.successSlots / pkg.slots) * 100, 100)}%` : '0%' }}/>
-                                  </div>
-                                </div>
-                                <span className="w-14 flex justify-end flex-shrink-0">
-                                  <span className={`inline-flex items-center gap-0.5 whitespace-nowrap text-[11px] font-bold px-2 py-0.5 rounded-full ${BADGE_CLASSES[pkgSev]}`}>
-                                    {pkgSev === 'high' && <AlertTriangle size={8}/>}
-                                    {pkgHasSlots ? `${pkgPct}%` : '—'}
-                                  </span>
-                                </span>
-                                <span className="w-3.5 flex-shrink-0"/>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {slots.length > 0 && (
-                      <div className="pl-5">
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Jadwal {selectedMonth.label}</p>
-                        <div className="overflow-x-auto max-h-52 overflow-y-auto rounded-xl border border-gray-100 bg-white">
-                          <table className="w-full text-xs">
-                            <thead className="sticky top-0">
-                              <tr className="bg-gray-50 text-gray-500 uppercase tracking-wide text-[10px]">
-                                <th className="px-3 py-2 text-left font-semibold">Tanggal</th>
-                                <th className="px-3 py-2 text-left font-semibold">Sesi</th>
-                                <th className="px-3 py-2 text-left font-semibold">Host</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                              {slots.map((s: any) => (
-                                <tr key={s.id} className="hover:bg-gray-50 transition-colors">
-                                  <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
-                                    {new Date(s.slot_date + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                                  </td>
-                                  <td className="px-3 py-2 text-gray-500">Sesi {s.session_no}</td>
-                                  <td className="px-3 py-2 font-medium text-gray-800">{(s.profiles as any)?.full_name || '—'}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
+                              </td>
+                              <td className="px-3 py-2 text-right text-gray-700 whitespace-nowrap">{formatCurrency(r.gmv)}</td>
+                              <td className="px-3 py-2 text-right text-gray-600">{r.impression.toLocaleString('id-ID')}</td>
+                              <td className="px-3 py-2 text-right text-gray-600">{r.viewer.toLocaleString('id-ID')}</td>
+                              <td className="px-3 py-2 text-right text-gray-600">{r.trans.toLocaleString('id-ID')}</td>
+                              <td className="px-3 py-2 text-right text-gray-600">{r.comment_count.toLocaleString('id-ID')}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
               </div>
