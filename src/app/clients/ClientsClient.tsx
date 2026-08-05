@@ -35,11 +35,9 @@ interface ClientMeter {
 // hours ÷ hours-per-session → slot-equivalent). Other scales (pc, month, day)
 // are addon/one-off billing lines, not session quota, so they contribute 0 --
 // e.g. a "50 pc" Prime Time addon shouldn't inflate the live-session quota.
-function itemSlots(it: { scale?: string | null; qty: number; jam_per_sesi?: number }): number {
+function itemSlots(it: { scale?: string | null; qty: number }): number {
   if ((it.scale || '').toLowerCase() !== 'hour') return 0
-  const qty = Number(it.qty) || 0
-  const jps = Number(it.jam_per_sesi) || 4
-  return jps > 0 ? qty / jps : 0
+  return Number(it.qty) || 0
 }
 
 // All 12 months of the current year, January through December.
