@@ -42,10 +42,11 @@ function itemSlots(it: { scale?: string | null; qty: number; jam_per_sesi?: numb
   return jps > 0 ? qty / jps : 0
 }
 
+// All 12 months of the current year, January through December.
 function getMonthOptions() {
-  return Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i)
-    const y = d.getFullYear(); const m = d.getMonth()
+  const y = new Date().getFullYear()
+  return Array.from({ length: 12 }, (_, m) => {
+    const d = new Date(y, m, 1)
     return {
       label: d.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }),
       start: `${y}-${String(m + 1).padStart(2, '0')}-01`,
@@ -86,7 +87,7 @@ function ClientListTab() {
   const [scheduleRows, setScheduleRows] = useState<any[]>([])
   const [reportRows, setReportRows] = useState<any[]>([])
   const [expandedBrand, setExpandedBrand] = useState<string | null>(null)
-  const [monthIdx, setMonthIdx] = useState(0)
+  const [monthIdx, setMonthIdx] = useState(() => new Date().getMonth())
   const [loading, setLoading] = useState(true)
 
   const monthOptions = getMonthOptions()
