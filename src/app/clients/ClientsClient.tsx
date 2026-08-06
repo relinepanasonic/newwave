@@ -184,12 +184,18 @@ function ClientListTab() {
     })
   }, [clients, invoiceRows, scheduleRows, reportRows, selectedMonth.start, selectedMonth.end])
 
+  // Hide clients with nothing going on in the selected month -- no Kuota
+  // balance to work with and no live activity (reported or scheduled).
+  const visibleMeters = useMemo(() =>
+    meters.filter(m => m.totalKuota > 0 || m.activeLive > 0 || m.planThisMonth > 0),
+    [meters])
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-bold text-gray-900">{lang === 'id' ? 'Client List' : 'Client List'}</h2>
-          <p className="text-sm text-gray-500">{meters.length} {lang === 'id' ? 'client terdaftar' : 'registered clients'}</p>
+          <p className="text-sm text-gray-500">{visibleMeters.length} {lang === 'id' ? 'client aktif bulan ini' : 'clients active this month'}</p>
         </div>
         <select value={monthIdx} onChange={e => setMonthIdx(Number(e.target.value))}
           className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
@@ -198,7 +204,7 @@ function ClientListTab() {
       </div>
 
       {/* Column headers */}
-      {!loading && meters.length > 0 && (
+      {!loading && visibleMeters.length > 0 && (
         <div className="hidden sm:flex items-center gap-4 px-4 text-[11px] font-medium text-gray-400 uppercase tracking-wide">
           <span className="flex-1">Client Name</span>
           <span className="w-32 text-right">Active Live</span>
@@ -214,13 +220,13 @@ function ClientListTab() {
         <div className="space-y-2">
           {[1, 2, 3].map(i => <div key={i} className="bg-white rounded-2xl border border-gray-100 h-14 animate-pulse"/>)}
         </div>
-      ) : meters.length === 0 ? (
+      ) : visibleMeters.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center">
-          <p className="text-sm font-medium text-gray-400">Belum ada client terdaftar</p>
+          <p className="text-sm font-medium text-gray-400">Tidak ada client dengan aktivitas di bulan ini</p>
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-50">
-          {meters.map(m => {
+          {visibleMeters.map(m => {
             const hasKuota = m.totalKuota > 0
             const pct = hasKuota ? Math.round((m.activeLive / m.totalKuota) * 100) : 0
             const exceeds = m.activeLive > m.totalKuota
