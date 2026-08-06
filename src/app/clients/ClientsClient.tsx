@@ -25,8 +25,8 @@ interface ClientMeter {
   lastMonthKuota: number   // carried-over unused Kuota balance from before the selected month
   topUp: number            // new hour-based Kuota purchased within the selected month
   totalKuota: number       // lastMonthKuota + topUp — the meter's 100% baseline
-  activeLive: number       // reported live sessions within the selected month
-  planThisMonth: number    // scheduled sessions within the selected month
+  activeLive: number       // total reported hours (sum of duration_hours) within the selected month
+  planThisMonth: number    // total scheduled hours (sum of durasi) within the selected month
   reports: LiveReportRow[] // that brand's live reports within the selected month
   isAuto?: boolean         // surfaced from an invoice's brand, no client login/profile yet
 }
@@ -101,7 +101,7 @@ function ClientListTab() {
         .eq('role', 'client').not('client_brand', 'is', null)
         .then(({ data }) => (data || []) as ClientProfile[]),
       supabase.from('schedule_slots')
-        .select('id, brand, slot_date, session_no')
+        .select('id, brand, slot_date, session_no, durasi')
         .not('host_id', 'is', null)
         .order('slot_date')
         .then(({ data }) => data || []),
@@ -146,18 +146,25 @@ function ClientListTab() {
 
     return allClients.map(c => {
       const brand = c.client_brand
+      // Usage is measured in hours (duration_hours), same unit as Kuota,
+      // so the two stay comparable -- a session-count would compare
+      // apples to oranges against an hour-based quota.
+      const hoursUsedBefore = reportRows
+        .filter((r: any) => r.brand === brand && r.report_date < selectedMonth.start)
+        .reduce((s: number, r: any) => s + (Number(r.duration_hours) || 0), 0)
       const lastMonthKuota = kuotaRows
         .filter(r => r.brand === brand && r.date < selectedMonth.start)
-        .reduce((s, r) => s + r.slots, 0)
-        - reportRows.filter((r: any) => r.brand === brand && r.report_date < selectedMonth.start).length
+        .reduce((s, r) => s + r.slots, 0) - hoursUsedBefore
       const topUp = kuotaRows
         .filter(r => r.brand === brand && r.date >= selectedMonth.start && r.date <= selectedMonth.end)
         .reduce((s, r) => s + r.slots, 0)
       const totalKuota = lastMonthKuota + topUp
-      const activeLive = reportRows.filter((r: any) =>
-        r.brand === brand && r.report_date >= selectedMonth.start && r.report_date <= selectedMonth.end).length
-      const planThisMonth = scheduleRows.filter((s: any) =>
-        s.brand === brand && s.slot_date >= selectedMonth.start && s.slot_date <= selectedMonth.end).length
+      const activeLive = reportRows
+        .filter((r: any) => r.brand === brand && r.report_date >= selectedMonth.start && r.report_date <= selectedMonth.end)
+        .reduce((s: number, r: any) => s + (Number(r.duration_hours) || 0), 0)
+      const planThisMonth = scheduleRows
+        .filter((s: any) => s.brand === brand && s.slot_date >= selectedMonth.start && s.slot_date <= selectedMonth.end)
+        .reduce((s: number, x: any) => s + (Number(x.durasi) > 0 ? Number(x.durasi) : 1), 0)
       const reports: LiveReportRow[] = reportRows
         .filter((r: any) => r.brand === brand && r.report_date >= selectedMonth.start && r.report_date <= selectedMonth.end)
         .map((r: any) => ({
@@ -194,10 +201,10 @@ function ClientListTab() {
       {!loading && meters.length > 0 && (
         <div className="hidden sm:flex items-center gap-4 px-4 text-[11px] font-medium text-gray-400 uppercase tracking-wide">
           <span className="flex-1">Client Name</span>
-          <span className="w-24 text-right">Active Live</span>
-          <span className="w-28 text-right">Last Month Kuota</span>
-          <span className="w-20 text-right">Top Up</span>
-          <span className="w-32">Meter</span>
+          <span className="w-16 text-right">Active Live</span>
+          <span className="w-20 text-right">Last Month</span>
+          <span className="w-14 text-right">Top Up</span>
+          <span className="w-56">Meter</span>
           <span className="w-14 text-right">%</span>
           <span className="w-4"></span>
         </div>
@@ -239,25 +246,25 @@ function ClientListTab() {
                     </p>
                     <p className="text-xs text-gray-400 truncate">{m.clientName}</p>
                   </div>
-                  <span className="w-24 text-right text-sm font-semibold text-gray-800 tabular-nums flex-shrink-0">
-                    {m.activeLive}
-                  </span>
-                  <span className="w-28 text-right text-sm text-gray-600 tabular-nums flex-shrink-0">
-                    {fmtSlots(m.lastMonthKuota)}
+                  <span className="w-16 text-right text-sm font-semibold text-gray-800 tabular-nums flex-shrink-0">
+                    {fmtSlots(m.activeLive)}j
                   </span>
                   <span className="w-20 text-right text-sm text-gray-600 tabular-nums flex-shrink-0">
-                    {m.topUp > 0 ? `+${fmtSlots(m.topUp)}` : '—'}
+                    {fmtSlots(m.lastMonthKuota)}j
+                  </span>
+                  <span className="w-14 text-right text-sm text-gray-600 tabular-nums flex-shrink-0">
+                    {m.topUp > 0 ? `+${fmtSlots(m.topUp)}j` : '—'}
                   </span>
                   {/* 3-layer meter: background = total Kuota, light purple = plan this month, dark purple = succeed (reported) */}
-                  <div className="w-32 flex-shrink-0">
-                    <div className="relative h-1.5 bg-white border border-gray-200 rounded-full overflow-hidden">
+                  <div className="w-56 flex-shrink-0">
+                    <div className="relative h-2.5 bg-white border border-gray-200 rounded-full overflow-hidden">
                       <div className="absolute inset-y-0 left-0 bg-brand-200 rounded-full transition-all duration-500"
                         style={{ width: hasKuota ? `${planPct}%` : '0%' }}/>
                       <div className="absolute inset-y-0 left-0 bg-brand-600 rounded-full transition-all duration-500"
                         style={{ width: hasKuota ? `${succeedPct}%` : '0%' }}/>
                     </div>
                     <p className="text-[10px] text-gray-400 mt-1 tabular-nums">
-                      {hasKuota ? `${m.activeLive} / ${fmtSlots(m.totalKuota)}` : '— Kuota'}
+                      {hasKuota ? `${fmtSlots(m.activeLive)}j / ${fmtSlots(m.totalKuota)}j` : '— Kuota'}
                     </p>
                   </div>
                   <span className="w-14 flex justify-end flex-shrink-0">
