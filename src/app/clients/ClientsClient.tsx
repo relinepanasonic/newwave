@@ -201,9 +201,9 @@ function ClientListTab() {
       {!loading && meters.length > 0 && (
         <div className="hidden sm:flex items-center gap-4 px-4 text-[11px] font-medium text-gray-400 uppercase tracking-wide">
           <span className="flex-1">Client Name</span>
-          <span className="w-16 text-right">Active Live</span>
-          <span className="w-20 text-right">Last Month</span>
-          <span className="w-14 text-right">Top Up</span>
+          <span className="w-32 text-right">Active Live</span>
+          <span className="w-32 text-right">Last Month</span>
+          <span className="w-28 text-right">Top Up</span>
           <span className="w-56">Meter</span>
           <span className="w-14 text-right">%</span>
           <span className="w-4"></span>
@@ -246,14 +246,14 @@ function ClientListTab() {
                     </p>
                     <p className="text-xs text-gray-400 truncate">{m.clientName}</p>
                   </div>
-                  <span className="w-16 text-right text-sm font-semibold text-gray-800 tabular-nums flex-shrink-0">
-                    {fmtSlots(m.activeLive)}j
+                  <span className="w-32 text-right text-sm font-semibold text-gray-800 tabular-nums flex-shrink-0">
+                    {fmtSlots(m.activeLive)}
                   </span>
-                  <span className="w-20 text-right text-sm text-gray-600 tabular-nums flex-shrink-0">
-                    {fmtSlots(m.lastMonthKuota)}j
+                  <span className="w-32 text-right text-sm text-gray-600 tabular-nums flex-shrink-0">
+                    {fmtSlots(m.lastMonthKuota)}
                   </span>
-                  <span className="w-14 text-right text-sm text-gray-600 tabular-nums flex-shrink-0">
-                    {m.topUp > 0 ? `+${fmtSlots(m.topUp)}j` : '—'}
+                  <span className="w-28 text-right text-sm text-gray-600 tabular-nums flex-shrink-0">
+                    {m.topUp > 0 ? `+${fmtSlots(m.topUp)}` : '—'}
                   </span>
                   {/* 3-layer meter: background = total Kuota, light purple = plan this month, dark purple = succeed (reported) */}
                   <div className="w-56 flex-shrink-0">
@@ -264,7 +264,7 @@ function ClientListTab() {
                         style={{ width: hasKuota ? `${succeedPct}%` : '0%' }}/>
                     </div>
                     <p className="text-[10px] text-gray-400 mt-1 tabular-nums">
-                      {hasKuota ? `${fmtSlots(m.activeLive)}j / ${fmtSlots(m.totalKuota)}j` : '— Kuota'}
+                      {hasKuota ? `${fmtSlots(m.activeLive)} / ${fmtSlots(m.totalKuota)}` : '— Kuota'}
                     </p>
                   </div>
                   <span className="w-14 flex justify-end flex-shrink-0">
