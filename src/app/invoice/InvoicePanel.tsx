@@ -116,10 +116,24 @@ const FORM_DEFAULT = {
   bank_account_number: BANK_ACCOUNTS[0].bank_account_number, notes: '',
 }
 
+// Status is mirrored verbatim from whichever source created the invoice --
+// New Wave's own form still writes 'unpaid'/'paid'/'cancelled', but a
+// ProOne-pushed invoice can carry ProOne's own vocabulary (draft, pending,
+// overdue, ...). Known values get a styled badge; anything else still shows
+// (title-cased) via statusConfigFor's fallback instead of being hidden.
 const STATUS_CONFIG: Record<string, { label: string; badge: string; border: string }> = {
-  unpaid: { label: 'Billed', badge: 'bg-amber-100 text-amber-700', border: 'border-l-amber-400' },
-  paid:   { label: 'Paid',   badge: 'bg-emerald-100 text-emerald-700', border: 'border-l-emerald-400' },
-  cancelled: { label: 'Close', badge: 'bg-gray-100 text-gray-500', border: 'border-l-gray-300' },
+  unpaid:    { label: 'Billed',  badge: 'bg-amber-100 text-amber-700',   border: 'border-l-amber-400' },
+  pending:   { label: 'Pending', badge: 'bg-amber-100 text-amber-700',   border: 'border-l-amber-400' },
+  draft:     { label: 'Draft',   badge: 'bg-gray-100 text-gray-500',     border: 'border-l-gray-300' },
+  overdue:   { label: 'Overdue', badge: 'bg-red-100 text-red-700',       border: 'border-l-red-400' },
+  paid:      { label: 'Paid',    badge: 'bg-emerald-100 text-emerald-700', border: 'border-l-emerald-400' },
+  cancelled: { label: 'Close',   badge: 'bg-gray-100 text-gray-500',     border: 'border-l-gray-300' },
+}
+function statusConfigFor(status: string) {
+  return STATUS_CONFIG[status] || {
+    label: status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Billed',
+    badge: 'bg-gray-100 text-gray-500', border: 'border-l-gray-300',
+  }
 }
 
 interface NwPackage { id: string; name: string; description: string | null; tipe_live: string; jam_per_sesi: number; price_per_jam: number; is_active: boolean }
@@ -598,6 +612,11 @@ export default function InvoicePanel({ profile }: { profile: any }) {
   const clientOptions = useMemo(() =>
     Array.from(new Set(invoices.map(i => i.brand).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
     [invoices])
+  // Built from whatever status values are actually present (not a fixed
+  // enum) so a status ProOne introduces later still shows up as a filter.
+  const statusOptions = useMemo(() =>
+    Array.from(new Set(invoices.map(i => i.status).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    [invoices])
   const filteredInvoices = useMemo(() => invoices.filter(inv =>
     (monthFilter === 'all' || inv.invoice_date.slice(0, 7) === monthFilter) &&
     (clientFilter === 'all' || inv.brand === clientFilter) &&
@@ -681,7 +700,7 @@ export default function InvoicePanel({ profile }: { profile: any }) {
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
             className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
             <option value="all">Semua Status</option>
-            {Object.entries(STATUS_CONFIG).map(([key, cfg]) => <option key={key} value={key}>{cfg.label}</option>)}
+            {statusOptions.map(s => <option key={s} value={s}>{statusConfigFor(s).label}</option>)}
           </select>
           {(monthFilter !== 'all' || clientFilter !== 'all' || dueMonthFilter !== 'all' || statusFilter !== 'all') && (
             <button onClick={() => { setMonthFilter('all'); setClientFilter('all'); setDueMonthFilter('all'); setStatusFilter('all') }}
@@ -732,7 +751,7 @@ export default function InvoicePanel({ profile }: { profile: any }) {
                   const isExpanded = expandedId === inv.id
                   const invPphAmt = calcPph(inv)
                   const invRealTotal = inv.total_amount - invPphAmt
-                  const st = STATUS_CONFIG[inv.status] || STATUS_CONFIG.unpaid
+                  const st = statusConfigFor(inv.status)
                   const isConfirmDelete = confirmDeleteId === inv.id
                   const packageNames = (inv.invoice_items || []).map(i => i.name).filter(Boolean)
                   const packageLabel = packageNames.length === 0 ? '—'
@@ -875,7 +894,7 @@ export default function InvoicePanel({ profile }: { profile: any }) {
                                 </div>
                               </div>
 
-                              {isSuperadmin && inv.status === 'unpaid' && (
+                              {isSuperadmin && inv.status !== 'paid' && (
                                 <button onClick={() => markPaid(inv.id)}
                                   className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-xs font-semibold hover:bg-emerald-700 transition-colors shadow-sm">
                                   <CheckCircle size={13}/> Tandai Lunas
