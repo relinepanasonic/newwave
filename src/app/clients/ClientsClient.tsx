@@ -203,7 +203,7 @@ function ClientListTab() {
           <span className="flex-1">Client Name</span>
           <span className="w-32 text-right">Active Live</span>
           <span className="w-32 text-right">Last Month</span>
-          <span className="w-28 text-right">Top Up</span>
+          <span className="w-28 mr-8 text-right">Top Up</span>
           <span className="w-56">Meter</span>
           <span className="w-14 text-right">%</span>
           <span className="w-4"></span>
@@ -252,7 +252,7 @@ function ClientListTab() {
                   <span className="w-32 text-right text-sm text-gray-600 tabular-nums flex-shrink-0">
                     {fmtSlots(m.lastMonthKuota)}
                   </span>
-                  <span className="w-28 text-right text-sm text-gray-600 tabular-nums flex-shrink-0">
+                  <span className="w-28 mr-8 text-right text-sm text-gray-600 tabular-nums flex-shrink-0">
                     {m.topUp > 0 ? `+${fmtSlots(m.topUp)}` : '—'}
                   </span>
                   {/* 3-layer meter: background = total Kuota, light purple = plan this month, dark purple = succeed (reported) */}
