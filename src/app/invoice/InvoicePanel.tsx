@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Plus, X, Save, ChevronDown, ChevronUp, FileText, CheckCircle, Pencil, Trash2, Printer, Copy, Check } from 'lucide-react'
 import { printInvoice } from './printInvoice'
@@ -136,6 +136,12 @@ export default function InvoicePanel({ profile }: { profile: any }) {
   const [error, setError] = useState('')
   const [showApiInfo, setShowApiInfo] = useState(false)
   const [copied, setCopied] = useState(false)
+
+  // Invoice list filters
+  const [monthFilter, setMonthFilter] = useState('all')      // invoice_date's YYYY-MM
+  const [clientFilter, setClientFilter] = useState('all')    // brand
+  const [dueMonthFilter, setDueMonthFilter] = useState('all') // due_date's YYYY-MM
+  const [statusFilter, setStatusFilter] = useState('all')
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -579,13 +585,37 @@ export default function InvoicePanel({ profile }: { profile: any }) {
     </div>
   )
 
+  const monthLabel = (ym: string) => {
+    const [y, m] = ym.split('-').map(Number)
+    return new Date(y, m - 1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
+  }
+  const monthOptions = useMemo(() =>
+    Array.from(new Set(invoices.map(i => i.invoice_date.slice(0, 7)))).sort(),
+    [invoices])
+  const dueMonthOptions = useMemo(() =>
+    Array.from(new Set(invoices.filter(i => i.due_date).map(i => i.due_date!.slice(0, 7)))).sort(),
+    [invoices])
+  const clientOptions = useMemo(() =>
+    Array.from(new Set(invoices.map(i => i.brand).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    [invoices])
+  const filteredInvoices = useMemo(() => invoices.filter(inv =>
+    (monthFilter === 'all' || inv.invoice_date.slice(0, 7) === monthFilter) &&
+    (clientFilter === 'all' || inv.brand === clientFilter) &&
+    (dueMonthFilter === 'all' || inv.due_date?.slice(0, 7) === dueMonthFilter) &&
+    (statusFilter === 'all' || inv.status === statusFilter)
+  ), [invoices, monthFilter, clientFilter, dueMonthFilter, statusFilter])
+
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5">
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Invoice</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {isSuperadmin ? `${invoices.length} invoice terdaftar` : `Invoice untuk brand ${clientBrand}`}
+            {isSuperadmin
+              ? (filteredInvoices.length === invoices.length
+                  ? `${invoices.length} invoice terdaftar`
+                  : `${filteredInvoices.length} dari ${invoices.length} invoice`)
+              : `Invoice untuk brand ${clientBrand}`}
           </p>
         </div>
         {isSuperadmin && (
@@ -631,6 +661,37 @@ export default function InvoicePanel({ profile }: { profile: any }) {
         </div>
       )}
 
+      {!loading && invoices.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <select value={monthFilter} onChange={e => setMonthFilter(e.target.value)}
+            className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+            <option value="all">Semua Bulan (Dibuat)</option>
+            {monthOptions.map(ym => <option key={ym} value={ym}>{monthLabel(ym)}</option>)}
+          </select>
+          <select value={clientFilter} onChange={e => setClientFilter(e.target.value)}
+            className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+            <option value="all">Semua Client</option>
+            {clientOptions.map(b => <option key={b} value={b}>{b}</option>)}
+          </select>
+          <select value={dueMonthFilter} onChange={e => setDueMonthFilter(e.target.value)}
+            className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+            <option value="all">Semua Due Date</option>
+            {dueMonthOptions.map(ym => <option key={ym} value={ym}>{monthLabel(ym)}</option>)}
+          </select>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+            className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+            <option value="all">Semua Status</option>
+            {Object.entries(STATUS_CONFIG).map(([key, cfg]) => <option key={key} value={key}>{cfg.label}</option>)}
+          </select>
+          {(monthFilter !== 'all' || clientFilter !== 'all' || dueMonthFilter !== 'all' || statusFilter !== 'all') && (
+            <button onClick={() => { setMonthFilter('all'); setClientFilter('all'); setDueMonthFilter('all'); setStatusFilter('all') }}
+              className="text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 transition-colors">
+              Reset Filter
+            </button>
+          )}
+        </div>
+      )}
+
       {createForm}
 
       {loading ? (
@@ -644,6 +705,11 @@ export default function InvoicePanel({ profile }: { profile: any }) {
           <FileText size={32} className="text-gray-200 mx-auto mb-3"/>
           <p className="text-sm font-medium text-gray-400">Belum ada invoice</p>
           <p className="text-xs text-gray-300 mt-1">Invoice yang dibuat akan muncul di sini</p>
+        </div>
+      ) : filteredInvoices.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center">
+          <FileText size={32} className="text-gray-200 mx-auto mb-3"/>
+          <p className="text-sm font-medium text-gray-400">Tidak ada invoice yang cocok dengan filter</p>
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -662,7 +728,7 @@ export default function InvoicePanel({ profile }: { profile: any }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {invoices.map(inv => {
+                {filteredInvoices.map(inv => {
                   const isExpanded = expandedId === inv.id
                   const invPphAmt = calcPph(inv)
                   const invRealTotal = inv.total_amount - invPphAmt
