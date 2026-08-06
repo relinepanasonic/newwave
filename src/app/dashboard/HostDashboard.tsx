@@ -29,18 +29,17 @@ function fmtShortDate(s: string) {
 function trimH(n: number) {
   return Number(n.toFixed(1)).toString()
 }
+// All 12 months of the current year, January through December.
 function getMonthOptions() {
-  const months = []
-  for (let i = 0; i < 6; i++) {
-    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i)
-    const y = d.getFullYear(); const m = d.getMonth()
-    months.push({
+  const y = new Date().getFullYear()
+  return Array.from({ length: 12 }, (_, m) => {
+    const d = new Date(y, m, 1)
+    return {
       label: d.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }),
       start: `${y}-${String(m + 1).padStart(2, '0')}-01`,
-      end: `${y}-${String(m + 1).padStart(2, '00')}-${new Date(y, m + 1, 0).getDate()}`,
-    })
-  }
-  return months
+      end: `${y}-${String(m + 1).padStart(2, '0')}-${new Date(y, m + 1, 0).getDate()}`,
+    }
+  })
 }
 
 export default function HostDashboard({ profile }: { profile: any }) {
@@ -51,7 +50,7 @@ export default function HostDashboard({ profile }: { profile: any }) {
   const [alarmMsg, setAlarmMsg] = useState<string | null>(null)
   const [notifPerm, setNotifPerm] = useState<string>('default')
 
-  const [chartMonthIdx, setChartMonthIdx] = useState(0)
+  const [chartMonthIdx, setChartMonthIdx] = useState(() => new Date().getMonth())
   const [monthStats, setMonthStats] = useState({ totalLive: 0, liveSucceed: 0, totalGmv: 0 })
   const [chartData, setChartData] = useState<any[]>([])
   const [monthSlots, setMonthSlots] = useState<any[]>([])

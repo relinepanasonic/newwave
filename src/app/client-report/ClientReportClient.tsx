@@ -38,18 +38,17 @@ interface ProductRow {
 }
 interface ClientOption { id: string; full_name: string; client_brand: string }
 
+// All 12 months of the current year, January through December.
 function getMonthOptions() {
-  const months = []
-  for (let i = 0; i < 12; i++) {
-    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i)
-    const y = d.getFullYear(); const m = d.getMonth()
-    months.push({
+  const y = new Date().getFullYear()
+  return Array.from({ length: 12 }, (_, m) => {
+    const d = new Date(y, m, 1)
+    return {
       label: d.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }),
       start: `${y}-${String(m + 1).padStart(2, '0')}-01`,
       end: `${y}-${String(m + 1).padStart(2, '0')}-${new Date(y, m + 1, 0).getDate()}`,
-    })
-  }
-  return months
+    }
+  })
 }
 
 function fmtRp(n: number) {
@@ -73,7 +72,7 @@ export default function ClientReportClient({ profile }: { profile: any }) {
   const isClientRole = profile.role === 'client'
   const monthOptions = getMonthOptions()
 
-  const [monthIdx, setMonthIdx] = useState(0)
+  const [monthIdx, setMonthIdx] = useState(() => new Date().getMonth())
   const [platform, setPlatform] = useState('')
   const [clientOptions, setClientOptions] = useState<ClientOption[]>([])
   const [selectedBrand, setSelectedBrand] = useState('')

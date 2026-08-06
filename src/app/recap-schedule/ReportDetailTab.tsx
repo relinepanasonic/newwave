@@ -54,18 +54,17 @@ interface CsvRow {
 
 const PLATFORMS = ['Shopee', 'TikTok', 'Instagram', 'YouTube', 'Other']
 
+// All 12 months of the current year, January through December.
 function getMonthOptions() {
-  const months = []
-  for (let i = 0; i < 6; i++) {
-    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i)
-    const y = d.getFullYear(); const m = d.getMonth()
-    months.push({
+  const y = new Date().getFullYear()
+  return Array.from({ length: 12 }, (_, m) => {
+    const d = new Date(y, m, 1)
+    return {
       label: d.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }),
       start: `${y}-${String(m + 1).padStart(2, '0')}-01`,
       end: `${y}-${String(m + 1).padStart(2, '0')}-${new Date(y, m + 1, 0).getDate()}`,
-    })
-  }
-  return months
+    }
+  })
 }
 
 function fmtRp(n: number) {
@@ -160,7 +159,7 @@ export default function ReportDetailTab({ profile }: { profile: any }) {
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
-  const [monthIdx, setMonthIdx] = useState(0)
+  const [monthIdx, setMonthIdx] = useState(() => new Date().getMonth())
   const [selectedHost, setSelectedHost] = useState('')
   const [selectedBrand, setSelectedBrand] = useState('')
 
