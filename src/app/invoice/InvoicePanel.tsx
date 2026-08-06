@@ -8,6 +8,10 @@ import CurrencyInput from '@/components/CurrencyInput'
 const PROONE_URL = process.env.NEXT_PUBLIC_PROONE_API_URL ?? 'https://prooneaccounting.vercel.app/api/v1'
 const PROONE_KEY = process.env.NEXT_PUBLIC_PROONE_API_KEY ?? ''
 
+// Pushes a New Wave-authored invoice (create OR edit -- ProOne is expected to
+// upsert on external_id the same way our own /api/accounting/invoices does)
+// to ProOne. Only call this for invoices New Wave itself owns (source !==
+// 'proone') -- pushing a ProOne-sourced invoice back would create a loop.
 async function syncInvoiceToProone(
   invoiceId: string,
   invoiceNumber: string,
@@ -32,6 +36,18 @@ async function syncInvoiceToProone(
           unit_price: i.amount,
         })),
       }),
+    })
+  } catch { /* non-blocking */ }
+}
+
+// Tells ProOne a New Wave-authored invoice was deleted, keyed the same way
+// (source + external_id) as the push-in/push-out create-or-update calls.
+async function syncInvoiceDeleteToProone(invoiceId: string) {
+  if (!PROONE_KEY) return
+  try {
+    await fetch(`${PROONE_URL}/invoices?source=new-wave&external_id=${invoiceId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${PROONE_KEY}` },
     })
   } catch { /* non-blocking */ }
 }
@@ -278,6 +294,9 @@ export default function InvoicePanel({ profile }: { profile: any }) {
         await supabase.from('invoice_items').insert(itemsToInsert.map(i => ({ ...i, invoice_id: editingId })))
       setInvoices(prev => prev.map(inv => inv.id === editingId
         ? { ...inv, ...payload, invoice_items: itemsToInsert } : inv))
+      const editedInv = invoices.find(inv => inv.id === editingId)
+      if (!editedInv || editedInv.source !== 'proone')
+        syncInvoiceToProone(editingId, form.invoice_number, form.invoice_date, form.brand || form.invoice_to, items)
       cancelForm()
     } else {
       const { data: inv, error: invErr } = await supabase.from('invoices').insert({
@@ -323,10 +342,12 @@ export default function InvoicePanel({ profile }: { profile: any }) {
 
   async function handleDelete(id: string) {
     setDeleting(true)
+    const deletedInv = invoices.find(inv => inv.id === id)
     await createClient().from('invoices').delete().eq('id', id)
     setInvoices(prev => prev.filter(inv => inv.id !== id))
     setConfirmDeleteId(null)
     setDeleting(false)
+    if (!deletedInv || deletedInv.source !== 'proone') syncInvoiceDeleteToProone(id)
   }
 
   async function markPaid(id: string) {
