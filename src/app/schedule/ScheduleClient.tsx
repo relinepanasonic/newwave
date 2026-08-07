@@ -111,6 +111,22 @@ function calcJamSelesai(jamMulai: string, durasi: number): string {
   return `${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`
 }
 
+// Same Kuota unit as Client List: only "hour"-scaled invoice items count.
+function itemHours(it: { scale?: string | null; qty: number }): number {
+  if ((it.scale || '').toLowerCase() !== 'hour') return 0
+  return Number(it.qty) || 0
+}
+function monthRangeOf(dateStr: string): { start: string; end: string } {
+  const [y, m] = dateStr.split('-').map(Number)
+  return {
+    start: `${y}-${String(m).padStart(2, '0')}-01`,
+    end: `${y}-${String(m).padStart(2, '0')}-${new Date(y, m, 0).getDate()}`,
+  }
+}
+function fmtHours(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1)
+}
+
 export default function ScheduleClient({ profile, rooms, hosts, brands }: Props) {
   const { lang } = useLang()
   const [baseDate, setBaseDate] = useState(new Date())
@@ -134,6 +150,11 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
     return { morning: cur !== 'morning', afternoon: cur !== 'afternoon', night: cur !== 'night' }
   })
   const [blackouts, setBlackouts] = useState<Blackout[]>([])
+  // Remaining Kuota for the brand currently selected in the edit modal, for
+  // the month of the slot being created -- Kuota minus what's already
+  // Planned (scheduled), not minus what's Succeeded (reported). Warns
+  // before double-booking a client past what they've actually paid for.
+  const [quotaWarning, setQuotaWarning] = useState<{ brand: string; remaining: number } | null>(null)
   // Drag-and-drop (kanban) state. We keep the id in a ref too so drag handlers
   // read it synchronously (React state updates are async and lose the first
   // dragover events, which makes the native drop silently fail).
@@ -195,8 +216,40 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
     })
     setDupDays([])
     setSaveError('')
+    setQuotaWarning(null)
     setEditSlot({ date: activeDateStr, session, roomId, existing })
   }
+
+  // Checks the selected brand's remaining Kuota (Kuota minus already-Planned
+  // hours, not minus Succeeded) for the slot's month, and warns if under 10h.
+  useEffect(() => {
+    if (!editSlot || !form.brand) { setQuotaWarning(null); return }
+    let cancelled = false
+    const brand = form.brand
+    const { start, end } = monthRangeOf(editSlot.date)
+    const supabase = createClient()
+    Promise.all([
+      supabase.from('invoices').select('invoice_date, invoice_items(qty, scale)').eq('brand', brand),
+      supabase.from('schedule_slots').select('id, slot_date, durasi').eq('brand', brand)
+        .gte('slot_date', start).lte('slot_date', end),
+    ]).then(([{ data: invoices }, { data: monthSlots }]) => {
+      if (cancelled) return
+      const kuotaBefore = (invoices || [])
+        .filter(inv => inv.invoice_date < start)
+        .reduce((s, inv) => s + (inv.invoice_items || []).reduce((si: number, it: any) => si + itemHours(it), 0), 0)
+      const kuotaThisMonth = (invoices || [])
+        .filter(inv => inv.invoice_date >= start && inv.invoice_date <= end)
+        .reduce((s, inv) => s + (inv.invoice_items || []).reduce((si: number, it: any) => si + itemHours(it), 0), 0)
+      const totalKuota = kuotaBefore + kuotaThisMonth
+      // Exclude the slot currently being edited so it doesn't count against itself.
+      const planHours = (monthSlots || [])
+        .filter((s: any) => s.id !== editSlot.existing?.id)
+        .reduce((s: number, x: any) => s + (Number(x.durasi) > 0 ? Number(x.durasi) : 1), 0)
+      const remaining = totalKuota - planHours
+      setQuotaWarning(remaining < 10 ? { brand, remaining } : null)
+    })
+    return () => { cancelled = true }
+  }, [editSlot, form.brand])
 
   function toggleDupDay(dateStr: string) {
     setDupDays(prev => prev.includes(dateStr) ? prev.filter(d => d !== dateStr) : [...prev, dateStr])
@@ -737,6 +790,18 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                 ) : (
                   <div className="border border-dashed border-gray-300 rounded-xl px-3 py-2.5 text-sm text-gray-400 bg-gray-50">
                     {tr('noBrandYet', lang)}
+                  </div>
+                )}
+                {/* Kuota warning — Kuota minus already-Planned hours this month, under 10h */}
+                {quotaWarning && quotaWarning.brand === form.brand && (
+                  <div className="mt-2 flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                    <span className="text-base leading-none mt-0.5">⚠️</span>
+                    <div>
+                      <p className="text-xs font-bold text-red-700">Warning</p>
+                      <p className="text-[11px] text-red-600 mt-0.5">
+                        Remaining Quota for {form.brand} : {fmtHours(quotaWarning.remaining)} hour
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
