@@ -332,6 +332,12 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
     setSaving(true)
     const supabase = createClient()
 
+    // Reassigning a slot to a different host must clear the previous host's
+    // Look Approval photo/timestamp -- otherwise the new host inherits a
+    // "already approved" state showing someone else's face (they never took
+    // their own photo, but the report shows the prior host's).
+    const hostChanged = !!editSlot.existing?.id && (editSlot.existing.host_id || null) !== (form.hostId || null)
+
     const payload = {
       slot_date: editSlot.date, session_no: editSlot.session, room_id: editSlot.roomId,
       host_id: form.hostId || null, brand: form.brand || null,
@@ -340,6 +346,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
       background: form.background || null, kostum: form.kostum || null,
       gimmick: form.gimmick || null, status: 'scheduled',
       jam_mulai: form.jamMulai || null, durasi: form.durasi || null,
+      ...(hostChanged ? { look_approval_at: null, look_approval_url: null } : {}),
     }
 
     let error
