@@ -110,6 +110,137 @@ export function rankLabel(index: number): string {
   return `#${index + 1} GMV`
 }
 
+// ── Auto-generated narrative text ─────────────────────────────────────────
+// All of this is derived purely from New Wave's own data (no external
+// inputs), matching the template's "insight"-style prose without needing a
+// human to write it each month.
+
+function fmtRpShort(n: number): string {
+  return 'Rp' + Math.round(n).toLocaleString('id-ID')
+}
+function hostNameOf(r: ReportRow): string {
+  return r.profiles?.full_name || 'Host'
+}
+function dateLabel(dateStr: string): string {
+  const [, m, d] = dateStr.split('-').map(Number)
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
+  return `${d} ${months[m - 1]}`
+}
+
+export interface DailyHighlight {
+  id: string; tag: string; dateStr: string; dateLabel: string; startTime: string
+  host: string; gmv: number; trans: number; viewer: number
+}
+// Best Session + up to one Twindate + one Payday callout card, matching the
+// template's "Daily Evaluation" highlight boxes. Picks the highest-GMV
+// session for each tag when more than one date qualifies in the period.
+export function generateDailyHighlights(reports: ReportRow[], tags: Map<string, SessionTag[]>): DailyHighlight[] {
+  const byTag: Record<string, ReportRow> = {}
+  reports.forEach(r => {
+    const list = tags.get(r.id)
+    if (!list) return
+    list.forEach(tag => {
+      if (!tag) return
+      if (!byTag[tag] || (r.gmv || 0) > (byTag[tag].gmv || 0)) byTag[tag] = r
+    })
+  })
+  const order: SessionTag[] = ['Best Session', 'Twindate', 'Payday']
+  return order.filter(t => t && byTag[t]).map(tag => {
+    const r = byTag[tag as string]
+    return {
+      id: r.id, tag: tag as string, dateStr: r.report_date, dateLabel: dateLabel(r.report_date),
+      startTime: r.start_time?.slice(0, 5) || '-', host: hostNameOf(r),
+      gmv: r.gmv || 0, trans: r.trans || 0, viewer: r.viewer || 0,
+    }
+  })
+}
+
+// 2-3 bullet points summarizing the period: best session's share of total
+// GMV, a Twindate-vs-Payday comparison (only if both occurred), and a host
+// consistency note (volume leader vs most-efficient-per-session host).
+export function generateKeyFindings(
+  reports: ReportRow[], tags: Map<string, SessionTag[]>,
+  hostEval: { name: string; sessions: number; totalGmv: number; avgGmv: number }[],
+  totalGmv: number, monthLabel: string,
+): string[] {
+  const findings: string[] = []
+  const highlights = generateDailyHighlights(reports, tags)
+  const best = highlights.find(h => h.tag === 'Best Session')
+  if (best && totalGmv > 0) {
+    const pct = (best.gmv / totalGmv) * 100
+    findings.push(
+      `Best session: ${best.dateLabel} (Host ${best.host}, ${best.startTime}), GMV ${fmtRpShort(best.gmv)} dengan ${best.trans} transaksi — ` +
+      `sesi terbesar sepanjang ${monthLabel}, menyumbang ${pct.toFixed(1)}% dari total GMV bulan ini.`
+    )
+  }
+  const twindate = highlights.find(h => h.tag === 'Twindate')
+  const payday = highlights.find(h => h.tag === 'Payday')
+  if (twindate && payday) {
+    const bigger = twindate.gmv >= payday.gmv ? 'Twindate' : 'Payday'
+    findings.push(
+      `Twindate (${twindate.dateLabel}, ${twindate.host}): GMV ${fmtRpShort(twindate.gmv)} vs Payday (${payday.dateLabel}, ${payday.host}): GMV ${fmtRpShort(payday.gmv)} — ` +
+      `${bigger} lebih efektif mendorong GMV bulan ini.`
+    )
+  }
+  if (hostEval.length >= 2) {
+    const byAvg = [...hostEval].sort((a, b) => b.avgGmv - a.avgGmv)[0]
+    const byTotal = hostEval[0] // already sorted by total GMV desc by the caller
+    if (byAvg.name !== byTotal.name) {
+      findings.push(
+        `${byAvg.name} membukukan avg GMV/sesi tertinggi (${fmtRpShort(byAvg.avgGmv)}) dari ${byAvg.sessions} sesi. ` +
+        `${byTotal.name} memimpin total GMV (${fmtRpShort(byTotal.totalGmv)}) dari ${byTotal.sessions} sesi.`
+      )
+    } else {
+      findings.push(`${byTotal.name} memimpin baik dari total GMV (${fmtRpShort(byTotal.totalGmv)}) maupun avg GMV/sesi (${fmtRpShort(byTotal.avgGmv)}) dari ${byTotal.sessions} sesi.`)
+    }
+  }
+  return findings
+}
+
+export function generateSessionTimeInsight(slots: SessionTimeSlot[]): string {
+  if (!slots.length) return ''
+  const mostSessions = slots.find(s => s.isMostSessions)
+  const topCvr = slots.find(s => s.isTopCvr)
+  const byGmv = [...slots].sort((a, b) => b.gmv - a.gmv)[0]
+  let text = `Slot ${mostSessions?.startTime} mendominasi frekuensi (${mostSessions?.sessions} sesi) `
+  text += `dengan total GMV ${fmtRpShort(mostSessions?.gmv || 0)}. `
+  if (topCvr && topCvr.startTime !== mostSessions?.startTime) {
+    text += `Slot ${topCvr.startTime} mencatat CVR tertinggi (${topCvr.cvr.toFixed(2)}%). `
+  }
+  if (byGmv.startTime !== mostSessions?.startTime) {
+    text += `Slot ${byGmv.startTime} menghasilkan GMV tertinggi (${fmtRpShort(byGmv.gmv)}) meski bukan yang paling sering dijadwalkan.`
+  }
+  return text.trim()
+}
+
+export function generateHostInsight(hostEval: { name: string; sessions: number; totalGmv: number; avgGmv: number; cvr: number }[]): string {
+  if (!hostEval.length) return ''
+  const top = hostEval[0]
+  const lowCvr = [...hostEval].filter(h => h.sessions >= 2).sort((a, b) => a.cvr - b.cvr)[0]
+  let text = `${top.name} memimpin total GMV (${fmtRpShort(top.totalGmv)}) dari ${top.sessions} sesi, CVR ${top.cvr.toFixed(2)}%. `
+  if (lowCvr && lowCvr.name !== top.name && lowCvr.cvr < 0.1) {
+    text += `${lowCvr.name} menjalankan ${lowCvr.sessions} sesi dengan CVR ${lowCvr.cvr.toFixed(2)}% — perlu evaluasi strategi konten & produk.`
+  }
+  return text.trim()
+}
+
+export function generateProductInsight(products: { name: string; itemSold: number; total: number }[], totalGmv: number): string {
+  if (!products.length) return ''
+  const top = products[0]
+  const pct = totalGmv > 0 ? (top.total / totalGmv) * 100 : 0
+  return `${top.name} adalah produk terlaris, menyumbang ${fmtRpShort(top.total)} (${pct.toFixed(1)}% dari total GMV) dari ${top.itemSold} item terjual.`
+}
+
+export function generateMoMInsight(metrics: MoMMetric[]): string {
+  const gmv = metrics.find(m => m.label === 'GMV')
+  if (!gmv || gmv.pctChange === null) return ''
+  const up = metrics.filter(m => (m.pctChange ?? 0) >= 0).length
+  const down = metrics.length - up
+  const direction = gmv.pctChange >= 0 ? 'naik' : 'turun'
+  return `GMV ${direction} ${Math.abs(gmv.pctChange).toFixed(1)}% dibanding bulan lalu. ` +
+    `${up} dari ${metrics.length} metrik utama naik${down > 0 ? `, ${down} turun` : ''}.`
+}
+
 // Splits a mixed-platform report set into per-platform totals, for the
 // "Both" download mode's Shopee vs TikTok comparison page.
 export function splitByPlatform(reports: ReportRow[], platforms: string[]): Record<string, PeriodTotals & { reports: ReportRow[] }> {

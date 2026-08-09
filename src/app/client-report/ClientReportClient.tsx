@@ -5,7 +5,11 @@ import { FileBarChart2, Download, Presentation, Filter } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
-import { tagSessions, computeSessionTimeEval, computeMoM, totalsOf, rankLabel } from './reportUtils'
+import {
+  tagSessions, computeSessionTimeEval, computeMoM, totalsOf, rankLabel,
+  generateDailyHighlights, generateKeyFindings, generateSessionTimeInsight,
+  generateHostInsight, generateProductInsight, generateMoMInsight,
+} from './reportUtils'
 
 const PLATFORMS = ['TikTok', 'Shopee', 'Instagram', 'YouTube', 'Other']
 const BRAND_PURPLE = [124, 58, 237] as [number, number, number]
@@ -203,6 +207,14 @@ export default function ClientReportClient({ profile }: { profile: any }) {
   const topHost = hostEval[0]
   const topProduct = productBreakdown[0]
   const platformLabel = platform || 'Semua Platform'
+
+  // Auto-generated narrative text — all derived purely from our own data.
+  const dailyHighlights = useMemo(() => generateDailyHighlights(reports, sessionTags), [reports, sessionTags])
+  const keyFindings = useMemo(() => generateKeyFindings(reports, sessionTags, hostEval, totalGmv, month.label), [reports, sessionTags, hostEval, totalGmv, month.label])
+  const sessionTimeInsight = useMemo(() => generateSessionTimeInsight(sessionTimeEval), [sessionTimeEval])
+  const hostInsight = useMemo(() => generateHostInsight(hostEval), [hostEval])
+  const productInsight = useMemo(() => generateProductInsight(productBreakdown, totalGmv), [productBreakdown, totalGmv])
+  const momInsight = useMemo(() => generateMoMInsight(momMetrics), [momMetrics])
 
   const periodRangeLabel = reports.length
     ? `${fmtDateShort(reports[0].report_date)} – ${fmtDateFull(reports[reports.length - 1].report_date)}`
@@ -520,12 +532,24 @@ export default function ClientReportClient({ profile }: { profile: any }) {
                 )}
               </div>
             )}
+            {keyFindings.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Key Findings</p>
+                <ul className="space-y-1.5">
+                  {keyFindings.map((f, i) => (
+                    <li key={i} className="text-xs text-gray-600 leading-relaxed flex gap-2">
+                      <span className="text-brand-400">•</span><span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
 
           {/* Daily GMV trend */}
           {dailyTrend.length > 0 && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <h3 className="text-sm font-bold text-gray-800 mb-3">Daily GMV Trend</h3>
+              <h3 className="text-sm font-bold text-gray-800 mb-3">Daily Evaluation — GMV Trend</h3>
               <div style={{ width: '100%', height: 220 }}>
                 <ResponsiveContainer>
                   <BarChart data={dailyTrend}>
@@ -537,6 +561,19 @@ export default function ClientReportClient({ profile }: { profile: any }) {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+              {dailyHighlights.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+                  {dailyHighlights.map(h => (
+                    <div key={h.id} className="bg-amber-50 border border-amber-100 rounded-xl p-3">
+                      <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wide">{h.tag} — {h.dateLabel}</p>
+                      <p className="text-sm font-bold text-gray-800 mt-1">{fmtRp(h.gmv)}</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">
+                        {h.trans} trans · {fmtNum(h.viewer)} viewer · Host: {h.host} · {h.startTime}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -621,6 +658,12 @@ export default function ClientReportClient({ profile }: { profile: any }) {
                   </tbody>
                 </table>
               </div>
+              {sessionTimeInsight && (
+                <div className="mx-5 mb-4 mt-1 bg-brand-50 border border-brand-100 rounded-xl px-3.5 py-2.5">
+                  <p className="text-[9px] font-bold text-brand-500 uppercase tracking-widest mb-1">Insight</p>
+                  <p className="text-xs text-brand-800 leading-relaxed">{sessionTimeInsight}</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -660,6 +703,12 @@ export default function ClientReportClient({ profile }: { profile: any }) {
                 </tbody>
               </table>
             </div>
+            {hostInsight && (
+              <div className="mx-5 mb-4 mt-1 bg-brand-50 border border-brand-100 rounded-xl px-3.5 py-2.5">
+                <p className="text-[9px] font-bold text-brand-500 uppercase tracking-widest mb-1">Insight</p>
+                <p className="text-xs text-brand-800 leading-relaxed">{hostInsight}</p>
+              </div>
+            )}
           </div>
 
           {/* Product breakdown */}
@@ -688,6 +737,12 @@ export default function ClientReportClient({ profile }: { profile: any }) {
                   </tbody>
                 </table>
               </div>
+              {productInsight && (
+                <div className="mx-5 mb-4 mt-1 bg-brand-50 border border-brand-100 rounded-xl px-3.5 py-2.5">
+                  <p className="text-[9px] font-bold text-brand-500 uppercase tracking-widest mb-1">Insight</p>
+                  <p className="text-xs text-brand-800 leading-relaxed">{productInsight}</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -737,6 +792,12 @@ export default function ClientReportClient({ profile }: { profile: any }) {
                   </tbody>
                 </table>
               </div>
+              {momInsight && (
+                <div className="mt-4 bg-brand-50 border border-brand-100 rounded-xl px-3.5 py-2.5">
+                  <p className="text-[9px] font-bold text-brand-500 uppercase tracking-widest mb-1">Insight</p>
+                  <p className="text-xs text-brand-800 leading-relaxed">{momInsight}</p>
+                </div>
+              )}
             </div>
           )}
         </div>
