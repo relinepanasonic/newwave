@@ -5,6 +5,7 @@ import { FileBarChart2, Download, Presentation, Filter } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
+import { tagSessions, computeSessionTimeEval, computeMoM, totalsOf, rankLabel } from './reportUtils'
 
 const PLATFORMS = ['TikTok', 'Shopee', 'Instagram', 'YouTube', 'Other']
 const BRAND_PURPLE = [124, 58, 237] as [number, number, number]
@@ -51,6 +52,17 @@ function getMonthOptions() {
   })
 }
 
+// Calendar month immediately before the given YYYY-MM-01 start date.
+function prevMonthRange(monthStart: string): { start: string; end: string } {
+  const [y, m] = monthStart.split('-').map(Number)
+  const prevY = m === 1 ? y - 1 : y
+  const prevM = m === 1 ? 12 : m - 1
+  return {
+    start: `${prevY}-${String(prevM).padStart(2, '0')}-01`,
+    end: `${prevY}-${String(prevM).padStart(2, '0')}-${new Date(prevY, prevM, 0).getDate()}`,
+  }
+}
+
 function fmtRp(n: number) {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n || 0)
 }
@@ -78,6 +90,7 @@ export default function ClientReportClient({ profile }: { profile: any }) {
   const [selectedBrand, setSelectedBrand] = useState('')
   const [reports, setReports] = useState<ReportRow[]>([])
   const [products, setProducts] = useState<ProductRow[]>([])
+  const [prevReports, setPrevReports] = useState<ReportRow[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [exporting, setExporting] = useState<'pdf' | 'ppt' | null>(null)
@@ -94,18 +107,28 @@ export default function ClientReportClient({ profile }: { profile: any }) {
   }, [isClientRole])
 
   const fetchReport = useCallback(async () => {
-    if (!brand) { setReports([]); setProducts([]); return }
+    if (!brand) { setReports([]); setProducts([]); setPrevReports([]); return }
     setLoading(true); setLoadError('')
     try {
-      const res = await fetch('/api/client-report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brand, platform: platform || undefined, month_start: month.start, month_end: month.end }),
-      })
+      const prevMonth = prevMonthRange(month.start)
+      const [res, prevRes] = await Promise.all([
+        fetch('/api/client-report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ brand, platform: platform || undefined, month_start: month.start, month_end: month.end }),
+        }),
+        fetch('/api/client-report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ brand, platform: platform || undefined, month_start: prevMonth.start, month_end: prevMonth.end }),
+        }),
+      ])
       const json = await res.json()
-      if (!res.ok) { setLoadError(json.error || 'Gagal memuat data'); setReports([]); setProducts([]); return }
+      const prevJson = await prevRes.json()
+      if (!res.ok) { setLoadError(json.error || 'Gagal memuat data'); setReports([]); setProducts([]); setPrevReports([]); return }
       setReports(json.reports || [])
       setProducts(json.products || [])
+      setPrevReports(prevRes.ok ? (prevJson.reports || []) : [])
     } catch {
       setLoadError('Gagal memuat data')
     }
@@ -149,7 +172,22 @@ export default function ClientReportClient({ profile }: { profile: any }) {
     return Object.values(map)
       .map(h => ({ ...h, avgGmv: h.sessions ? h.totalGmv / h.sessions : 0, cvr: h.totalViewer ? (h.totalTrans / h.totalViewer) * 100 : 0 }))
       .sort((a, b) => b.totalGmv - a.totalGmv)
+      .map((h, i) => ({ ...h, rank: rankLabel(i) }))
   }, [reports])
+
+  // Best Session / Twindate / Payday — auto-detected, no manual tagging.
+  const sessionTags = useMemo(() => tagSessions(reports), [reports])
+
+  // Performance grouped by Start Live hour.
+  const sessionTimeEval = useMemo(() => computeSessionTimeEval(reports), [reports])
+
+  // This month vs last calendar month, same brand/platform.
+  const momMetrics = useMemo(() => computeMoM(totalsOf(reports), totalsOf(prevReports)), [reports, prevReports])
+  const prevMonthLabel = useMemo(() => {
+    const [y, m] = month.start.split('-').map(Number)
+    const d = new Date(y, m - 2, 1)
+    return d.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
+  }, [month.start])
 
   const productBreakdown = useMemo(() => {
     const map: Record<string, { name: string; klik: number; itemSold: number; total: number }> = {}
@@ -516,24 +554,75 @@ export default function ClientReportClient({ profile }: { profile: any }) {
                     <th className="px-4 py-2 text-right font-semibold">Viewer</th>
                     <th className="px-4 py-2 text-right font-semibold">Trans</th>
                     <th className="px-4 py-2 text-right font-semibold">Komentar</th>
+                    <th className="px-4 py-2 text-left font-semibold">Keterangan</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {reports.map(r => (
-                    <tr key={r.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-2 whitespace-nowrap text-gray-600">{fmtDateShort(r.report_date)}</td>
-                      <td className="px-4 py-2 text-gray-500">{r.start_time?.slice(0, 5) || '-'}</td>
-                      <td className="px-4 py-2 font-medium text-brand-700">{r.profiles?.full_name || '-'}</td>
-                      <td className="px-4 py-2 text-right font-semibold text-emerald-700">{fmtRp(r.gmv)}</td>
-                      <td className="px-4 py-2 text-right text-gray-600">{fmtNum(r.viewer)}</td>
-                      <td className="px-4 py-2 text-right text-gray-600">{r.trans || 0}</td>
-                      <td className="px-4 py-2 text-right text-gray-600">{r.comment_count || 0}</td>
-                    </tr>
-                  ))}
+                  {reports.map(r => {
+                    const tags = sessionTags.get(r.id)
+                    return (
+                      <tr key={r.id} className={`hover:bg-gray-50 ${tags ? 'bg-amber-50/50' : ''}`}>
+                        <td className="px-4 py-2 whitespace-nowrap text-gray-600">{fmtDateShort(r.report_date)}</td>
+                        <td className="px-4 py-2 text-gray-500">{r.start_time?.slice(0, 5) || '-'}</td>
+                        <td className="px-4 py-2 font-medium text-brand-700">{r.profiles?.full_name || '-'}</td>
+                        <td className="px-4 py-2 text-right font-semibold text-emerald-700">{fmtRp(r.gmv)}</td>
+                        <td className="px-4 py-2 text-right text-gray-600">{fmtNum(r.viewer)}</td>
+                        <td className="px-4 py-2 text-right text-gray-600">{r.trans || 0}</td>
+                        <td className="px-4 py-2 text-right text-gray-600">{r.comment_count || 0}</td>
+                        <td className="px-4 py-2 whitespace-nowrap">
+                          {tags && (
+                            <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">
+                              {tags.join(', ')}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
+
+          {/* Session Time Evaluation */}
+          {sessionTimeEval.length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <h3 className="text-sm font-bold text-gray-800 px-5 pt-4 pb-2">Session Time Evaluation</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 text-[10px] text-gray-400 uppercase tracking-wide border-b border-gray-100">
+                      <th className="px-4 py-2 text-left font-semibold">Start Live</th>
+                      <th className="px-4 py-2 text-right font-semibold">Sesi</th>
+                      <th className="px-4 py-2 text-right font-semibold">GMV</th>
+                      <th className="px-4 py-2 text-right font-semibold">Viewers</th>
+                      <th className="px-4 py-2 text-right font-semibold">Trans</th>
+                      <th className="px-4 py-2 text-right font-semibold">Comments</th>
+                      <th className="px-4 py-2 text-right font-semibold">CVR</th>
+                      <th className="px-4 py-2 text-left font-semibold">Keterangan</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {sessionTimeEval.map(s => (
+                      <tr key={s.startTime} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 font-medium text-gray-800">{s.startTime}</td>
+                        <td className="px-4 py-2 text-right text-gray-600">{s.sessions}</td>
+                        <td className="px-4 py-2 text-right font-semibold text-emerald-700">{fmtRp(s.gmv)}</td>
+                        <td className="px-4 py-2 text-right text-gray-600">{fmtNum(s.viewer)}</td>
+                        <td className="px-4 py-2 text-right text-gray-600">{s.trans}</td>
+                        <td className="px-4 py-2 text-right text-gray-600">{s.comment}</td>
+                        <td className="px-4 py-2 text-right text-gray-600">{s.cvr.toFixed(2)}%</td>
+                        <td className="px-4 py-2 whitespace-nowrap">
+                          {s.isMostSessions && <span className="text-[10px] bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full font-semibold mr-1">★ Most Sessions</span>}
+                          {s.isTopCvr && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold">Top CVR</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Host evaluation */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -555,7 +644,10 @@ export default function ClientReportClient({ profile }: { profile: any }) {
                 <tbody className="divide-y divide-gray-50">
                   {hostEval.map(h => (
                     <tr key={h.name} className="hover:bg-gray-50">
-                      <td className="px-4 py-2 font-medium text-gray-800">{h.name}</td>
+                      <td className="px-4 py-2 font-medium text-gray-800">
+                        {h.name}
+                        <span className="ml-1.5 text-[9px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-semibold align-middle">{h.rank}</span>
+                      </td>
                       <td className="px-4 py-2 text-right text-gray-600">{h.sessions}</td>
                       <td className="px-4 py-2 text-right font-semibold text-emerald-700">{fmtRp(h.totalGmv)}</td>
                       <td className="px-4 py-2 text-right text-gray-600">{fmtRp(h.avgGmv)}</td>
@@ -591,6 +683,55 @@ export default function ClientReportClient({ profile }: { profile: any }) {
                         <td className="px-4 py-2 text-right text-gray-600">{p.klik}</td>
                         <td className="px-4 py-2 text-right font-semibold">{p.itemSold}</td>
                         <td className="px-4 py-2 text-right font-semibold text-emerald-700">{fmtRp(p.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Month-on-Month Evaluation */}
+          {prevReports.length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="text-sm font-bold text-gray-800 mb-1">Month-on-Month Evaluation</h3>
+              <p className="text-xs text-gray-400 mb-4">{month.label} vs {prevMonthLabel}</p>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                {momMetrics.map(m => (
+                  <div key={m.label} className="border border-gray-100 rounded-xl p-3">
+                    <p className="text-[10px] text-gray-400 font-medium">{m.label}</p>
+                    <p className="text-sm font-bold text-gray-800 mt-0.5">
+                      {m.label === 'GMV' ? fmtRp(m.current) : fmtNum(m.current)}
+                    </p>
+                    <p className={`text-[11px] font-semibold mt-0.5 ${
+                      m.pctChange === null ? 'text-gray-400' : m.pctChange >= 0 ? 'text-emerald-600' : 'text-red-500'
+                    }`}>
+                      {m.pctChange === null ? '—' : `${m.pctChange >= 0 ? '▲' : '▼'} ${Math.abs(m.pctChange).toFixed(1)}%`}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <div className="overflow-x-auto mt-4">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 text-[10px] text-gray-400 uppercase tracking-wide border-b border-gray-100">
+                      <th className="px-3 py-2 text-left font-semibold">Metric</th>
+                      <th className="px-3 py-2 text-right font-semibold">{prevMonthLabel}</th>
+                      <th className="px-3 py-2 text-right font-semibold">{month.label}</th>
+                      <th className="px-3 py-2 text-right font-semibold">MoM</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {momMetrics.map(m => (
+                      <tr key={m.label}>
+                        <td className="px-3 py-2 font-medium text-gray-800">{m.label}</td>
+                        <td className="px-3 py-2 text-right text-gray-500">{m.label === 'GMV' ? fmtRp(m.previous) : fmtNum(m.previous)}</td>
+                        <td className="px-3 py-2 text-right text-gray-800 font-semibold">{m.label === 'GMV' ? fmtRp(m.current) : fmtNum(m.current)}</td>
+                        <td className={`px-3 py-2 text-right font-semibold ${
+                          m.pctChange === null ? 'text-gray-400' : m.pctChange >= 0 ? 'text-emerald-600' : 'text-red-500'
+                        }`}>
+                          {m.pctChange === null ? '—' : `${m.pctChange >= 0 ? '+' : ''}${m.pctChange.toFixed(1)}%`}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
