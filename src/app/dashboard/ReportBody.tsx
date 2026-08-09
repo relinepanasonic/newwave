@@ -13,6 +13,8 @@ import {
 
 type ReportMode = 'Shopee' | 'TikTok' | 'Both' | null
 
+const ALL_BRANDS = '__ALL__'
+const ALL_BRANDS_LABEL = 'Semua Client (Gabungan)'
 const PLATFORMS = ['TikTok', 'Shopee', 'Instagram', 'YouTube', 'Other']
 const BRAND_PURPLE = [124, 58, 237] as [number, number, number]
 const PPTXGENJS_CDN_URL = 'https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js'
@@ -110,6 +112,8 @@ export default function ReportBody({ profile }: { profile: any }) {
 
   const month = monthOptions[monthIdx]
   const brand = isClientRole ? profile.client_brand : selectedBrand
+  const isAllBrands = !isClientRole && brand === ALL_BRANDS
+  const brandLabel = isAllBrands ? ALL_BRANDS_LABEL : brand
 
   // Admin-like roles: fetch the client brand picker options
   useEffect(() => {
@@ -135,12 +139,12 @@ export default function ReportBody({ profile }: { profile: any }) {
         fetch('/api/client-report', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ brand, ...fetchScope, month_start: month.start, month_end: month.end }),
+          body: JSON.stringify({ brand: isAllBrands ? undefined : brand, allBrands: isAllBrands, ...fetchScope, month_start: month.start, month_end: month.end }),
         }),
         fetch('/api/client-report', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ brand, ...fetchScope, month_start: prevMonth.start, month_end: prevMonth.end }),
+          body: JSON.stringify({ brand: isAllBrands ? undefined : brand, allBrands: isAllBrands, ...fetchScope, month_start: prevMonth.start, month_end: prevMonth.end }),
         }),
       ])
       const json = await res.json()
@@ -154,7 +158,7 @@ export default function ReportBody({ profile }: { profile: any }) {
     }
     setLoading(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [brand, platform, reportMode, month.start, month.end])
+  }, [brand, isAllBrands, platform, reportMode, month.start, month.end])
 
   useEffect(() => { fetchReport() }, [fetchReport])
 
@@ -256,11 +260,11 @@ export default function ReportBody({ profile }: { profile: any }) {
     : month.label
 
   const execSummary = reports.length
-    ? `Selama periode ${periodRangeLabel}, New Wave Live Specialist melaksanakan ${sessionCount} sesi live ${platform || ''} untuk ${brand}. ` +
+    ? `Selama periode ${periodRangeLabel}, New Wave Live Specialist melaksanakan ${sessionCount} sesi live ${platform || ''} untuk ${brandLabel}. ` +
       `Total GMV yang dibukukan sebesar ${fmtRp(totalGmv)} dengan ${totalTrans} transaksi, ${fmtNum(totalViewer)} viewers, dan ${totalComment} komentar.`
     : ''
 
-  const fileBase = `${platform || 'Report'}_${brand || ''}_${month.label}`.replace(/\s+/g, '_')
+  const fileBase = `${platform || 'Report'}_${brandLabel || ''}_${month.label}`.replace(/\s+/g, '_')
 
   // ── PDF export ────────────────────────────────────────────────────────────
   async function exportPdf() {
@@ -278,7 +282,7 @@ export default function ReportBody({ profile }: { profile: any }) {
       doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(20)
       doc.text(`${platformLabel.toUpperCase()} PERFORMANCE REPORT`, 14, 20)
       doc.setFont('helvetica', 'normal'); doc.setFontSize(11)
-      doc.text(String(brand), 14, 28)
+      doc.text(String(brandLabel), 14, 28)
       doc.setFontSize(9); doc.setTextColor(100)
       doc.text(`Periode: ${month.label}`, 14, 34)
       doc.text(`Platform: ${platformLabel} | Periode Aktif: ${periodRangeLabel} | ${sessionCount} Sesi`, 14, 39)
@@ -454,7 +458,7 @@ export default function ReportBody({ profile }: { profile: any }) {
       for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i)
         doc.setFontSize(7); doc.setTextColor(150)
-        doc.text(`New Wave Live Specialist | ${platformLabel} Performance Report — ${month.label} | ${brand} | Confidential`, 14, 290)
+        doc.text(`New Wave Live Specialist | ${platformLabel} Performance Report — ${month.label} | ${brandLabel} | Confidential`, 14, 290)
       }
 
       doc.save(`${fileBase}.pdf`)
@@ -475,7 +479,7 @@ export default function ReportBody({ profile }: { profile: any }) {
       slide.background = { color: 'F5F3FF' }
       slide.addText('LIVE SHOPPING SPECIALIST', { x: 0.5, y: 0.4, fontSize: 10, color: '888888' })
       slide.addText(`${platformLabel.toUpperCase()} PERFORMANCE REPORT`, { x: 0.5, y: 1.0, fontSize: 26, bold: true, color: '6D28D9' })
-      slide.addText(String(brand), { x: 0.5, y: 1.9, fontSize: 18, bold: true, color: '111111' })
+      slide.addText(String(brandLabel), { x: 0.5, y: 1.9, fontSize: 18, bold: true, color: '111111' })
       slide.addText(`Periode: ${month.label}`, { x: 0.5, y: 2.4, fontSize: 12, color: '555555' })
       slide.addText(`Platform: ${platformLabel} | ${sessionCount} Sesi`, { x: 0.5, y: 2.7, fontSize: 12, color: '555555' })
       slide.addText('Prepared by New Wave Live Specialist', { x: 0.5, y: 5.0, fontSize: 10, italic: true, color: '999999' })
@@ -629,7 +633,7 @@ export default function ReportBody({ profile }: { profile: any }) {
                 <X size={16} className="text-gray-400" />
               </button>
             </div>
-            <p className="text-xs text-gray-400 mb-4">Laporan untuk {brand} — {month.label}</p>
+            <p className="text-xs text-gray-400 mb-4">Laporan untuk {brandLabel} — {month.label}</p>
             <div className="space-y-2">
               {(['Shopee', 'TikTok', 'Both'] as const).map(opt => (
                 <button key={opt} onClick={() => { setShowReportModal(false); setReportMode(opt) }}
@@ -658,6 +662,7 @@ export default function ReportBody({ profile }: { profile: any }) {
             <select value={selectedBrand} onChange={e => setSelectedBrand(e.target.value)}
               className="text-xs border border-gray-200 rounded-xl px-2 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white truncate">
               <option value="">— Pilih Client —</option>
+              <option value={ALL_BRANDS}>{ALL_BRANDS_LABEL}</option>
               {clientOptions.map(c => <option key={c.id} value={c.client_brand}>{c.client_brand}</option>)}
             </select>
           )}
@@ -696,7 +701,7 @@ export default function ReportBody({ profile }: { profile: any }) {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Live Shopping Specialist</p>
             <h2 className="text-xl font-bold text-brand-700 mt-1">{platformLabel.toUpperCase()} PERFORMANCE REPORT</h2>
-            <p className="text-sm font-semibold text-gray-800 mt-1">{brand}</p>
+            <p className="text-sm font-semibold text-gray-800 mt-1">{brandLabel}</p>
             <p className="text-xs text-gray-500 mt-2">Periode: {month.label}</p>
             <p className="text-xs text-gray-500">Platform: {platformLabel} | Periode Aktif: {periodRangeLabel} | {sessionCount} Sesi</p>
           </div>
@@ -1014,7 +1019,7 @@ export default function ReportBody({ profile }: { profile: any }) {
           {shopeeTiktokSplit && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 print:break-before-page">
               <h3 className="text-sm font-bold text-gray-800 mb-1">Shopee vs TikTok Comparison</h3>
-              <p className="text-xs text-gray-400 mb-4">{brand} — {month.label}</p>
+              <p className="text-xs text-gray-400 mb-4">{brandLabel} — {month.label}</p>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>

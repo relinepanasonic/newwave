@@ -21,20 +21,22 @@ export async function POST(req: Request) {
   const { data: me } = await supabase.from('profiles').select('role, client_brand').eq('id', user.id).single()
   if (!me) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
 
-  const { brand, platform, platforms, month_start, month_end } = await req.json()
+  const { brand, platform, platforms, allBrands, month_start, month_end } = await req.json()
   if (!month_start || !month_end) {
     return NextResponse.json({ error: 'month_start and month_end required' }, { status: 400 })
   }
 
   let effectiveBrand: string | null = null
+  let skipBrandFilter = false
   if (me.role === 'client') {
     effectiveBrand = me.client_brand
   } else if (['superadmin', 'host_manager', 'operator'].includes(me.role)) {
-    effectiveBrand = brand || null
+    if (allBrands) skipBrandFilter = true
+    else effectiveBrand = brand || null
   } else {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
-  if (!effectiveBrand) {
+  if (!skipBrandFilter && !effectiveBrand) {
     return NextResponse.json({ error: 'Brand tidak ditemukan' }, { status: 400 })
   }
 
@@ -46,9 +48,9 @@ export async function POST(req: Request) {
 
   let q = admin.from('live_reports')
     .select('id, report_date, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, product_sold_name, notes, host_id, profiles:host_id(full_name)')
-    .eq('brand', effectiveBrand)
     .gte('report_date', month_start).lte('report_date', month_end)
     .order('report_date', { ascending: true }).order('start_time', { ascending: true })
+  if (!skipBrandFilter) q = q.eq('brand', effectiveBrand)
   if (Array.isArray(platforms) && platforms.length) q = q.in('platform', platforms)
   else if (platform) q = q.eq('platform', platform)
 
@@ -64,5 +66,5 @@ export async function POST(req: Request) {
     products = prods || []
   }
 
-  return NextResponse.json({ brand: effectiveBrand, reports: reports || [], products })
+  return NextResponse.json({ brand: skipBrandFilter ? 'ALL' : effectiveBrand, reports: reports || [], products })
 }
