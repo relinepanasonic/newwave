@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   const { data: me } = await supabase.from('profiles').select('role, client_brand').eq('id', user.id).single()
   if (!me) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
 
-  const { brand, platform, month_start, month_end } = await req.json()
+  const { brand, platform, platforms, month_start, month_end } = await req.json()
   if (!month_start || !month_end) {
     return NextResponse.json({ error: 'month_start and month_end required' }, { status: 400 })
   }
@@ -49,7 +49,8 @@ export async function POST(req: Request) {
     .eq('brand', effectiveBrand)
     .gte('report_date', month_start).lte('report_date', month_end)
     .order('report_date', { ascending: true }).order('start_time', { ascending: true })
-  if (platform) q = q.eq('platform', platform)
+  if (Array.isArray(platforms) && platforms.length) q = q.in('platform', platforms)
+  else if (platform) q = q.eq('platform', platform)
 
   const { data: reports, error } = await q
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

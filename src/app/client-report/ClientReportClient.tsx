@@ -1,15 +1,17 @@
 'use client'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import AppShell from '@/components/AppShell'
-import { FileBarChart2, Download, Presentation, Filter } from 'lucide-react'
+import { FileBarChart2, Download, Presentation, Filter, Printer, X, ArrowLeft } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import {
-  tagSessions, computeSessionTimeEval, computeMoM, totalsOf, rankLabel,
+  tagSessions, computeSessionTimeEval, computeMoM, totalsOf, rankLabel, splitByPlatform,
   generateDailyHighlights, generateKeyFindings, generateSessionTimeInsight,
   generateHostInsight, generateProductInsight, generateMoMInsight,
 } from './reportUtils'
+
+type ReportMode = 'Shopee' | 'TikTok' | 'Both' | null
 
 const PLATFORMS = ['TikTok', 'Shopee', 'Instagram', 'YouTube', 'Other']
 const BRAND_PURPLE = [124, 58, 237] as [number, number, number]
@@ -98,6 +100,10 @@ export default function ClientReportClient({ profile }: { profile: any }) {
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [exporting, setExporting] = useState<'pdf' | 'ppt' | null>(null)
+  // Generate Report flow: overrides the plain `platform` browsing filter
+  // while active. null = normal on-screen browsing using the filter dropdown.
+  const [reportMode, setReportMode] = useState<ReportMode>(null)
+  const [showReportModal, setShowReportModal] = useState(false)
 
   const month = monthOptions[monthIdx]
   const brand = isClientRole ? profile.client_brand : selectedBrand
@@ -110,6 +116,13 @@ export default function ClientReportClient({ profile }: { profile: any }) {
     })
   }, [isClientRole])
 
+  // reportMode (set via the Generate Report modal) overrides the plain
+  // platform dropdown filter for what gets fetched: 'Both' fetches Shopee +
+  // TikTok together (not all 5 platforms), single mode fetches just that one.
+  const fetchScope: { platform?: string; platforms?: string[] } = reportMode === 'Both'
+    ? { platforms: ['Shopee', 'TikTok'] }
+    : reportMode ? { platform: reportMode } : { platform: platform || undefined }
+
   const fetchReport = useCallback(async () => {
     if (!brand) { setReports([]); setProducts([]); setPrevReports([]); return }
     setLoading(true); setLoadError('')
@@ -119,12 +132,12 @@ export default function ClientReportClient({ profile }: { profile: any }) {
         fetch('/api/client-report', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ brand, platform: platform || undefined, month_start: month.start, month_end: month.end }),
+          body: JSON.stringify({ brand, ...fetchScope, month_start: month.start, month_end: month.end }),
         }),
         fetch('/api/client-report', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ brand, platform: platform || undefined, month_start: prevMonth.start, month_end: prevMonth.end }),
+          body: JSON.stringify({ brand, ...fetchScope, month_start: prevMonth.start, month_end: prevMonth.end }),
         }),
       ])
       const json = await res.json()
@@ -137,9 +150,25 @@ export default function ClientReportClient({ profile }: { profile: any }) {
       setLoadError('Gagal memuat data')
     }
     setLoading(false)
-  }, [brand, platform, month.start, month.end])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brand, platform, reportMode, month.start, month.end])
 
   useEffect(() => { fetchReport() }, [fetchReport])
+
+  // Auto-print once the requested report's data has finished loading.
+  useEffect(() => {
+    if (!reportMode || loading) return
+    const id = setTimeout(() => window.print(), 300)
+    return () => clearTimeout(id)
+  }, [reportMode, loading])
+
+  // Leaving print mode (browser "afterprint" fires whether the user actually
+  // printed/saved or just cancelled the dialog) drops back to normal browsing.
+  useEffect(() => {
+    const handler = () => setReportMode(null)
+    window.addEventListener('afterprint', handler)
+    return () => window.removeEventListener('afterprint', handler)
+  }, [])
 
   // ── Aggregations ──────────────────────────────────────────────────────────
   const productsByReport = useMemo(() => {
@@ -206,7 +235,10 @@ export default function ClientReportClient({ profile }: { profile: any }) {
 
   const topHost = hostEval[0]
   const topProduct = productBreakdown[0]
-  const platformLabel = platform || 'Semua Platform'
+  const platformLabel = reportMode === 'Both' ? 'Shopee + TikTok' : reportMode || platform || 'Semua Platform'
+  const shopeeTiktokSplit = useMemo(
+    () => reportMode === 'Both' ? splitByPlatform(reports, ['Shopee', 'TikTok']) : null,
+    [reportMode, reports])
 
   // Auto-generated narrative text — all derived purely from our own data.
   const dailyHighlights = useMemo(() => generateDailyHighlights(reports, sessionTags), [reports, sessionTags])
@@ -421,8 +453,8 @@ export default function ClientReportClient({ profile }: { profile: any }) {
 
   return (
     <AppShell role={profile.role as any} userName={profile.full_name}>
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
+    <div className="p-6 max-w-6xl mx-auto print:p-0 print:max-w-none">
+      <div className="flex items-start justify-between mb-6 flex-wrap gap-3 print:hidden">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <FileBarChart2 size={22} className="text-brand-600" /> Client Report
@@ -431,10 +463,52 @@ export default function ClientReportClient({ profile }: { profile: any }) {
             {isClientRole ? 'Laporan performa live brand kamu' : 'Generate laporan performa live untuk client'}
           </p>
         </div>
+        {reports.length > 0 && !reportMode && (
+          <button onClick={() => setShowReportModal(true)}
+            className="flex items-center gap-1.5 text-sm bg-brand-600 text-white px-3.5 py-2 rounded-xl font-medium hover:bg-brand-700">
+            <Printer size={14} /> Generate Report
+          </button>
+        )}
       </div>
 
+      {reportMode && (
+        <div className="flex items-center gap-2 mb-4 print:hidden">
+          <button onClick={() => setReportMode(null)}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-xl px-3 py-1.5">
+            <ArrowLeft size={12} /> Kembali
+          </button>
+          <span className="text-xs text-gray-400">
+            {loading ? 'Menyiapkan laporan...' : `Mode cetak: ${platformLabel}`}
+          </span>
+        </div>
+      )}
+
+      {/* Generate Report modal */}
+      {showReportModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 print:hidden"
+          onClick={() => setShowReportModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="font-bold text-gray-900 text-sm">Pilih Platform</h3>
+              <button onClick={() => setShowReportModal(false)} className="p-1 rounded-lg hover:bg-gray-100">
+                <X size={16} className="text-gray-400" />
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mb-4">Laporan untuk {brand} — {month.label}</p>
+            <div className="space-y-2">
+              {(['Shopee', 'TikTok', 'Both'] as const).map(opt => (
+                <button key={opt} onClick={() => { setShowReportModal(false); setReportMode(opt) }}
+                  className="w-full text-left border border-gray-200 rounded-xl px-4 py-3 text-sm font-semibold text-gray-700 hover:border-brand-400 hover:bg-brand-50 transition-colors">
+                  {opt === 'Both' ? 'Shopee + TikTok (gabungan)' : opt}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-5">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-5 print:hidden">
         <div className={`grid gap-2 ${isClientRole ? 'grid-cols-2' : 'grid-cols-3'}`}>
           <select value={monthIdx} onChange={e => setMonthIdx(Number(e.target.value))}
             className="text-xs border border-gray-200 rounded-xl px-2 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white truncate">
@@ -470,7 +544,7 @@ export default function ClientReportClient({ profile }: { profile: any }) {
       ) : (
         <div className="space-y-5">
           {/* Export buttons */}
-          <div className="flex items-center gap-2 justify-end">
+          <div className="flex items-center gap-2 justify-end print:hidden">
             <Filter size={13} className="text-gray-400 mr-auto" />
             <span className="text-xs text-gray-400 mr-2">{sessionCount} sesi</span>
             <button onClick={exportPdf} disabled={exporting !== null}
@@ -798,6 +872,59 @@ export default function ClientReportClient({ profile }: { profile: any }) {
                   <p className="text-xs text-brand-800 leading-relaxed">{momInsight}</p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Shopee vs TikTok Comparison — only in "Both" report mode, own printed page */}
+          {shopeeTiktokSplit && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 print:break-before-page">
+              <h3 className="text-sm font-bold text-gray-800 mb-1">Shopee vs TikTok Comparison</h3>
+              <p className="text-xs text-gray-400 mb-4">{brand} — {month.label}</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 text-[10px] text-gray-400 uppercase tracking-wide border-b border-gray-100">
+                      <th className="px-3 py-2 text-left font-semibold">Metric</th>
+                      <th className="px-3 py-2 text-right font-semibold">Shopee</th>
+                      <th className="px-3 py-2 text-right font-semibold">TikTok</th>
+                      <th className="px-3 py-2 text-right font-semibold">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {([
+                      ['Sesi', 'sessions', (n: number) => String(n)],
+                      ['GMV', 'gmv', fmtRp],
+                      ['Transaksi', 'trans', (n: number) => String(n)],
+                      ['Viewers', 'viewer', fmtNum],
+                      ['Comments', 'comment', (n: number) => String(n)],
+                    ] as const).map(([label, key, fmt]) => {
+                      const shopeeVal = shopeeTiktokSplit['Shopee']?.[key] || 0
+                      const tiktokVal = shopeeTiktokSplit['TikTok']?.[key] || 0
+                      return (
+                        <tr key={label}>
+                          <td className="px-3 py-2 font-medium text-gray-800">{label}</td>
+                          <td className="px-3 py-2 text-right text-gray-600">{fmt(shopeeVal)}</td>
+                          <td className="px-3 py-2 text-right text-gray-600">{fmt(tiktokVal)}</td>
+                          <td className="px-3 py-2 text-right font-semibold text-gray-800">{fmt(shopeeVal + tiktokVal)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="grid grid-cols-2 gap-4 mt-5">
+                {(['Shopee', 'TikTok'] as const).map(p => {
+                  const totalBoth = (shopeeTiktokSplit['Shopee']?.gmv || 0) + (shopeeTiktokSplit['TikTok']?.gmv || 0)
+                  const gmv = shopeeTiktokSplit[p]?.gmv || 0
+                  const share = totalBoth > 0 ? (gmv / totalBoth) * 100 : 0
+                  return (
+                    <div key={p} className="border border-gray-100 rounded-xl p-3 text-center">
+                      <p className="text-[10px] text-gray-400 font-medium">{p} GMV Share</p>
+                      <p className="text-lg font-bold text-brand-700 mt-1">{share.toFixed(1)}%</p>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
         </div>

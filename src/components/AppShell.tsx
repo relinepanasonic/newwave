@@ -32,14 +32,14 @@ function AppShellInner({ role, userName, children }: Props) {
       )}
 
       <div className={cn(
-        'fixed left-0 top-0 h-full z-50 transition-transform duration-200 ease-in-out',
+        'fixed left-0 top-0 h-full z-50 transition-transform duration-200 ease-in-out print:hidden',
         open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
       )}>
         <Sidebar role={role} lang={lang} userName={userName} onClose={() => setOpen(false)} />
       </div>
 
-      <main className="flex-1 lg:ml-[220px] min-h-screen overflow-x-hidden">
-        <div className="sticky top-0 z-30 bg-white border-b border-gray-100 px-4 py-3 flex items-center shadow-sm">
+      <main className="flex-1 lg:ml-[220px] print:ml-0 min-h-screen overflow-x-hidden">
+        <div className="sticky top-0 z-30 bg-white border-b border-gray-100 px-4 py-3 flex items-center shadow-sm print:hidden">
           <div className="flex items-center gap-3 lg:hidden">
             <button onClick={() => setOpen(true)}
               className="p-2 rounded-xl hover:bg-gray-100 active:bg-gray-200 transition-colors">
