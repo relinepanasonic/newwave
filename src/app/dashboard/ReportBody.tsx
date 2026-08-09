@@ -86,7 +86,10 @@ function fmtDateFull(dateStr: string) {
   return new Date(y, m - 1, d).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
-export default function ClientReportClient({ profile }: { profile: any }) {
+// The former /client-report page's content, now living directly on the
+// Dashboard. Client role is scoped to their own brand automatically;
+// superadmin/operator/host_manager get a brand picker to drill into any client.
+export default function ReportBody({ profile }: { profile: any }) {
   const isClientRole = profile.role === 'client'
   const monthOptions = getMonthOptions()
 
@@ -589,10 +592,10 @@ export default function ClientReportClient({ profile }: { profile: any }) {
       <div className="flex items-start justify-between mb-6 flex-wrap gap-3 print:hidden">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <FileBarChart2 size={22} className="text-brand-600" /> Client Report
+            <FileBarChart2 size={22} className="text-brand-600" /> Dashboard
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {isClientRole ? 'Laporan performa live brand kamu' : 'Generate laporan performa live untuk client'}
+            {isClientRole ? 'Laporan performa live brand kamu' : 'Performa live per client'}
           </p>
         </div>
         {reports.length > 0 && !reportMode && (
