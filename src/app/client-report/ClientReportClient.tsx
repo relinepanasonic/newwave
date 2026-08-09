@@ -306,6 +306,18 @@ export default function ClientReportClient({ profile }: { profile: any }) {
       })
       y = (doc as any).lastAutoTable.finalY + 10
 
+      if (keyFindings.length) {
+        if (y > 250) { doc.addPage(); y = 20 }
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20)
+        doc.text('Key Findings', 14, y); y += 6
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(60)
+        keyFindings.forEach(f => {
+          const lines = doc.splitTextToSize(`•  ${f}`, pageWidth - 28)
+          doc.text(lines, 14, y); y += lines.length * 4 + 2
+        })
+        y += 4
+      }
+
       if (dailyTrend.length) {
         doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20)
         doc.text('Daily GMV Trend', 14, y); y += 6
@@ -335,27 +347,102 @@ export default function ClientReportClient({ profile }: { profile: any }) {
       })
       y = (doc as any).lastAutoTable.finalY + 10
 
+      if (sessionTimeEval.length) {
+        if (y > 250) { doc.addPage(); y = 20 }
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20)
+        doc.text('Session Time Evaluation', 14, y); y += 4
+        autoTable(doc, {
+          startY: y,
+          head: [['Start Live', 'Sesi', 'GMV', 'Viewers', 'Trans', 'Komentar', 'CVR']],
+          body: sessionTimeEval.map(s => [s.startTime, String(s.sessions), fmtRp(s.gmv), fmtNum(s.viewer), String(s.trans), String(s.comment), `${s.cvr.toFixed(2)}%`]),
+          styles: { fontSize: 8 },
+          headStyles: { fillColor: BRAND_PURPLE },
+        })
+        y = (doc as any).lastAutoTable.finalY + 4
+        if (sessionTimeInsight) {
+          doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(90)
+          const lines = doc.splitTextToSize(sessionTimeInsight, pageWidth - 28)
+          doc.text(lines, 14, y); y += lines.length * 4 + 6
+        }
+      }
+
       if (y > 250) { doc.addPage(); y = 20 }
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20)
       doc.text('Host Evaluation', 14, y); y += 4
       autoTable(doc, {
         startY: y,
         head: [['Host', 'Sesi', 'Total GMV', 'Avg GMV/Sesi', 'Viewer', 'Trans', 'CVR', 'Komentar']],
-        body: hostEval.map(h => [h.name, String(h.sessions), fmtRp(h.totalGmv), fmtRp(h.avgGmv), String(h.totalViewer), String(h.totalTrans), `${h.cvr.toFixed(2)}%`, String(h.totalComment)]),
+        body: hostEval.map(h => [`${h.name} (${h.rank})`, String(h.sessions), fmtRp(h.totalGmv), fmtRp(h.avgGmv), String(h.totalViewer), String(h.totalTrans), `${h.cvr.toFixed(2)}%`, String(h.totalComment)]),
         styles: { fontSize: 8 },
         headStyles: { fillColor: BRAND_PURPLE },
       })
-      y = (doc as any).lastAutoTable.finalY + 10
+      y = (doc as any).lastAutoTable.finalY + 4
+      if (hostInsight) {
+        doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(90)
+        const lines = doc.splitTextToSize(hostInsight, pageWidth - 28)
+        doc.text(lines, 14, y); y += lines.length * 4 + 6
+      } else { y += 6 }
 
       if (productBreakdown.length) {
         if (y > 250) { doc.addPage(); y = 20 }
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20)
         doc.text('Product Breakdown', 14, y); y += 4
         autoTable(doc, {
           startY: y,
           head: [['Produk', 'Klik', 'Terjual', 'Total Revenue']],
           body: productBreakdown.map(p => [p.name, String(p.klik), String(p.itemSold), fmtRp(p.total)]),
           styles: { fontSize: 8 },
+          headStyles: { fillColor: BRAND_PURPLE },
+        })
+        y = (doc as any).lastAutoTable.finalY + 4
+        if (productInsight) {
+          doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(90)
+          const lines = doc.splitTextToSize(productInsight, pageWidth - 28)
+          doc.text(lines, 14, y); y += lines.length * 4 + 6
+        }
+      }
+
+      if (momMetrics.length && prevReports.length) {
+        if (y > 240) { doc.addPage(); y = 20 }
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20)
+        doc.text(`Month-on-Month Evaluation (${month.label} vs ${prevMonthLabel})`, 14, y); y += 4
+        autoTable(doc, {
+          startY: y,
+          head: [['Metric', prevMonthLabel, month.label, 'MoM']],
+          body: momMetrics.map(m => [
+            m.label,
+            m.label === 'GMV' ? fmtRp(m.previous) : fmtNum(m.previous),
+            m.label === 'GMV' ? fmtRp(m.current) : fmtNum(m.current),
+            m.pctChange === null ? '—' : `${m.pctChange >= 0 ? '+' : ''}${m.pctChange.toFixed(1)}%`,
+          ]),
+          styles: { fontSize: 8 },
+          headStyles: { fillColor: BRAND_PURPLE },
+        })
+        y = (doc as any).lastAutoTable.finalY + 4
+        if (momInsight) {
+          doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(90)
+          const lines = doc.splitTextToSize(momInsight, pageWidth - 28)
+          doc.text(lines, 14, y); y += lines.length * 4 + 6
+        }
+      }
+
+      if (shopeeTiktokSplit) {
+        doc.addPage(); y = 20
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(20)
+        doc.text('Shopee vs TikTok Comparison', 14, y); y += 8
+        const s = shopeeTiktokSplit['Shopee'] || totalsOf([])
+        const t = shopeeTiktokSplit['TikTok'] || totalsOf([])
+        autoTable(doc, {
+          startY: y,
+          head: [['Metric', 'Shopee', 'TikTok', 'Total']],
+          body: [
+            ['Sesi', String(s.sessions), String(t.sessions), String(s.sessions + t.sessions)],
+            ['GMV', fmtRp(s.gmv), fmtRp(t.gmv), fmtRp(s.gmv + t.gmv)],
+            ['Transaksi', String(s.trans), String(t.trans), String(s.trans + t.trans)],
+            ['Viewers', fmtNum(s.viewer), fmtNum(t.viewer), fmtNum(s.viewer + t.viewer)],
+            ['Comments', String(s.comment), String(t.comment), String(s.comment + t.comment)],
+          ],
+          styles: { fontSize: 9 },
           headStyles: { fillColor: BRAND_PURPLE },
         })
       }
@@ -404,16 +491,24 @@ export default function ClientReportClient({ profile }: { profile: any }) {
         slide.addText(c[0], { x, y: 3.2, w: 2.1, fontSize: 10, color: '888888' })
         slide.addText(c[1], { x, y: 3.5, w: 2.1, fontSize: 16, bold: true, color: '059669' })
       })
+      if (keyFindings.length) {
+        slide.addText('Key Findings', { x: 0.5, y: 4.2, fontSize: 12, bold: true, color: '6D28D9' })
+        slide.addText(keyFindings.map(f => ({ text: f, options: { bullet: true, breakLine: true } })), { x: 0.5, y: 4.55, w: 9, h: 2, fontSize: 9, color: '444444' })
+      }
 
       if (dailyTrend.length) {
         slide = pptx.addSlide()
         slide.addText('Daily GMV Trend', { x: 0.5, y: 0.3, fontSize: 20, bold: true, color: '6D28D9' })
         slide.addChart(pptx.ChartType.bar, [
           { name: 'GMV', labels: dailyTrend.map(d => d.label), values: dailyTrend.map(d => d.gmv) },
-        ], { x: 0.5, y: 1.0, w: 9, h: 4.2, chartColors: ['7C3AED'] })
+        ], { x: 0.5, y: 1.0, w: 9, h: 3.8, chartColors: ['7C3AED'] })
+        if (dailyHighlights.length) {
+          const text = dailyHighlights.map(h => `${h.tag} (${h.dateLabel}, ${h.host}): ${fmtRp(h.gmv)}`).join('   |   ')
+          slide.addText(text, { x: 0.5, y: 5.0, w: 9, fontSize: 9, color: '92400E', italic: true })
+        }
       }
 
-      const addTableSlides = (title: string, header: string[], rows: string[][]) => {
+      const addTableSlides = (title: string, header: string[], rows: string[][], insight?: string) => {
         if (!rows.length) return
         const chunkSize = 14
         const totalChunks = Math.ceil(rows.length / chunkSize)
@@ -427,6 +522,10 @@ export default function ClientReportClient({ profile }: { profile: any }) {
             ...chunk.map(row => row.map(cell => ({ text: cell }))),
           ]
           s.addTable(tableRows as any, { x: 0.4, y: 1.0, w: 9.2, fontSize: 9, autoPage: false })
+          const isLastChunk = i + chunkSize >= rows.length
+          if (isLastChunk && insight) {
+            s.addText(`Insight: ${insight}`, { x: 0.4, y: 6.6, w: 9.2, fontSize: 9, italic: true, color: '6D28D9' })
+          }
         }
       }
 
@@ -437,13 +536,46 @@ export default function ClientReportClient({ profile }: { profile: any }) {
           fmtRp(r.gmv), String(r.viewer || 0), String(r.trans || 0), String(r.comment_count || 0),
         ]))
 
+      addTableSlides('Session Time Evaluation',
+        ['Start Live', 'Sesi', 'GMV', 'Viewers', 'Trans', 'Komentar', 'CVR'],
+        sessionTimeEval.map(s => [s.startTime, String(s.sessions), fmtRp(s.gmv), fmtNum(s.viewer), String(s.trans), String(s.comment), `${s.cvr.toFixed(2)}%`]),
+        sessionTimeInsight)
+
       addTableSlides('Host Evaluation',
         ['Host', 'Sesi', 'Total GMV', 'Avg/Sesi', 'Viewer', 'Trans', 'CVR', 'Komentar'],
-        hostEval.map(h => [h.name, String(h.sessions), fmtRp(h.totalGmv), fmtRp(h.avgGmv), String(h.totalViewer), String(h.totalTrans), `${h.cvr.toFixed(2)}%`, String(h.totalComment)]))
+        hostEval.map(h => [`${h.name} (${h.rank})`, String(h.sessions), fmtRp(h.totalGmv), fmtRp(h.avgGmv), String(h.totalViewer), String(h.totalTrans), `${h.cvr.toFixed(2)}%`, String(h.totalComment)]),
+        hostInsight)
 
       addTableSlides('Product Breakdown',
         ['Produk', 'Klik', 'Terjual', 'Total Revenue'],
-        productBreakdown.map(p => [p.name, String(p.klik), String(p.itemSold), fmtRp(p.total)]))
+        productBreakdown.map(p => [p.name, String(p.klik), String(p.itemSold), fmtRp(p.total)]),
+        productInsight)
+
+      if (prevReports.length) {
+        addTableSlides(`Month-on-Month (${month.label} vs ${prevMonthLabel})`,
+          ['Metric', prevMonthLabel, month.label, 'MoM'],
+          momMetrics.map(m => [
+            m.label,
+            m.label === 'GMV' ? fmtRp(m.previous) : fmtNum(m.previous),
+            m.label === 'GMV' ? fmtRp(m.current) : fmtNum(m.current),
+            m.pctChange === null ? '—' : `${m.pctChange >= 0 ? '+' : ''}${m.pctChange.toFixed(1)}%`,
+          ]),
+          momInsight)
+      }
+
+      if (shopeeTiktokSplit) {
+        const s = shopeeTiktokSplit['Shopee'] || totalsOf([])
+        const t = shopeeTiktokSplit['TikTok'] || totalsOf([])
+        addTableSlides('Shopee vs TikTok Comparison',
+          ['Metric', 'Shopee', 'TikTok', 'Total'],
+          [
+            ['Sesi', String(s.sessions), String(t.sessions), String(s.sessions + t.sessions)],
+            ['GMV', fmtRp(s.gmv), fmtRp(t.gmv), fmtRp(s.gmv + t.gmv)],
+            ['Transaksi', String(s.trans), String(t.trans), String(s.trans + t.trans)],
+            ['Viewers', fmtNum(s.viewer), fmtNum(t.viewer), fmtNum(s.viewer + t.viewer)],
+            ['Comments', String(s.comment), String(t.comment), String(s.comment + t.comment)],
+          ])
+      }
 
       await pptx.writeFile({ fileName: `${fileBase}.pptx` })
     } finally {
