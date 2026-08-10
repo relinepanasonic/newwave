@@ -410,26 +410,26 @@ function ClientListTab() {
                             const tPlanPct = tHas ? Math.min((t.planThisMonth / t.totalKuota) * 100, 100) : 0
                             const tDonePct = tHas ? Math.min((t.activeLive / t.totalKuota) * 100, 100) : 0
                             const isUntagged = t.tier === UNTAGGED
-                            // Same column widths/order as the client-row header above
-                            // (dot spacer, flex-1, w-32, w-32, w-28 mr-8, w-56, w-14, chevron
-                            // spacer) so every number lines up vertically under its header.
+                            // Badge sits at a fixed width right next to its Active
+                            // Live number (no flex-1 gap between them), and every
+                            // tier row shares the same column widths so Regular's
+                            // numbers stack tidily above Silver's / Untagged's.
                             return (
-                              <div key={t.tier} className="flex items-center gap-4 px-4 py-2.5">
-                                <span className="w-2 flex-shrink-0"/>
-                                <div className="flex-1 min-w-0">
+                              <div key={t.tier} className="flex items-center gap-3 px-4 py-2.5">
+                                <div className="w-28 flex-shrink-0">
                                   <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${
                                     isUntagged ? 'bg-amber-100 text-amber-700' : 'bg-brand-50 text-brand-700'
                                   }`}>
                                     {isUntagged ? 'Belum Ditandai' : t.tier}
                                   </span>
                                 </div>
-                                <span className="w-32 text-right text-xs font-semibold text-gray-800 tabular-nums flex-shrink-0">
+                                <span className="w-16 text-right text-xs font-semibold text-gray-800 tabular-nums flex-shrink-0">
                                   {fmtSlots(t.activeLive)}
                                 </span>
-                                <span className="w-32 text-right text-xs text-gray-500 tabular-nums flex-shrink-0">
+                                <span className="w-16 text-right text-xs text-gray-500 tabular-nums flex-shrink-0">
                                   {fmtSlots(t.lastMonthKuota)}
                                 </span>
-                                <span className="w-28 mr-8 text-right text-xs text-gray-500 tabular-nums flex-shrink-0 flex items-center justify-end gap-1">
+                                <span className="w-20 text-right text-xs text-gray-500 tabular-nums flex-shrink-0 flex items-center justify-end gap-1">
                                   {t.topUp > 0 ? `+${fmtSlots(t.topUp)}` : '—'}
                                   <button
                                     onClick={() => {
@@ -440,7 +440,7 @@ function ClientListTab() {
                                     <Pencil size={10}/>
                                   </button>
                                 </span>
-                                <div className="w-56 flex-shrink-0">
+                                <div className="flex-1 min-w-[100px]">
                                   <div className="relative h-2 bg-white border border-gray-200 rounded-full overflow-hidden">
                                     <div className="absolute inset-y-0 left-0 bg-brand-200 rounded-full" style={{ width: `${tPlanPct}%` }}/>
                                     <div className="absolute inset-y-0 left-0 bg-brand-600 rounded-full" style={{ width: `${tDonePct}%` }}/>
@@ -449,12 +449,9 @@ function ClientListTab() {
                                     {tHas ? `${fmtSlots(t.activeLive)} / ${fmtSlots(t.totalKuota)}` : `${fmtSlots(t.activeLive)} jam · tanpa kuota`}
                                   </p>
                                 </div>
-                                <span className="w-14 flex justify-end flex-shrink-0">
-                                  <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${BADGE_CLASSES[tSev]}`}>
-                                    {tHas ? `${tPct}%` : '—'}
-                                  </span>
+                                <span className={`w-12 text-right text-[11px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${BADGE_CLASSES[tSev]}`}>
+                                  {tHas ? `${tPct}%` : '—'}
                                 </span>
-                                <span className="w-3.5 flex-shrink-0"/>
                               </div>
                             )
                           })}
