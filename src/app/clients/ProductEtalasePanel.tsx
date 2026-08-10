@@ -27,6 +27,18 @@ function fmtRp(n: number) {
 const PLATFORM_BADGE: Record<string, string> = {
   Shopee: 'bg-orange-100 text-orange-700',
   TikTok: 'bg-gray-900 text-white',
+  Both: 'bg-brand-600 text-white',
+}
+
+// Import decides per-row whether an already-catalogued product needs its
+// platform tag widened: a blank platform gets filled in with whichever
+// platform is being imported now; a *different* real platform (Shopee vs
+// TikTok) means the product is sold on both, so it becomes "Both"; the same
+// platform (or already "Both") is a true duplicate and needs no change.
+function mergedPlatform(existingPlatform: string | null, importPlatform: Platform): string | null {
+  if (!existingPlatform) return importPlatform
+  if (existingPlatform === importPlatform || existingPlatform === 'Both') return null
+  return 'Both'
 }
 
 const EMPTY = { name: '', sku: '', price: 0, platform: '' }
@@ -216,34 +228,76 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
     }
   }
 
-  // Names already in the catalog for this brand (case-insensitive) are skipped
-  const existingNameSet = useMemo(
-    () => new Set(products.map(p => p.name.trim().toLowerCase())), [products])
-  const newImportRows = useMemo(
-    () => importRows.filter(r => !existingNameSet.has(r.name.toLowerCase())),
-    [importRows, existingNameSet])
+  // Existing catalog for this brand, keyed by name (case-insensitive), so an
+  // imported row can be matched back to the product it might need to upgrade.
+  const existingByName = useMemo(() => {
+    const m = new Map<string, BrandProduct>()
+    products.forEach(p => m.set(p.name.trim().toLowerCase(), p))
+    return m
+  }, [products])
+
+  // Splits every parsed row into: brand new (insert), matches an existing
+  // product whose platform tag needs widening (fill blank, or upgrade to
+  // "Both" when it's a genuinely different platform), or a true duplicate
+  // that needs no change at all.
+  const importPlan = useMemo(() => {
+    const toInsert: { name: string; sku: string }[] = []
+    const toUpgrade: { id: string; name: string; nextPlatform: string }[] = []
+    const toSkip: string[] = []
+    importRows.forEach(r => {
+      const existing = existingByName.get(r.name.toLowerCase())
+      if (!existing) { toInsert.push(r); return }
+      const next = mergedPlatform(existing.platform, importPlatform)
+      if (next) toUpgrade.push({ id: existing.id, name: r.name, nextPlatform: next })
+      else toSkip.push(r.name)
+    })
+    return { toInsert, toUpgrade, toSkip }
+  }, [importRows, existingByName, importPlatform])
+  const newImportRows = importPlan.toInsert
 
   async function runImport() {
-    if (!selectedBrand || newImportRows.length === 0) return
+    if (!selectedBrand || (importPlan.toInsert.length === 0 && importPlan.toUpgrade.length === 0)) return
     setImporting(true); setImportError('')
-    const rows = newImportRows.map(r => ({
-      brand: selectedBrand, name: r.name, sku: r.sku || null,
-      platform: importPlatform, is_active: true, created_by: profile.id,
-    }))
-    const { data, error: err } = await createClient()
-      .from('brand_products').insert(rows).select()
+    const supabase = createClient()
+
+    let inserted: BrandProduct[] = []
+    if (importPlan.toInsert.length > 0) {
+      const rows = importPlan.toInsert.map(r => ({
+        brand: selectedBrand, name: r.name, sku: r.sku || null,
+        platform: importPlatform, is_active: true, created_by: profile.id,
+      }))
+      const { data, error: err } = await supabase.from('brand_products').insert(rows).select()
+      if (err) { setImportError(err.message); setImporting(false); return }
+      inserted = (data || []) as BrandProduct[]
+    }
+
+    const fillIds = importPlan.toUpgrade.filter(u => u.nextPlatform !== 'Both').map(u => u.id)
+    const bothIds = importPlan.toUpgrade.filter(u => u.nextPlatform === 'Both').map(u => u.id)
+    if (fillIds.length) await supabase.from('brand_products').update({ platform: importPlatform }).in('id', fillIds)
+    if (bothIds.length) await supabase.from('brand_products').update({ platform: 'Both' }).in('id', bothIds)
+
+    const upgradedMap = new Map(importPlan.toUpgrade.map(u => [u.id, u.nextPlatform]))
+    setProducts(prev => [
+      ...inserted,
+      ...prev.map(p => upgradedMap.has(p.id) ? { ...p, platform: upgradedMap.get(p.id)! } : p),
+    ])
+
     setImporting(false)
-    if (err) { setImportError(err.message); return }
-    setProducts(prev => [...(data as BrandProduct[]), ...prev])
-    const skipped = importRows.length - newImportRows.length
-    setImportDone(`${data?.length || 0} produk diimpor${skipped > 0 ? `, ${skipped} duplikat dilewati` : ''}.`)
+    const parts: string[] = []
+    if (inserted.length) parts.push(`${inserted.length} produk baru`)
+    if (bothIds.length) parts.push(`${bothIds.length} diupgrade ke Both`)
+    if (fillIds.length) parts.push(`${fillIds.length} platform dilengkapi`)
+    const skipped = importPlan.toSkip.length
+    setImportDone(`${parts.join(', ') || 'Tidak ada perubahan'} diimpor${skipped > 0 ? `, ${skipped} duplikat dilewati` : ''}.`)
     setImportRows([]); setImportFileName('')
   }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return products.filter(p => {
-      if (platformFilter !== 'all' && p.platform !== platformFilter) return false
+      // A "Both" product is sold on Shopee AND TikTok, so it belongs in
+      // either single-platform filter too, not just an exact-match one.
+      if (platformFilter !== 'all' && p.platform !== platformFilter && p.platform !== 'Both') return false
       if (!q) return true
       return p.name.toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q)
     })
@@ -342,6 +396,7 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
                 <option value="">—</option>
                 <option value="Shopee">Shopee</option>
                 <option value="TikTok">TikTok</option>
+                <option value="Both">Both</option>
               </select>
             </div>
             <div>
@@ -533,38 +588,62 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
                 </div>
               )}
 
-              {importRows.length > 0 && (
-                <div className="bg-gray-50 rounded-xl border border-gray-100 p-3">
-                  <div className="flex items-center justify-between text-xs mb-2">
-                    <span className="text-gray-500">Ditemukan <b className="text-gray-800">{importRows.length}</b> produk</span>
-                    <span className="text-brand-600 font-semibold">{newImportRows.length} baru</span>
+              {importRows.length > 0 && (() => {
+                const upgradeByName = new Map(importPlan.toUpgrade.map(u => [u.name.toLowerCase(), u.nextPlatform]))
+                const skipSet = new Set(importPlan.toSkip.map(n => n.toLowerCase()))
+                const bothCount = importPlan.toUpgrade.filter(u => u.nextPlatform === 'Both').length
+                return (
+                  <div className="bg-gray-50 rounded-xl border border-gray-100 p-3">
+                    <div className="flex items-center justify-between text-xs mb-2 flex-wrap gap-1">
+                      <span className="text-gray-500">Ditemukan <b className="text-gray-800">{importRows.length}</b> produk</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-brand-600 font-semibold">{newImportRows.length} baru</span>
+                        {importPlan.toUpgrade.length > 0 && (
+                          <span className="text-purple-600 font-semibold">{importPlan.toUpgrade.length} upgrade</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="max-h-32 overflow-y-auto space-y-1">
+                      {importRows.slice(0, 30).map((r, i) => {
+                        const key = r.name.toLowerCase()
+                        const upgradeTo = upgradeByName.get(key)
+                        const dup = skipSet.has(key)
+                        return (
+                          <div key={i} className={`flex items-baseline gap-2 ${dup ? 'opacity-40' : ''}`}>
+                            <p className={`text-[11px] truncate flex-1 ${dup ? 'line-through text-gray-400' : 'text-gray-600'}`}>{r.name}</p>
+                            {upgradeTo && (
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${
+                                upgradeTo === 'Both' ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-500'
+                              }`}>
+                                → {upgradeTo}
+                              </span>
+                            )}
+                            {r.sku && <span className="text-[10px] text-gray-400 font-mono flex-shrink-0 truncate max-w-[100px]">{r.sku}</span>}
+                          </div>
+                        )
+                      })}
+                      {importRows.length > 30 && <p className="text-[10px] text-gray-400">+{importRows.length - 30} lainnya…</p>}
+                    </div>
+                    {bothCount > 0 && (
+                      <p className="text-[10px] text-brand-600 mt-2">
+                        {bothCount} produk sudah ada di platform lain — tag platform-nya akan diupgrade jadi <b>Both</b>
+                      </p>
+                    )}
+                    {importPlan.toSkip.length > 0 && (
+                      <p className="text-[10px] text-gray-400 mt-1">{importPlan.toSkip.length} duplikat persis (sudah ada, platform sama) akan dilewati</p>
+                    )}
                   </div>
-                  <div className="max-h-32 overflow-y-auto space-y-1">
-                    {importRows.slice(0, 30).map((r, i) => {
-                      const dup = existingNameSet.has(r.name.toLowerCase())
-                      return (
-                        <div key={i} className={`flex items-baseline gap-2 ${dup ? 'opacity-40' : ''}`}>
-                          <p className={`text-[11px] truncate flex-1 ${dup ? 'line-through text-gray-400' : 'text-gray-600'}`}>{r.name}</p>
-                          {r.sku && <span className="text-[10px] text-gray-400 font-mono flex-shrink-0 truncate max-w-[100px]">{r.sku}</span>}
-                        </div>
-                      )
-                    })}
-                    {importRows.length > 30 && <p className="text-[10px] text-gray-400">+{importRows.length - 30} lainnya…</p>}
-                  </div>
-                  {importRows.length - newImportRows.length > 0 && (
-                    <p className="text-[10px] text-gray-400 mt-2">{importRows.length - newImportRows.length} duplikat (sudah ada) akan dilewati</p>
-                  )}
-                </div>
-              )}
+                )
+              })()}
 
               <div className="flex gap-2.5 pt-1">
                 <button onClick={() => setShowImport(false)} disabled={importing}
                   className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50">
                   Tutup
                 </button>
-                <button onClick={runImport} disabled={importing || newImportRows.length === 0}
+                <button onClick={runImport} disabled={importing || (importPlan.toInsert.length === 0 && importPlan.toUpgrade.length === 0)}
                   className="flex-1 bg-brand-600 text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-brand-700 disabled:opacity-50 flex items-center justify-center gap-2">
-                  <Upload size={14}/> {importing ? 'Mengimpor...' : `Import ${newImportRows.length} Produk`}
+                  <Upload size={14}/> {importing ? 'Mengimpor...' : `Import ${newImportRows.length + importPlan.toUpgrade.length} Produk`}
                 </button>
               </div>
             </div>
