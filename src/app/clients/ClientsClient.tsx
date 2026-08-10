@@ -97,6 +97,13 @@ function ClientListTab() {
   // brands/tiers (e.g. one invoice actually covering two sibling brands)
   // without touching the synced invoice itself.
   const [adjustModal, setAdjustModal] = useState<{ brand: string; tier: string; delta: string; note: string; saving: boolean; error: string } | null>(null)
+  // "Belum Terdaftar" -> Daftar Client modal: gives a brand that only exists
+  // via a pushed-in invoice (no login yet) a real client account, prefilled
+  // with that exact brand string so Kuota (matched by brand text) keeps
+  // working unchanged once it's registered.
+  const [registerModal, setRegisterModal] = useState<{ brand: string; full_name: string; email: string; password: string } | null>(null)
+  const [registerSaving, setRegisterSaving] = useState(false)
+  const [registerError, setRegisterError] = useState('')
   // Which brand's "Belum Ditandai" (untagged) session list is expanded — the
   // report an admin needs to know which sessions still need a Tipe Live tag.
   const [untaggedOpenBrand, setUntaggedOpenBrand] = useState<string | null>(null)
@@ -116,6 +123,32 @@ function ClientListTab() {
       setSelectedUntagged(new Set())
     }
     setApplyingTier(false)
+  }
+
+  async function saveRegisterClient() {
+    if (!registerModal) return
+    setRegisterSaving(true); setRegisterError('')
+    try {
+      const res = await fetch('/api/create-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: registerModal.email, password: registerModal.password,
+          full_name: registerModal.full_name, role: 'client',
+          client_brand: registerModal.brand,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      // Brand text stays identical to the invoice's brand, so Kuota (matched
+      // by brand string) and this row's history keep working unchanged --
+      // this just swaps it from an auto-surfaced row to a real login.
+      setClients(prev => [...prev, { id: data.profile.id, full_name: data.profile.full_name, client_brand: data.profile.client_brand }])
+      setRegisterModal(null)
+    } catch (e: any) {
+      setRegisterError(e.message || 'Gagal mendaftarkan client')
+    }
+    setRegisterSaving(false)
   }
 
   const monthOptions = getMonthOptions()
@@ -344,9 +377,16 @@ function ClientListTab() {
                     <p className="font-bold text-gray-900 text-sm truncate flex items-center gap-1.5">
                       {m.brand}
                       {m.isAuto && (
-                        <span className="text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap" title="Muncul dari invoice, belum punya akun login">
-                          Belum Terdaftar
-                        </span>
+                        <button
+                          onClick={e => {
+                            e.stopPropagation()
+                            setRegisterError('')
+                            setRegisterModal({ brand: m.brand, full_name: m.clientName, email: '', password: '' })
+                          }}
+                          title="Muncul dari invoice, belum punya akun login — klik untuk daftarkan"
+                          className="text-[9px] bg-amber-100 text-amber-700 hover:bg-amber-200 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap transition-colors">
+                          Belum Terdaftar · Daftarkan
+                        </button>
                       )}
                     </p>
                     <p className="text-xs text-gray-400 truncate">{m.clientName}</p>
@@ -614,6 +654,58 @@ function ClientListTab() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Daftarkan Client modal — gives a "Belum Terdaftar" (invoice-only)
+          brand a real login. Brand stays exactly as-is so Kuota (matched by
+          brand text against the invoice already on file) keeps working. */}
+      {registerModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+          onClick={() => !registerSaving && setRegisterModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-1">
+              <h3 className="font-bold text-gray-900">Daftarkan Client</h3>
+              <button onClick={() => setRegisterModal(null)}><X size={16} className="text-gray-400"/></button>
+            </div>
+            <p className="text-xs text-gray-400 mb-4">
+              Membuat login untuk <span className="font-semibold text-gray-600">{registerModal.brand}</span> — invoice yang sudah ada tetap terhubung otomatis, termasuk Kuota-nya.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-500 uppercase block mb-1.5">Email</label>
+                <input type="email" value={registerModal.email}
+                  onChange={e => setRegisterModal(m => m && { ...m, email: e.target.value })}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" placeholder="email@brand.com"/>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 uppercase block mb-1.5">Password</label>
+                <input type="password" value={registerModal.password}
+                  onChange={e => setRegisterModal(m => m && { ...m, password: e.target.value })}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" placeholder="Min 6 karakter"/>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 uppercase block mb-1.5">Nama</label>
+                <input value={registerModal.full_name}
+                  onChange={e => setRegisterModal(m => m && { ...m, full_name: e.target.value })}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 uppercase block mb-1.5">Brand</label>
+                <input value={registerModal.brand} disabled
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50 text-gray-500"/>
+              </div>
+              {registerError && <p className="text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2">{registerError}</p>}
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setRegisterModal(null)} disabled={registerSaving}
+                className="flex-1 border border-gray-200 rounded-xl py-2.5 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">Batal</button>
+              <button onClick={saveRegisterClient} disabled={registerSaving || !registerModal.email || !registerModal.password || !registerModal.full_name}
+                className="flex-1 bg-brand-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-brand-700 disabled:opacity-60">
+                {registerSaving ? 'Mendaftarkan...' : 'Daftarkan'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
