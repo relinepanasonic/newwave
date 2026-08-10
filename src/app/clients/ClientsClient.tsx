@@ -10,7 +10,7 @@ import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
 import TimeInput from '@/components/TimeInput'
 import { formatCurrency, PLATFORM_COLORS } from '@/lib/utils'
-import { UNTAGGED, QUOTA_TIERS, itemQuotaHours, tierFromItemName, tierFromSlot } from '@/lib/kuota'
+import { UNTAGGED, QUOTA_TIERS, itemQuotaHours, tierFromItemName, tierFromSlot, tierFromReport } from '@/lib/kuota'
 
 type Tab = 'clients' | 'invoice' | 'servicepkg' | 'products' | 'blackout'
 
@@ -98,8 +98,25 @@ function ClientListTab() {
   // without touching the synced invoice itself.
   const [adjustModal, setAdjustModal] = useState<{ brand: string; tier: string; delta: string; note: string; saving: boolean; error: string } | null>(null)
   // Which brand's "Belum Ditandai" (untagged) session list is expanded — the
-  // report an admin needs to know which schedule slots still need Tipe Live.
+  // report an admin needs to know which sessions still need a Tipe Live tag.
   const [untaggedOpenBrand, setUntaggedOpenBrand] = useState<string | null>(null)
+  // Bulk-tagging tool for that list: check sessions, pick a tier, apply once.
+  const [selectedUntagged, setSelectedUntagged] = useState<Set<string>>(new Set())
+  const [bulkTier, setBulkTier] = useState<string>(QUOTA_TIERS[0])
+  const [applyingTier, setApplyingTier] = useState(false)
+
+  async function applyTierToReports(ids: string[], tier: string) {
+    if (!ids.length) return
+    setApplyingTier(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('live_reports').update({ tier_override: tier }).in('id', ids)
+    if (!error) {
+      const idSet = new Set(ids)
+      setReportRows(prev => prev.map((r: any) => idSet.has(r.id) ? { ...r, tier_override: tier } : r))
+      setSelectedUntagged(new Set())
+    }
+    setApplyingTier(false)
+  }
 
   const monthOptions = getMonthOptions()
   const selectedMonth = monthOptions[monthIdx]
@@ -119,7 +136,7 @@ function ClientListTab() {
         .order('slot_date')
         .then(({ data }) => data || []),
       supabase.from('live_reports')
-        .select('id, report_date, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, slot_id, profiles:host_id(full_name)')
+        .select('id, report_date, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, slot_id, tier_override, profiles:host_id(full_name)')
         .order('report_date')
         .then(({ data }) => data || []),
       supabase.from('invoices').select('brand, invoice_to, invoice_date, invoice_items(name, qty, scale, jam_per_sesi)')
@@ -171,13 +188,15 @@ function ClientListTab() {
       kuotaRows.push({ brand: a.brand, date: a.month_start, tier: a.tier || UNTAGGED, slots: Number(a.delta_hours) || 0 })
     })
 
-    // Usage/plan draw from the tier picked on the schedule slot. A report with
-    // no slot (legacy CSV imports) or a slot with no Tipe Live lands in
-    // Untagged; a slot tagged as a non-live service is excluded from quota.
+    // Usage/plan draw from the report's own tier_override if an admin has
+    // tagged it directly; otherwise from the schedule slot's Tipe Live (most
+    // reports have no slot at all, since they're filed without picking one).
+    // A report with neither, or a slot tagged as a non-live service, lands in
+    // Untagged / is excluded from quota respectively.
     const slotById: Record<string, any> = {}
     scheduleRows.forEach((s: any) => { slotById[s.id] = s })
     const reportTier = (r: any): string | null =>
-      tierFromSlot(r.slot_id ? slotById[r.slot_id]?.tipe_live : null)
+      tierFromReport(r.tier_override, r.slot_id ? slotById[r.slot_id]?.tipe_live : null)
 
     // Brands that show up in invoices but have no client profile/login yet —
     // surface them anyway using the invoice's own invoice_to as the display
@@ -441,44 +460,112 @@ function ClientListTab() {
                           })}
                         </div>
                       )}
-                      {m.tiers.some(t => t.tier === UNTAGGED) && (
-                        <div className="mt-1.5 pl-1">
-                          <p className="text-[10px] text-amber-600 leading-relaxed">
-                            &ldquo;Belum Ditandai&rdquo; = jam live yang jadwalnya belum punya Tipe Live (mis. data impor lama), jadi belum bisa dipotong dari kuota Regular/Silver.
-                            Angka minus di sini berarti jam terpakai yang belum ketahuan tipenya — bukan kuota minus. Total di baris atas tetap benar.
-                            Isi Tipe Live di Schedule supaya jamnya pindah ke kuota yang tepat.
-                          </p>
-                          <button
-                            onClick={() => setUntaggedOpenBrand(untaggedOpenBrand === m.brand ? null : m.brand)}
-                            className="text-[10px] font-semibold text-amber-700 hover:text-amber-800 underline mt-1">
-                            {untaggedOpenBrand === m.brand ? 'Sembunyikan daftar sesi' : `Lihat daftar sesi Belum Ditandai (${m.reports.filter(r => r.tier === UNTAGGED).length})`}
-                          </button>
-                          {untaggedOpenBrand === m.brand && (
-                            <div className="mt-2 rounded-xl border border-amber-100 bg-amber-50/60 overflow-hidden">
-                              <table className="w-full text-xs">
-                                <thead>
-                                  <tr className="text-[10px] text-amber-700 uppercase tracking-wide">
-                                    <th className="px-3 py-1.5 text-left font-semibold">Tanggal</th>
-                                    <th className="px-3 py-1.5 text-left font-semibold">Host</th>
-                                    <th className="px-3 py-1.5 text-left font-semibold">Platform</th>
-                                    <th className="px-3 py-1.5 text-right font-semibold">Jam</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-amber-100">
-                                  {m.reports.filter(r => r.tier === UNTAGGED).map(r => (
-                                    <tr key={r.id}>
-                                      <td className="px-3 py-1.5 text-gray-700 whitespace-nowrap">{fmtDetailDate(r.report_date)}</td>
-                                      <td className="px-3 py-1.5 text-gray-700">{r.hostName}</td>
-                                      <td className="px-3 py-1.5 text-gray-700">{r.platform || '—'}</td>
-                                      <td className="px-3 py-1.5 text-right text-gray-700 tabular-nums">{r.duration_hours ?? '—'}</td>
-                                    </tr>
+                      {m.tiers.some(t => t.tier === UNTAGGED) && (() => {
+                        const untaggedReports = m.reports.filter(r => r.tier === UNTAGGED)
+                        const isOpen = untaggedOpenBrand === m.brand
+                        const hostCounts: Record<string, { ids: string[]; hours: number }> = {}
+                        untaggedReports.forEach(r => {
+                          const h = (hostCounts[r.hostName] ||= { ids: [], hours: 0 })
+                          h.ids.push(r.id); h.hours += Number(r.duration_hours) || 0
+                        })
+                        const allChecked = untaggedReports.length > 0 && untaggedReports.every(r => selectedUntagged.has(r.id))
+                        return (
+                          <div className="mt-1.5 pl-1">
+                            <p className="text-[10px] text-amber-600 leading-relaxed">
+                              &ldquo;Belum Ditandai&rdquo; = jam live yang belum ditandai Tipe Live-nya (kebanyakan tidak terhubung ke slot Schedule sama sekali, jadi tidak bisa diedit lewat Schedule).
+                              Angka minus di sini berarti jam terpakai yang belum ketahuan tipenya — bukan kuota minus. Total di baris atas tetap benar.
+                              Gunakan tool di bawah untuk menandai langsung dari sini.
+                            </p>
+                            <button
+                              onClick={() => { setUntaggedOpenBrand(isOpen ? null : m.brand); setSelectedUntagged(new Set()) }}
+                              className="text-[10px] font-semibold text-amber-700 hover:text-amber-800 underline mt-1">
+                              {isOpen ? 'Sembunyikan tool penandaan' : `Tandai sesi Belum Ditandai (${untaggedReports.length})`}
+                            </button>
+                            {isOpen && (
+                              <div className="mt-2 rounded-xl border border-amber-100 bg-amber-50/60 overflow-hidden">
+                                {/* Per-host shortcut: one click selects every untagged session for that host */}
+                                <div className="flex flex-wrap gap-1.5 px-3 py-2 border-b border-amber-100">
+                                  {Object.entries(hostCounts).map(([host, v]) => (
+                                    <button key={host}
+                                      onClick={() => setSelectedUntagged(prev => {
+                                        const allIn = v.ids.every(id => prev.has(id))
+                                        const next = new Set(prev)
+                                        v.ids.forEach(id => allIn ? next.delete(id) : next.add(id))
+                                        return next
+                                      })}
+                                      className={`text-[10px] font-medium px-2 py-1 rounded-full border transition-colors ${
+                                        v.ids.every(id => selectedUntagged.has(id))
+                                          ? 'bg-brand-600 border-brand-600 text-white'
+                                          : 'bg-white border-amber-200 text-amber-700 hover:border-brand-300'
+                                      }`}>
+                                      {host} · {v.ids.length} sesi · {fmtSlots(v.hours)}j
+                                    </button>
                                   ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                                </div>
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="text-[10px] text-amber-700 uppercase tracking-wide">
+                                      <th className="px-3 py-1.5 text-left font-semibold w-8">
+                                        <input type="checkbox" checked={allChecked}
+                                          onChange={() => setSelectedUntagged(allChecked ? new Set() : new Set(untaggedReports.map(r => r.id)))}/>
+                                      </th>
+                                      <th className="px-3 py-1.5 text-left font-semibold">Tanggal</th>
+                                      <th className="px-3 py-1.5 text-left font-semibold">Host</th>
+                                      <th className="px-3 py-1.5 text-left font-semibold">Platform</th>
+                                      <th className="px-3 py-1.5 text-right font-semibold">Jam</th>
+                                      <th className="px-3 py-1.5 text-left font-semibold">Tipe Live</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-amber-100">
+                                    {untaggedReports.map(r => (
+                                      <tr key={r.id} className={selectedUntagged.has(r.id) ? 'bg-brand-50/60' : ''}>
+                                        <td className="px-3 py-1.5">
+                                          <input type="checkbox" checked={selectedUntagged.has(r.id)}
+                                            onChange={() => setSelectedUntagged(prev => {
+                                              const next = new Set(prev)
+                                              next.has(r.id) ? next.delete(r.id) : next.add(r.id)
+                                              return next
+                                            })}/>
+                                        </td>
+                                        <td className="px-3 py-1.5 text-gray-700 whitespace-nowrap">{fmtDetailDate(r.report_date)}</td>
+                                        <td className="px-3 py-1.5 text-gray-700">{r.hostName}</td>
+                                        <td className="px-3 py-1.5 text-gray-700">{r.platform || '—'}</td>
+                                        <td className="px-3 py-1.5 text-right text-gray-700 tabular-nums">{r.duration_hours ?? '—'}</td>
+                                        <td className="px-3 py-1.5">
+                                          <select
+                                            defaultValue=""
+                                            onChange={e => { if (e.target.value) applyTierToReports([r.id], e.target.value) }}
+                                            disabled={applyingTier}
+                                            className="text-[10px] border border-amber-200 rounded-lg px-1.5 py-0.5 bg-white disabled:opacity-50">
+                                            <option value="" disabled>Pilih…</option>
+                                            {QUOTA_TIERS.map(t => <option key={t} value={t}>{t}</option>)}
+                                          </select>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                                <div className="flex items-center gap-2 px-3 py-2 border-t border-amber-100 bg-amber-50">
+                                  <span className="text-[10px] text-amber-700 font-medium">
+                                    {selectedUntagged.size > 0 ? `${selectedUntagged.size} sesi dipilih` : 'Pilih sesi untuk menandai massal'}
+                                  </span>
+                                  <select value={bulkTier} onChange={e => setBulkTier(e.target.value)}
+                                    disabled={selectedUntagged.size === 0 || applyingTier}
+                                    className="ml-auto text-[10px] border border-amber-200 rounded-lg px-2 py-1 bg-white disabled:opacity-50">
+                                    {QUOTA_TIERS.map(t => <option key={t} value={t}>{t}</option>)}
+                                  </select>
+                                  <button
+                                    onClick={() => applyTierToReports(Array.from(selectedUntagged), bulkTier)}
+                                    disabled={selectedUntagged.size === 0 || applyingTier}
+                                    className="text-[10px] font-semibold bg-brand-600 text-white px-3 py-1 rounded-lg hover:bg-brand-700 disabled:opacity-40">
+                                    {applyingTier ? 'Menerapkan…' : `Tandai sebagai ${bulkTier}`}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 pl-1">
                       Live {selectedMonth.label}

@@ -44,3 +44,12 @@ export function tierFromSlot(tipeLive?: string | null): string | null {
   if (!tipeLive) return UNTAGGED
   return QUOTA_TIERS.find(t => t.toLowerCase() === tipeLive.trim().toLowerCase()) || null
 }
+
+// Which quota bucket a live_report draws from. Most reports have no
+// schedule_slot at all (filed without picking one), so there's often no slot
+// to tag -- tier_override lets an admin tag the report itself directly, and
+// takes priority over the linked slot's Tipe Live when both are present.
+export function tierFromReport(tierOverride?: string | null, slotTipeLive?: string | null): string | null {
+  if (tierOverride) return QUOTA_TIERS.find(t => t.toLowerCase() === tierOverride.trim().toLowerCase()) || UNTAGGED
+  return tierFromSlot(slotTipeLive)
+}
