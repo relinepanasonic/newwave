@@ -365,6 +365,13 @@ function ClientListTab() {
             const sev = severity(pct, exceeds)
             const isExpanded = expandedBrand === m.brand
             const canExpand = m.reports.length > 0 || m.tiers.length > 0
+            // Once every session this month is tagged, an Untagged row with
+            // nothing left to review is just noise -- drop it from the tier
+            // list and skip the tagging tool below. Its balance (if any,
+            // e.g. an old carry-over never retagged) still counts toward the
+            // headline totals above; it just isn't rendered as its own row.
+            const untaggedCount = m.reports.filter(r => r.tier === UNTAGGED).length
+            const displayTiers = m.tiers.filter(t => t.tier !== UNTAGGED || untaggedCount > 0)
             const planPct = hasKuota ? Math.min((m.planThisMonth / m.totalKuota) * 100, 100) : 0
             const succeedPct = hasKuota ? Math.min((m.activeLive / m.totalKuota) * 100, 100) : 0
             return (
@@ -441,9 +448,9 @@ function ClientListTab() {
                           <Plus size={11}/> Sesuaikan Top Up
                         </button>
                       </div>
-                      {m.tiers.length > 0 && (
+                      {displayTiers.length > 0 && (
                         <div className="rounded-xl border border-gray-100 bg-white divide-y divide-gray-50">
-                          {m.tiers.map(t => {
+                          {displayTiers.map(t => {
                             const tHas = t.totalKuota > 0
                             const tPct = tHas ? Math.round((t.activeLive / t.totalKuota) * 100) : 0
                             const tSev = severity(tPct, t.activeLive > t.totalKuota)
@@ -497,7 +504,7 @@ function ClientListTab() {
                           })}
                         </div>
                       )}
-                      {m.tiers.some(t => t.tier === UNTAGGED) && (() => {
+                      {untaggedCount > 0 && (() => {
                         const untaggedReports = m.reports.filter(r => r.tier === UNTAGGED)
                         const isOpen = untaggedOpenBrand === m.brand
                         const hostCounts: Record<string, { ids: string[]; hours: number }> = {}
