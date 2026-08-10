@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import AppShell from '@/components/AppShell'
 import { FileBarChart2, Presentation, FileSpreadsheet, X } from 'lucide-react'
 import {
-  ComposedChart, Bar, Line, Legend, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  BarChart, AreaChart, Bar, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import {
   tagSessions, computeSessionTimeEval, computeMoM, totalsOf, rankLabel, splitByPlatform,
@@ -112,6 +112,15 @@ function fmtNum(n: number) {
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
   return (n || 0).toString()
 }
+// Daily trend panels: GMV as a bar, everything else as a gradient-filled
+// line, each stacked in its own row but sharing the same day-by-day x-axis.
+const TREND_METRICS = [
+  { key: 'gmv', label: 'GMV', color: '#7C3AED', kind: 'bar' as const, fmt: fmtRp },
+  { key: 'impression', label: 'Impresi', color: '#0EA5E9', kind: 'area' as const, fmt: fmtNum },
+  { key: 'viewer', label: 'Viewer', color: '#10B981', kind: 'area' as const, fmt: fmtNum },
+  { key: 'comment', label: 'Komentar', color: '#F59E0B', kind: 'area' as const, fmt: fmtNum },
+]
+
 function fmtDateShort(dateStr: string) {
   const [y, m, d] = dateStr.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
@@ -853,28 +862,54 @@ export default function ReportBody({ profile }: { profile: any }) {
             )}
           </div>
 
-          {/* Daily GMV trend */}
+          {/* Daily trend — 4 stacked panels sharing the same day-by-day x-axis */}
           {dailyTrend.length > 0 && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <h3 className="text-sm font-bold text-gray-800 mb-1">Daily Evaluation — GMV Trend</h3>
+              <h3 className="text-sm font-bold text-gray-800 mb-1">Daily Evaluation — Trend</h3>
               <p className="text-[11px] text-gray-400 mb-3">
-                Bar = GMV (sumbu kiri) · Garis = Impresi / Viewer / Komentar (sumbu kanan, skala terpisah untuk melihat tren naik-turun)
+                GMV, Impresi, Viewer, dan Komentar per hari — rentang waktu yang sama di setiap panel
               </p>
-              <div style={{ width: '100%', height: 260 }}>
-                <ResponsiveContainer>
-                  <ComposedChart data={dailyTrend}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                    <YAxis yAxisId="gmv" tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
-                    <YAxis yAxisId="traffic" orientation="right" tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
-                    <Tooltip formatter={(v: any, name: any) => name === 'GMV' ? fmtRp(Number(v)) : fmtNum(Number(v))} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Bar yAxisId="gmv" dataKey="gmv" name="GMV" fill="#7C3AED" radius={[4, 4, 0, 0]} />
-                    <Line yAxisId="traffic" type="monotone" dataKey="impression" name="Impresi" stroke="#0EA5E9" strokeWidth={2} dot={false} />
-                    <Line yAxisId="traffic" type="monotone" dataKey="viewer" name="Viewer" stroke="#10B981" strokeWidth={2} dot={false} />
-                    <Line yAxisId="traffic" type="monotone" dataKey="comment" name="Komentar" stroke="#F59E0B" strokeWidth={2} dot={false} />
-                  </ComposedChart>
-                </ResponsiveContainer>
+              <div className="rounded-xl border border-gray-100 overflow-hidden divide-y divide-gray-100">
+                {TREND_METRICS.map((m, i) => {
+                  const isLast = i === TREND_METRICS.length - 1
+                  const margin = { top: 8, right: 12, left: 4, bottom: isLast ? 0 : -8 }
+                  return (
+                    <div key={m.key} className="px-1 pt-2.5" style={{ paddingBottom: isLast ? 4 : 0 }}>
+                      <p className="text-[10px] font-bold text-gray-500 flex items-center gap-1.5 px-3 mb-0.5">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: m.color }}/>
+                        {m.label}
+                      </p>
+                      <div style={{ width: '100%', height: isLast ? 100 : 78 }}>
+                        <ResponsiveContainer>
+                          {m.kind === 'bar' ? (
+                            <BarChart data={dailyTrend} margin={margin}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#f3f1f8" vertical={false}/>
+                              <XAxis dataKey="label" tick={isLast ? { fontSize: 10 } : false} axisLine={false} tickLine={false} hide={!isLast}/>
+                              <YAxis width={40} tick={{ fontSize: 9 }} tickFormatter={fmtNum} axisLine={false} tickLine={false}/>
+                              <Tooltip formatter={(v: any) => m.fmt(Number(v))} labelFormatter={l => l}/>
+                              <Bar dataKey={m.key} fill={m.color} radius={[3, 3, 0, 0]} maxBarSize={18}/>
+                            </BarChart>
+                          ) : (
+                            <AreaChart data={dailyTrend} margin={margin}>
+                              <defs>
+                                <linearGradient id={`grad-${m.key}`} x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor={m.color} stopOpacity={0.35}/>
+                                  <stop offset="95%" stopColor={m.color} stopOpacity={0}/>
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#f3f1f8" vertical={false}/>
+                              <XAxis dataKey="label" tick={isLast ? { fontSize: 10 } : false} axisLine={false} tickLine={false} hide={!isLast}/>
+                              <YAxis width={40} tick={{ fontSize: 9 }} tickFormatter={fmtNum} axisLine={false} tickLine={false}/>
+                              <Tooltip formatter={(v: any) => m.fmt(Number(v))} labelFormatter={l => l}/>
+                              <Area type="monotone" dataKey={m.key} stroke={m.color} strokeWidth={2}
+                                fill={`url(#grad-${m.key})`} dot={false}/>
+                            </AreaChart>
+                          )}
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
               {dailyHighlights.length > 0 && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
