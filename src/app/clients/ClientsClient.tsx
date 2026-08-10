@@ -5,12 +5,12 @@ import { createClient } from '@/lib/supabase/client'
 import InvoicePanel from '@/app/invoice/InvoicePanel'
 import ProductEtalasePanel from './ProductEtalasePanel'
 import ServicePackagePanel from './ServicePackagePanel'
-import { ChevronDown, ChevronUp, Plus, Trash2, Ban, AlertTriangle } from 'lucide-react'
+import { ChevronDown, ChevronUp, Plus, Trash2, Ban, AlertTriangle, Pencil, X } from 'lucide-react'
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
 import TimeInput from '@/components/TimeInput'
 import { formatCurrency, PLATFORM_COLORS } from '@/lib/utils'
-import { UNTAGGED, itemQuotaHours, tierFromItemName, tierFromSlot } from '@/lib/kuota'
+import { UNTAGGED, QUOTA_TIERS, itemQuotaHours, tierFromItemName, tierFromSlot } from '@/lib/kuota'
 
 type Tab = 'clients' | 'invoice' | 'servicepkg' | 'products' | 'blackout'
 
@@ -88,9 +88,14 @@ function ClientListTab() {
   const [invoiceRows, setInvoiceRows] = useState<any[]>([])
   const [scheduleRows, setScheduleRows] = useState<any[]>([])
   const [reportRows, setReportRows] = useState<any[]>([])
+  const [adjustmentRows, setAdjustmentRows] = useState<any[]>([])
   const [expandedBrand, setExpandedBrand] = useState<string | null>(null)
   const [monthIdx, setMonthIdx] = useState(() => new Date().getMonth())
   const [loading, setLoading] = useState(true)
+  // Manual Top Up adjustment modal — lets an admin move quota between
+  // brands/tiers (e.g. one invoice actually covering two sibling brands)
+  // without touching the synced invoice itself.
+  const [adjustModal, setAdjustModal] = useState<{ brand: string; tier: string; delta: string; note: string; saving: boolean; error: string } | null>(null)
 
   const monthOptions = getMonthOptions()
   const selectedMonth = monthOptions[monthIdx]
@@ -116,14 +121,23 @@ function ClientListTab() {
       supabase.from('invoices').select('brand, invoice_to, invoice_date, invoice_items(name, qty, scale, jam_per_sesi)')
         .order('invoice_date', { ascending: true })
         .then(({ data }) => data || []),
-    ]).then(([clientsData, slots, reports, invoices]) => {
+      supabase.from('kuota_adjustments').select('brand, tier, month_start, delta_hours, note')
+        .then(({ data }) => data || []),
+    ]).then(([clientsData, slots, reports, invoices, adjustments]) => {
       setClients(clientsData)
       setScheduleRows(slots as any[])
       setReportRows(reports as any[])
       setInvoiceRows(invoices as any[])
+      setAdjustmentRows(adjustments as any[])
       setLoading(false)
     })
   }, [])
+
+  function refetchAdjustments() {
+    const supabase = createClient()
+    supabase.from('kuota_adjustments').select('brand, tier, month_start, delta_hours, note')
+      .then(({ data }) => setAdjustmentRows((data || []) as any[]))
+  }
 
   const meters: ClientMeter[] = useMemo(() => {
     // Latest invoice_to seen per brand — used to auto-surface a client that
@@ -144,6 +158,13 @@ function ClientListTab() {
           tier: tierFromItemName(it.name) || UNTAGGED, slots: hours,
         })
       })
+    })
+    // Manual adjustments join the same ledger as invoice-derived top-ups, so
+    // a correction made this month correctly carries forward into next
+    // month's balance exactly like a real top-up would.
+    adjustmentRows.forEach(a => {
+      if (!a.brand || !a.delta_hours) return
+      kuotaRows.push({ brand: a.brand, date: a.month_start, tier: a.tier || UNTAGGED, slots: Number(a.delta_hours) || 0 })
     })
 
     // Usage/plan draw from the tier picked on the schedule slot. A report with
@@ -191,6 +212,8 @@ function ClientListTab() {
         const t = reportTier(r)
         if (t) tierNames.add(t)
       })
+      // (kuotaRows already includes adjustmentRows, so a tier that only has a
+      // manual adjustment and no invoice/live activity still gets a row.)
 
       const tiers: TierMeter[] = Array.from(tierNames).map(tier => {
         const usedBefore = reportRows
@@ -234,7 +257,7 @@ function ClientListTab() {
         isAuto: c.id.startsWith('auto:'),
       }
     })
-  }, [clients, invoiceRows, scheduleRows, reportRows, selectedMonth.start, selectedMonth.end])
+  }, [clients, invoiceRows, scheduleRows, reportRows, adjustmentRows, selectedMonth.start, selectedMonth.end])
 
   // Hide clients with nothing going on in the selected month -- no Kuota
   // balance to work with and no live activity (reported or scheduled).
@@ -338,11 +361,23 @@ function ClientListTab() {
 
                 {isExpanded && (
                   <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-4">
-                    {m.tiers.length > 0 && (
-                      <div className="mb-4">
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 pl-1">
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between mb-2 pl-1">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                           Kuota per Tipe Live
                         </p>
+                        <button
+                          onClick={() => {
+                            const existingTiers = new Set(m.tiers.map(t => t.tier))
+                            const defaultTier = QUOTA_TIERS.find(t => !existingTiers.has(t)) || QUOTA_TIERS[0]
+                            const existing = adjustmentRows.find(a => a.brand === m.brand && (a.tier || UNTAGGED) === defaultTier && a.month_start === selectedMonth.start)
+                            setAdjustModal({ brand: m.brand, tier: defaultTier, delta: existing ? String(existing.delta_hours) : '', note: existing?.note || '', saving: false, error: '' })
+                          }}
+                          className="flex items-center gap-1 text-[10px] font-semibold text-brand-600 hover:text-brand-700 px-2 py-1 rounded-lg hover:bg-brand-50">
+                          <Plus size={11}/> Sesuaikan Top Up
+                        </button>
+                      </div>
+                      {m.tiers.length > 0 && (
                         <div className="rounded-xl border border-gray-100 bg-white divide-y divide-gray-50">
                           {m.tiers.map(t => {
                             const tHas = t.totalKuota > 0
@@ -364,8 +399,16 @@ function ClientListTab() {
                                 <span className="w-24 text-right text-xs text-gray-500 tabular-nums">
                                   {fmtSlots(t.lastMonthKuota)}
                                 </span>
-                                <span className="w-20 text-right text-xs text-gray-500 tabular-nums">
+                                <span className="w-20 text-right text-xs text-gray-500 tabular-nums flex items-center justify-end gap-1">
                                   {t.topUp > 0 ? `+${fmtSlots(t.topUp)}` : '—'}
+                                  <button
+                                    onClick={() => {
+                                      const existing = adjustmentRows.find(a => a.brand === m.brand && (a.tier || UNTAGGED) === t.tier && a.month_start === selectedMonth.start)
+                                      setAdjustModal({ brand: m.brand, tier: t.tier, delta: existing ? String(existing.delta_hours) : '', note: existing?.note || '', saving: false, error: '' })
+                                    }}
+                                    className="text-gray-300 hover:text-brand-600 flex-shrink-0" title="Sesuaikan Top Up">
+                                    <Pencil size={10}/>
+                                  </button>
                                 </span>
                                 <div className="flex-1 min-w-[100px]">
                                   <div className="relative h-2 bg-white border border-gray-200 rounded-full overflow-hidden">
@@ -383,15 +426,15 @@ function ClientListTab() {
                             )
                           })}
                         </div>
-                        {m.tiers.some(t => t.tier === UNTAGGED) && (
+                      )}
+                      {m.tiers.some(t => t.tier === UNTAGGED) && (
                           <p className="text-[10px] text-amber-600 mt-1.5 pl-1 leading-relaxed">
                             &ldquo;Belum Ditandai&rdquo; = jam live yang jadwalnya belum punya Tipe Live (mis. data impor lama), jadi belum bisa dipotong dari kuota Regular/Silver.
                             Angka minus di sini berarti jam terpakai yang belum ketahuan tipenya — bukan kuota minus. Total di baris atas tetap benar.
                             Isi Tipe Live di Schedule supaya jamnya pindah ke kuota yang tepat.
                           </p>
                         )}
-                      </div>
-                    )}
+                    </div>
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 pl-1">
                       Live {selectedMonth.label}
                     </p>
@@ -442,6 +485,93 @@ function ClientListTab() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Sesuaikan Top Up modal — moves quota between brands/tiers (e.g. one
+          invoice actually covering two sibling brands) without touching the
+          synced invoice itself. */}
+      {adjustModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+          onClick={() => !adjustModal.saving && setAdjustModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="font-bold text-gray-900 text-sm">Sesuaikan Top Up</h3>
+              <button onClick={() => setAdjustModal(null)} className="p-1 rounded-lg hover:bg-gray-100">
+                <X size={16} className="text-gray-400"/>
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mb-4">{adjustModal.brand} — {selectedMonth.label}</p>
+
+            <label className="block text-xs font-medium text-gray-500 mb-1">Tipe Live</label>
+            <select value={adjustModal.tier}
+              onChange={e => {
+                const tier = e.target.value
+                const existing = adjustmentRows.find(a => a.brand === adjustModal.brand && (a.tier || UNTAGGED) === tier && a.month_start === selectedMonth.start)
+                setAdjustModal(m => m && { ...m, tier, delta: existing ? String(existing.delta_hours) : '', note: existing?.note || '' })
+              }}
+              className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+              {[...QUOTA_TIERS, UNTAGGED].map(t => <option key={t} value={t}>{t === UNTAGGED ? 'Belum Ditandai' : t}</option>)}
+            </select>
+
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Penyesuaian Top Up ({selectedMonth.label}), jam — boleh minus
+            </label>
+            <input type="number" step="0.5" value={adjustModal.delta}
+              onChange={e => setAdjustModal(m => m && { ...m, delta: e.target.value })}
+              placeholder="mis. -50 atau 50"
+              className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+            <p className="text-[11px] text-gray-400 mb-3 -mt-2">
+              Nilai ini ditambahkan ke Top Up dari invoice bulan ini. Isi 0 atau kosongkan untuk menghapus penyesuaian.
+              Contoh: pindahkan 50 jam Regular dari Niko Electronic ke Numan &rarr; isi -50 di Niko, +50 di Numan.
+            </p>
+
+            <label className="block text-xs font-medium text-gray-500 mb-1">Catatan (opsional)</label>
+            <input type="text" value={adjustModal.note}
+              onChange={e => setAdjustModal(m => m && { ...m, note: e.target.value })}
+              placeholder="mis. 1 invoice Niko dibagi ke Numan"
+              className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 mb-1 focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+
+            {adjustModal.error && <p className="text-xs text-red-600 mt-2">{adjustModal.error}</p>}
+
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setAdjustModal(null)} disabled={adjustModal.saving}
+                className="flex-1 text-sm border border-gray-200 text-gray-600 rounded-xl px-3 py-2 hover:bg-gray-50 disabled:opacity-50">
+                Batal
+              </button>
+              <button
+                onClick={async () => {
+                  if (!adjustModal) return
+                  const delta = Number(adjustModal.delta)
+                  if (adjustModal.delta.trim() !== '' && Number.isNaN(delta)) {
+                    setAdjustModal(m => m && { ...m, error: 'Jam harus berupa angka' }); return
+                  }
+                  setAdjustModal(m => m && { ...m, saving: true, error: '' })
+                  const supabase = createClient()
+                  const { data: { user } } = await supabase.auth.getUser()
+                  const monthStart = selectedMonth.start
+                  if (!delta) {
+                    // 0/blank -> remove any existing adjustment for this cell.
+                    const { error } = await supabase.from('kuota_adjustments').delete()
+                      .match({ brand: adjustModal.brand, tier: adjustModal.tier, month_start: monthStart })
+                    if (error) { setAdjustModal(m => m && { ...m, saving: false, error: error.message }); return }
+                  } else {
+                    const { error } = await supabase.from('kuota_adjustments')
+                      .upsert({
+                        brand: adjustModal.brand, tier: adjustModal.tier, month_start: monthStart,
+                        delta_hours: delta, note: adjustModal.note || null, created_by: user?.id || null,
+                      }, { onConflict: 'brand,tier,month_start' })
+                    if (error) { setAdjustModal(m => m && { ...m, saving: false, error: error.message }); return }
+                  }
+                  refetchAdjustments()
+                  setAdjustModal(null)
+                }}
+                disabled={adjustModal.saving}
+                className="flex-1 text-sm bg-brand-600 text-white rounded-xl px-3 py-2 hover:bg-brand-700 disabled:opacity-50">
+                {adjustModal.saving ? 'Menyimpan...' : 'Simpan'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
