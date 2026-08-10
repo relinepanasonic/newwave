@@ -20,6 +20,7 @@ interface LiveReportRow {
   start_time: string | null; duration_hours: number | null
   gmv: number; impression: number; viewer: number; trans: number; comment_count: number
   hostName: string
+  tier: string | null   // which Kuota bucket this session draws from (or UNTAGGED)
 }
 // Same shape as ClientMeter's numbers, but scoped to one live tier so a client
 // who buys both Regular and Silver hours gets a separate balance for each.
@@ -96,6 +97,9 @@ function ClientListTab() {
   // brands/tiers (e.g. one invoice actually covering two sibling brands)
   // without touching the synced invoice itself.
   const [adjustModal, setAdjustModal] = useState<{ brand: string; tier: string; delta: string; note: string; saving: boolean; error: string } | null>(null)
+  // Which brand's "Belum Ditandai" (untagged) session list is expanded — the
+  // report an admin needs to know which schedule slots still need Tipe Live.
+  const [untaggedOpenBrand, setUntaggedOpenBrand] = useState<string | null>(null)
 
   const monthOptions = getMonthOptions()
   const selectedMonth = monthOptions[monthIdx]
@@ -194,6 +198,7 @@ function ClientListTab() {
           gmv: Number(r.gmv) || 0, impression: Number(r.impression) || 0, viewer: Number(r.viewer) || 0,
           trans: Number(r.trans) || 0, comment_count: Number(r.comment_count) || 0,
           hostName: (r.profiles as any)?.full_name || '—',
+          tier: reportTier(r),
         }))
         .sort((a, b) => a.report_date.localeCompare(b.report_date))
 
@@ -386,20 +391,26 @@ function ClientListTab() {
                             const tPlanPct = tHas ? Math.min((t.planThisMonth / t.totalKuota) * 100, 100) : 0
                             const tDonePct = tHas ? Math.min((t.activeLive / t.totalKuota) * 100, 100) : 0
                             const isUntagged = t.tier === UNTAGGED
+                            // Same column widths/order as the client-row header above
+                            // (dot spacer, flex-1, w-32, w-32, w-28 mr-8, w-56, w-14, chevron
+                            // spacer) so every number lines up vertically under its header.
                             return (
-                              <div key={t.tier} className="flex items-center gap-3 px-3 py-2.5">
-                                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${
-                                  isUntagged ? 'bg-amber-100 text-amber-700' : 'bg-brand-50 text-brand-700'
-                                }`}>
-                                  {isUntagged ? 'Belum Ditandai' : t.tier}
-                                </span>
-                                <span className="w-24 text-right text-xs font-semibold text-gray-800 tabular-nums">
+                              <div key={t.tier} className="flex items-center gap-4 px-4 py-2.5">
+                                <span className="w-2 flex-shrink-0"/>
+                                <div className="flex-1 min-w-0">
+                                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${
+                                    isUntagged ? 'bg-amber-100 text-amber-700' : 'bg-brand-50 text-brand-700'
+                                  }`}>
+                                    {isUntagged ? 'Belum Ditandai' : t.tier}
+                                  </span>
+                                </div>
+                                <span className="w-32 text-right text-xs font-semibold text-gray-800 tabular-nums flex-shrink-0">
                                   {fmtSlots(t.activeLive)}
                                 </span>
-                                <span className="w-24 text-right text-xs text-gray-500 tabular-nums">
+                                <span className="w-32 text-right text-xs text-gray-500 tabular-nums flex-shrink-0">
                                   {fmtSlots(t.lastMonthKuota)}
                                 </span>
-                                <span className="w-20 text-right text-xs text-gray-500 tabular-nums flex items-center justify-end gap-1">
+                                <span className="w-28 mr-8 text-right text-xs text-gray-500 tabular-nums flex-shrink-0 flex items-center justify-end gap-1">
                                   {t.topUp > 0 ? `+${fmtSlots(t.topUp)}` : '—'}
                                   <button
                                     onClick={() => {
@@ -410,7 +421,7 @@ function ClientListTab() {
                                     <Pencil size={10}/>
                                   </button>
                                 </span>
-                                <div className="flex-1 min-w-[100px]">
+                                <div className="w-56 flex-shrink-0">
                                   <div className="relative h-2 bg-white border border-gray-200 rounded-full overflow-hidden">
                                     <div className="absolute inset-y-0 left-0 bg-brand-200 rounded-full" style={{ width: `${tPlanPct}%` }}/>
                                     <div className="absolute inset-y-0 left-0 bg-brand-600 rounded-full" style={{ width: `${tDonePct}%` }}/>
@@ -419,21 +430,55 @@ function ClientListTab() {
                                     {tHas ? `${fmtSlots(t.activeLive)} / ${fmtSlots(t.totalKuota)}` : `${fmtSlots(t.activeLive)} jam · tanpa kuota`}
                                   </p>
                                 </div>
-                                <span className={`w-12 text-right text-[11px] font-bold px-1.5 py-0.5 rounded-full ${BADGE_CLASSES[tSev]}`}>
-                                  {tHas ? `${tPct}%` : '—'}
+                                <span className="w-14 flex justify-end flex-shrink-0">
+                                  <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${BADGE_CLASSES[tSev]}`}>
+                                    {tHas ? `${tPct}%` : '—'}
+                                  </span>
                                 </span>
+                                <span className="w-3.5 flex-shrink-0"/>
                               </div>
                             )
                           })}
                         </div>
                       )}
                       {m.tiers.some(t => t.tier === UNTAGGED) && (
-                          <p className="text-[10px] text-amber-600 mt-1.5 pl-1 leading-relaxed">
+                        <div className="mt-1.5 pl-1">
+                          <p className="text-[10px] text-amber-600 leading-relaxed">
                             &ldquo;Belum Ditandai&rdquo; = jam live yang jadwalnya belum punya Tipe Live (mis. data impor lama), jadi belum bisa dipotong dari kuota Regular/Silver.
                             Angka minus di sini berarti jam terpakai yang belum ketahuan tipenya — bukan kuota minus. Total di baris atas tetap benar.
                             Isi Tipe Live di Schedule supaya jamnya pindah ke kuota yang tepat.
                           </p>
-                        )}
+                          <button
+                            onClick={() => setUntaggedOpenBrand(untaggedOpenBrand === m.brand ? null : m.brand)}
+                            className="text-[10px] font-semibold text-amber-700 hover:text-amber-800 underline mt-1">
+                            {untaggedOpenBrand === m.brand ? 'Sembunyikan daftar sesi' : `Lihat daftar sesi Belum Ditandai (${m.reports.filter(r => r.tier === UNTAGGED).length})`}
+                          </button>
+                          {untaggedOpenBrand === m.brand && (
+                            <div className="mt-2 rounded-xl border border-amber-100 bg-amber-50/60 overflow-hidden">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="text-[10px] text-amber-700 uppercase tracking-wide">
+                                    <th className="px-3 py-1.5 text-left font-semibold">Tanggal</th>
+                                    <th className="px-3 py-1.5 text-left font-semibold">Host</th>
+                                    <th className="px-3 py-1.5 text-left font-semibold">Platform</th>
+                                    <th className="px-3 py-1.5 text-right font-semibold">Jam</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-amber-100">
+                                  {m.reports.filter(r => r.tier === UNTAGGED).map(r => (
+                                    <tr key={r.id}>
+                                      <td className="px-3 py-1.5 text-gray-700 whitespace-nowrap">{fmtDetailDate(r.report_date)}</td>
+                                      <td className="px-3 py-1.5 text-gray-700">{r.hostName}</td>
+                                      <td className="px-3 py-1.5 text-gray-700">{r.platform || '—'}</td>
+                                      <td className="px-3 py-1.5 text-right text-gray-700 tabular-nums">{r.duration_hours ?? '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 pl-1">
                       Live {selectedMonth.label}
