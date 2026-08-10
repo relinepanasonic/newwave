@@ -285,7 +285,7 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
     setImporting(false)
     const parts: string[] = []
     if (inserted.length) parts.push(`${inserted.length} produk baru`)
-    if (bothIds.length) parts.push(`${bothIds.length} diupgrade ke Both`)
+    if (bothIds.length) parts.push(`${bothIds.length} ditandai Shopee + TikTok`)
     if (fillIds.length) parts.push(`${fillIds.length} platform dilengkapi`)
     const skipped = importPlan.toSkip.length
     setImportDone(`${parts.join(', ') || 'Tidak ada perubahan'} diimpor${skipped > 0 ? `, ${skipped} duplikat dilewati` : ''}.`)
@@ -396,7 +396,7 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
                 <option value="">—</option>
                 <option value="Shopee">Shopee</option>
                 <option value="TikTok">TikTok</option>
-                <option value="Both">Both</option>
+                <option value="Both">Shopee + TikTok</option>
               </select>
             </div>
             <div>
@@ -477,7 +477,12 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
                       <td className="px-4 py-3 text-xs text-gray-400">{idx + 1}</td>
                       <td className="px-4 py-3 font-semibold text-gray-900">{p.name}</td>
                       <td className="px-4 py-3">
-                        {p.platform ? (
+                        {p.platform === 'Both' ? (
+                          <div className="flex items-center gap-1">
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${PLATFORM_BADGE.Shopee}`}>Shopee</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${PLATFORM_BADGE.TikTok}`}>TikTok</span>
+                          </div>
+                        ) : p.platform ? (
                           <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${PLATFORM_BADGE[p.platform] || 'bg-gray-100 text-gray-500'}`}>
                             {p.platform}
                           </span>
@@ -611,10 +616,13 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
                         return (
                           <div key={i} className={`flex items-baseline gap-2 ${dup ? 'opacity-40' : ''}`}>
                             <p className={`text-[11px] truncate flex-1 ${dup ? 'line-through text-gray-400' : 'text-gray-600'}`}>{r.name}</p>
-                            {upgradeTo && (
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${
-                                upgradeTo === 'Both' ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-500'
-                              }`}>
+                            {upgradeTo === 'Both' ? (
+                              <span className="flex items-center gap-1 flex-shrink-0">
+                                <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold bg-orange-100 text-orange-700">Shopee</span>
+                                <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold bg-gray-900 text-white">TikTok</span>
+                              </span>
+                            ) : upgradeTo && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 bg-gray-100 text-gray-500">
                                 → {upgradeTo}
                               </span>
                             )}
@@ -626,7 +634,7 @@ export default function ProductEtalasePanel({ profile }: { profile: any }) {
                     </div>
                     {bothCount > 0 && (
                       <p className="text-[10px] text-brand-600 mt-2">
-                        {bothCount} produk sudah ada di platform lain — tag platform-nya akan diupgrade jadi <b>Both</b>
+                        {bothCount} produk sudah ada di platform lain — akan ditandai <b>Shopee + TikTok</b>
                       </p>
                     )}
                     {importPlan.toSkip.length > 0 && (
