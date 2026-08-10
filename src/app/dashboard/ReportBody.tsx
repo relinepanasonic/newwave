@@ -110,6 +110,10 @@ function fmtRp(n: number) {
 function fmtNum(n: number) {
   return Math.round(n || 0).toLocaleString('id-ID')
 }
+const PLATFORM_MINI_BADGE: Record<string, string> = {
+  Shopee: 'bg-orange-100 text-orange-700',
+  TikTok: 'bg-gray-900 text-white',
+}
 // Daily trend panels: GMV as a bar (given more visual weight — taller panel,
 // wider axis for its larger Rupiah values), everything else as a
 // gradient-filled line, each stacked in its own row but sharing the same
@@ -287,8 +291,11 @@ export default function ReportBody({ profile }: { profile: any }) {
     })
   }, [reports, sessionTags])
 
-  // Performance grouped by Start Live hour.
+  // Performance grouped by Start Live hour. Kept full (sorted by gmv desc) for
+  // the insight text and PPTX export; the on-screen table below shows only
+  // the top 10 slots by GMV.
   const sessionTimeEval = useMemo(() => computeSessionTimeEval(reports), [reports])
+  const topSessionTimeEval = useMemo(() => sessionTimeEval.slice(0, 10), [sessionTimeEval])
 
   // This month vs last calendar month, same brand/platform.
   const momMetrics = useMemo(() => computeMoM(totalsOf(reports), totalsOf(prevReports)), [reports, prevReports])
@@ -308,17 +315,29 @@ export default function ReportBody({ profile }: { profile: any }) {
     () => generateHostEval2MonthInsight(host2MonthEval, month.label, prevMonthLabel),
     [host2MonthEval, month.label, prevMonthLabel])
 
+  // Client/platform per product: a product row only carries live_report_id,
+  // so brand/platform are looked up from the report it belongs to — mainly
+  // useful in "Semua Client (Gabungan)" mode, where a product name could have
+  // been sold by more than one client.
   const productBreakdown = useMemo(() => {
-    const map: Record<string, { name: string; klik: number; itemSold: number; total: number }> = {}
+    const reportById = new Map(reports.map(r => [r.id, r]))
+    const map: Record<string, { name: string; klik: number; itemSold: number; total: number; brands: Set<string>; platforms: Set<string> }> = {}
     products.forEach(p => {
-      if (!map[p.produk_terjual]) map[p.produk_terjual] = { name: p.produk_terjual, klik: 0, itemSold: 0, total: 0 }
-      map[p.produk_terjual].klik += p.product_klik || 0
-      map[p.produk_terjual].itemSold += p.item_sold || 0
-      map[p.produk_terjual].total += p.total || 0
+      if (!map[p.produk_terjual]) map[p.produk_terjual] = { name: p.produk_terjual, klik: 0, itemSold: 0, total: 0, brands: new Set(), platforms: new Set() }
+      const row = map[p.produk_terjual]
+      row.klik += p.product_klik || 0
+      row.itemSold += p.item_sold || 0
+      row.total += p.total || 0
+      const rep = reportById.get(p.live_report_id)
+      if (rep?.brand) row.brands.add(rep.brand)
+      if (rep?.platform) row.platforms.add(rep.platform)
     })
     // Top 10 best-selling products only — matches the Session Log's Top 10.
-    return Object.values(map).sort((a, b) => b.total - a.total).slice(0, 10)
-  }, [products])
+    return Object.values(map)
+      .map(r => ({ ...r, brandLabel: Array.from(r.brands).join(', ') || '—', platformList: Array.from(r.platforms) }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10)
+  }, [products, reports])
 
   // Top 10 sessions by GMV for the on-screen Session Log — the raw per-session
   // data (for CSV export, tags, charts, etc.) still uses the full `reports`.
@@ -347,7 +366,7 @@ export default function ReportBody({ profile }: { profile: any }) {
 
   const execSummary = reports.length
     ? `Selama periode ${periodRangeLabel}, New Wave Live Specialist melaksanakan ${sessionCount} sesi live ${platform || ''} untuk ${brandLabel}. ` +
-      `Total GMV yang dibukukan sebesar ${fmtRp(totalGmv)} dengan ${totalTrans} transaksi, ${fmtNum(totalViewer)} viewers, dan ${totalComment} komentar.`
+      `Total GMV yang dibukukan sebesar ${fmtRp(totalGmv)} dengan ${fmtNum(totalTrans)} transaksi, ${fmtNum(totalViewer)} viewers, dan ${fmtNum(totalComment)} komentar.`
     : ''
 
   const fileBase = `${platform || 'Report'}_${brandLabel || ''}_${month.label}`.replace(/\s+/g, '_')
@@ -830,11 +849,11 @@ export default function ReportBody({ profile }: { profile: any }) {
               </div>
               <div className="bg-brand-50 border border-brand-100 rounded-xl p-3">
                 <p className="text-[10px] text-brand-500 font-medium">Transaksi</p>
-                <p className="text-sm font-bold text-brand-700 mt-0.5">{totalTrans}</p>
+                <p className="text-sm font-bold text-brand-700 mt-0.5">{fmtNum(totalTrans)}</p>
               </div>
               <div className="bg-amber-50 border border-amber-100 rounded-xl p-3">
                 <p className="text-[10px] text-amber-600 font-medium">Komentar</p>
-                <p className="text-sm font-bold text-amber-700 mt-0.5">{totalComment}</p>
+                <p className="text-sm font-bold text-amber-700 mt-0.5">{fmtNum(totalComment)}</p>
               </div>
             </div>
             {(topHost || topProduct) && (
@@ -879,9 +898,14 @@ export default function ReportBody({ profile }: { profile: any }) {
               <div className="rounded-xl border border-gray-100 overflow-hidden divide-y divide-gray-100">
                 {TREND_METRICS.map((m, i) => {
                   const isLast = i === TREND_METRICS.length - 1
-                  const margin = { top: 8, right: 12, left: 4, bottom: isLast ? 0 : -8 }
+                  // A negative bottom margin here previously let each panel's
+                  // drawing area (including its 0 gridline/label) render past
+                  // its box, which the container's overflow-hidden then
+                  // silently clipped off — making a 0 look identical to a
+                  // clipped low value. Keep it non-negative so 0 always shows.
+                  const margin = { top: 8, right: 12, left: 4, bottom: 4 }
                   return (
-                    <div key={m.key} className="px-1 pt-2.5" style={{ paddingBottom: isLast ? 4 : 0 }}>
+                    <div key={m.key} className="px-1 pt-2.5 pb-1">
                       <p className="text-[10px] font-bold text-gray-500 flex items-center gap-1.5 px-3 mb-0.5">
                         <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: m.color }}/>
                         {m.label}
@@ -961,8 +985,8 @@ export default function ReportBody({ profile }: { profile: any }) {
                         <td className="px-4 py-2 font-medium text-brand-700">{r.profiles?.full_name || '-'}</td>
                         <td className="px-4 py-2 text-right font-semibold text-emerald-700">{fmtRp(r.gmv)}</td>
                         <td className="px-4 py-2 text-right text-gray-600">{fmtNum(r.viewer)}</td>
-                        <td className="px-4 py-2 text-right text-gray-600">{r.trans || 0}</td>
-                        <td className="px-4 py-2 text-right text-gray-600">{r.comment_count || 0}</td>
+                        <td className="px-4 py-2 text-right text-gray-600">{fmtNum(r.trans || 0)}</td>
+                        <td className="px-4 py-2 text-right text-gray-600">{fmtNum(r.comment_count || 0)}</td>
                         <td className="px-4 py-2 whitespace-nowrap">
                           {tags && (
                             <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">
@@ -978,10 +1002,10 @@ export default function ReportBody({ profile }: { profile: any }) {
             </div>
           </div>
 
-          {/* Session Time Evaluation */}
+          {/* Session Time Evaluation — Top 10 slots by GMV */}
           {sessionTimeEval.length > 0 && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-              <h3 className="text-sm font-bold text-gray-800 px-5 pt-4 pb-2">Session Time Evaluation</h3>
+              <h3 className="text-sm font-bold text-gray-800 px-5 pt-4 pb-2">10 Session Time Terbaik (by GMV)</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
@@ -997,14 +1021,14 @@ export default function ReportBody({ profile }: { profile: any }) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {sessionTimeEval.map(s => (
+                    {topSessionTimeEval.map(s => (
                       <tr key={s.startTime} className="hover:bg-gray-50">
                         <td className="px-4 py-2 font-medium text-gray-800">{s.startTime}</td>
-                        <td className="px-4 py-2 text-right text-gray-600">{s.sessions}</td>
+                        <td className="px-4 py-2 text-right text-gray-600">{fmtNum(s.sessions)}</td>
                         <td className="px-4 py-2 text-right font-semibold text-emerald-700">{fmtRp(s.gmv)}</td>
                         <td className="px-4 py-2 text-right text-gray-600">{fmtNum(s.viewer)}</td>
-                        <td className="px-4 py-2 text-right text-gray-600">{s.trans}</td>
-                        <td className="px-4 py-2 text-right text-gray-600">{s.comment}</td>
+                        <td className="px-4 py-2 text-right text-gray-600">{fmtNum(s.trans)}</td>
+                        <td className="px-4 py-2 text-right text-gray-600">{fmtNum(s.comment)}</td>
                         <td className="px-4 py-2 text-right text-gray-600">{s.cvr.toFixed(2)}%</td>
                         <td className="px-4 py-2 whitespace-nowrap">
                           {s.isMostSessions && <span className="text-[10px] bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full font-semibold mr-1">★ Most Sessions</span>}
@@ -1052,9 +1076,9 @@ export default function ReportBody({ profile }: { profile: any }) {
                       <td className="px-4 py-2 text-right font-semibold text-emerald-700">{fmtRp(h.totalGmv)}</td>
                       <td className="px-4 py-2 text-right text-gray-600">{fmtRp(h.avgGmv)}</td>
                       <td className="px-4 py-2 text-right text-gray-600">{fmtNum(h.totalViewer)}</td>
-                      <td className="px-4 py-2 text-right text-gray-600">{h.totalTrans}</td>
+                      <td className="px-4 py-2 text-right text-gray-600">{fmtNum(h.totalTrans)}</td>
                       <td className="px-4 py-2 text-right text-gray-600">{h.cvr.toFixed(2)}%</td>
-                      <td className="px-4 py-2 text-right text-gray-600">{h.totalComment}</td>
+                      <td className="px-4 py-2 text-right text-gray-600">{fmtNum(h.totalComment)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1077,6 +1101,8 @@ export default function ReportBody({ profile }: { profile: any }) {
                   <thead>
                     <tr className="bg-gray-50 text-[10px] text-gray-400 uppercase tracking-wide border-b border-gray-100">
                       <th className="px-4 py-2 text-left font-semibold">Produk</th>
+                      <th className="px-4 py-2 text-left font-semibold">Client</th>
+                      <th className="px-4 py-2 text-left font-semibold">Platform</th>
                       <th className="px-4 py-2 text-right font-semibold">Klik</th>
                       <th className="px-4 py-2 text-right font-semibold">Terjual</th>
                       <th className="px-4 py-2 text-right font-semibold">Total Revenue</th>
@@ -1086,8 +1112,19 @@ export default function ReportBody({ profile }: { profile: any }) {
                     {productBreakdown.map(p => (
                       <tr key={p.name} className="hover:bg-gray-50">
                         <td className="px-4 py-2 font-medium text-gray-800">{p.name}</td>
-                        <td className="px-4 py-2 text-right text-gray-600">{p.klik}</td>
-                        <td className="px-4 py-2 text-right font-semibold">{p.itemSold}</td>
+                        <td className="px-4 py-2 text-gray-600 whitespace-nowrap">{p.brandLabel}</td>
+                        <td className="px-4 py-2 whitespace-nowrap">
+                          <div className="flex items-center gap-1">
+                            {p.platformList.length === 0 && <span className="text-gray-300">—</span>}
+                            {p.platformList.map(pl => (
+                              <span key={pl} className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${PLATFORM_MINI_BADGE[pl] || 'bg-gray-100 text-gray-500'}`}>
+                                {pl}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2 text-right text-gray-600">{fmtNum(p.klik)}</td>
+                        <td className="px-4 py-2 text-right font-semibold">{fmtNum(p.itemSold)}</td>
                         <td className="px-4 py-2 text-right font-semibold text-emerald-700">{fmtRp(p.total)}</td>
                       </tr>
                     ))}
