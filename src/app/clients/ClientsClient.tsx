@@ -10,6 +10,7 @@ import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
 import TimeInput from '@/components/TimeInput'
 import { formatCurrency, PLATFORM_COLORS } from '@/lib/utils'
+import { UNTAGGED, itemQuotaHours, tierFromItemName, tierFromSlot } from '@/lib/kuota'
 
 type Tab = 'clients' | 'invoice' | 'servicepkg' | 'products' | 'blackout'
 
@@ -20,6 +21,16 @@ interface LiveReportRow {
   gmv: number; impression: number; viewer: number; trans: number; comment_count: number
   hostName: string
 }
+// Same shape as ClientMeter's numbers, but scoped to one live tier so a client
+// who buys both Regular and Silver hours gets a separate balance for each.
+interface TierMeter {
+  tier: string
+  lastMonthKuota: number
+  topUp: number
+  totalKuota: number
+  activeLive: number
+  planThisMonth: number
+}
 interface ClientMeter {
   brand: string; clientName: string
   lastMonthKuota: number   // carried-over unused Kuota balance from before the selected month
@@ -27,18 +38,11 @@ interface ClientMeter {
   totalKuota: number       // lastMonthKuota + topUp — the meter's 100% baseline
   activeLive: number       // total reported hours (sum of duration_hours) within the selected month
   planThisMonth: number    // total scheduled hours (sum of durasi) within the selected month
+  tiers: TierMeter[]       // per-tier split of the same numbers (Regular/Silver/…/Untagged)
   reports: LiveReportRow[] // that brand's live reports within the selected month
   isAuto?: boolean         // surfaced from an invoice's brand, no client login/profile yet
 }
 
-// Only "hour"-scaled invoice items count toward a client's Kuota (converted
-// hours ÷ hours-per-session → slot-equivalent). Other scales (pc, month, day)
-// are addon/one-off billing lines, not session quota, so they contribute 0 --
-// e.g. a "50 pc" Prime Time addon shouldn't inflate the live-session quota.
-function itemSlots(it: { scale?: string | null; qty: number }): number {
-  if ((it.scale || '').toLowerCase() !== 'hour') return 0
-  return Number(it.qty) || 0
-}
 
 // All 12 months of the current year, January through December.
 function getMonthOptions() {
@@ -101,15 +105,15 @@ function ClientListTab() {
         .eq('role', 'client').not('client_brand', 'is', null)
         .then(({ data }) => (data || []) as ClientProfile[]),
       supabase.from('schedule_slots')
-        .select('id, brand, slot_date, session_no, durasi')
+        .select('id, brand, slot_date, session_no, durasi, tipe_live')
         .not('host_id', 'is', null)
         .order('slot_date')
         .then(({ data }) => data || []),
       supabase.from('live_reports')
-        .select('id, report_date, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, profiles:host_id(full_name)')
+        .select('id, report_date, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, slot_id, profiles:host_id(full_name)')
         .order('report_date')
         .then(({ data }) => data || []),
-      supabase.from('invoices').select('brand, invoice_to, invoice_date, invoice_items(qty, scale, jam_per_sesi)')
+      supabase.from('invoices').select('brand, invoice_to, invoice_date, invoice_items(name, qty, scale, jam_per_sesi)')
         .order('invoice_date', { ascending: true })
         .then(({ data }) => data || []),
     ]).then(([clientsData, slots, reports, invoices]) => {
@@ -125,15 +129,30 @@ function ClientListTab() {
     // Latest invoice_to seen per brand — used to auto-surface a client that
     // was pushed in (e.g. via ProOne) but has no registered login/profile yet.
     const invoiceToByBrand: Record<string, string> = {}
-    // Per-invoice Kuota (hour-scaled items only), kept per invoice_date so it
-    // can be split into "before selected month" vs "within selected month".
-    const kuotaRows: { brand: string; date: string; slots: number }[] = []
+    // Per-invoice-line Kuota (hour-scaled, non-Service-Item lines only), kept
+    // per invoice_date and per tier so it can be split into "before selected
+    // month" vs "within selected month", and Regular vs Silver vs untiered.
+    const kuotaRows: { brand: string; date: string; tier: string; slots: number }[] = []
     invoiceRows.forEach((inv: any) => {
       if (!inv.brand) return
       if (inv.invoice_to) invoiceToByBrand[inv.brand] = inv.invoice_to
-      const slots = (inv.invoice_items || []).reduce((s: number, it: any) => s + itemSlots(it), 0)
-      kuotaRows.push({ brand: inv.brand, date: inv.invoice_date, slots })
+      ;(inv.invoice_items || []).forEach((it: any) => {
+        const hours = itemQuotaHours(it)
+        if (!hours) return
+        kuotaRows.push({
+          brand: inv.brand, date: inv.invoice_date,
+          tier: tierFromItemName(it.name) || UNTAGGED, slots: hours,
+        })
+      })
     })
+
+    // Usage/plan draw from the tier picked on the schedule slot. A report with
+    // no slot (legacy CSV imports) or a slot with no Tipe Live lands in
+    // Untagged; a slot tagged as a non-live service is excluded from quota.
+    const slotById: Record<string, any> = {}
+    scheduleRows.forEach((s: any) => { slotById[s.id] = s })
+    const reportTier = (r: any): string | null =>
+      tierFromSlot(r.slot_id ? slotById[r.slot_id]?.tipe_live : null)
 
     // Brands that show up in invoices but have no client profile/login yet —
     // surface them anyway using the invoice's own invoice_to as the display
@@ -146,25 +165,6 @@ function ClientListTab() {
 
     return allClients.map(c => {
       const brand = c.client_brand
-      // Usage is measured in hours (duration_hours), same unit as Kuota,
-      // so the two stay comparable -- a session-count would compare
-      // apples to oranges against an hour-based quota.
-      const hoursUsedBefore = reportRows
-        .filter((r: any) => r.brand === brand && r.report_date < selectedMonth.start)
-        .reduce((s: number, r: any) => s + (Number(r.duration_hours) || 0), 0)
-      const lastMonthKuota = kuotaRows
-        .filter(r => r.brand === brand && r.date < selectedMonth.start)
-        .reduce((s, r) => s + r.slots, 0) - hoursUsedBefore
-      const topUp = kuotaRows
-        .filter(r => r.brand === brand && r.date >= selectedMonth.start && r.date <= selectedMonth.end)
-        .reduce((s, r) => s + r.slots, 0)
-      const totalKuota = lastMonthKuota + topUp
-      const activeLive = reportRows
-        .filter((r: any) => r.brand === brand && r.report_date >= selectedMonth.start && r.report_date <= selectedMonth.end)
-        .reduce((s: number, r: any) => s + (Number(r.duration_hours) || 0), 0)
-      const planThisMonth = scheduleRows
-        .filter((s: any) => s.brand === brand && s.slot_date >= selectedMonth.start && s.slot_date <= selectedMonth.end)
-        .reduce((s: number, x: any) => s + (Number(x.durasi) > 0 ? Number(x.durasi) : 1), 0)
       const reports: LiveReportRow[] = reportRows
         .filter((r: any) => r.brand === brand && r.report_date >= selectedMonth.start && r.report_date <= selectedMonth.end)
         .map((r: any) => ({
@@ -176,9 +176,61 @@ function ClientListTab() {
         }))
         .sort((a, b) => a.report_date.localeCompare(b.report_date))
 
+      // Per-tier split of the exact same numbers. Every tier that either bought
+      // quota or consumed hours gets a row, so an over-run on Silver stays
+      // visible even when the pooled total still looks healthy.
+      const tierNames = new Set<string>()
+      kuotaRows.forEach(r => { if (r.brand === brand) tierNames.add(r.tier) })
+      scheduleRows.forEach((s: any) => {
+        if (s.brand !== brand) return
+        const t = tierFromSlot(s.tipe_live)
+        if (t && s.slot_date >= selectedMonth.start && s.slot_date <= selectedMonth.end) tierNames.add(t)
+      })
+      reportRows.forEach((r: any) => {
+        if (r.brand !== brand) return
+        const t = reportTier(r)
+        if (t) tierNames.add(t)
+      })
+
+      const tiers: TierMeter[] = Array.from(tierNames).map(tier => {
+        const usedBefore = reportRows
+          .filter((r: any) => r.brand === brand && r.report_date < selectedMonth.start && reportTier(r) === tier)
+          .reduce((s: number, r: any) => s + (Number(r.duration_hours) || 0), 0)
+        const tLastMonth = kuotaRows
+          .filter(r => r.brand === brand && r.tier === tier && r.date < selectedMonth.start)
+          .reduce((s, r) => s + r.slots, 0) - usedBefore
+        const tTopUp = kuotaRows
+          .filter(r => r.brand === brand && r.tier === tier && r.date >= selectedMonth.start && r.date <= selectedMonth.end)
+          .reduce((s, r) => s + r.slots, 0)
+        const tActive = reportRows
+          .filter((r: any) => r.brand === brand && r.report_date >= selectedMonth.start && r.report_date <= selectedMonth.end && reportTier(r) === tier)
+          .reduce((s: number, r: any) => s + (Number(r.duration_hours) || 0), 0)
+        const tPlan = scheduleRows
+          .filter((s: any) => s.brand === brand && s.slot_date >= selectedMonth.start && s.slot_date <= selectedMonth.end && tierFromSlot(s.tipe_live) === tier)
+          .reduce((s: number, x: any) => s + (Number(x.durasi) > 0 ? Number(x.durasi) : 1), 0)
+        return { tier, lastMonthKuota: tLastMonth, topUp: tTopUp, totalKuota: tLastMonth + tTopUp, activeLive: tActive, planThisMonth: tPlan }
+      })
+      // Real tiers first (highest quota first), Untagged always last.
+      .sort((a, b) => {
+        if (a.tier === UNTAGGED) return 1
+        if (b.tier === UNTAGGED) return -1
+        return b.totalKuota - a.totalKuota
+      })
+      .filter(t => t.totalKuota !== 0 || t.activeLive > 0 || t.planThisMonth > 0)
+
+      // Headline numbers are the sum of the tier rows, so the summary line can
+      // never disagree with the breakdown underneath it.
+      const sum = (pick: (t: TierMeter) => number) => tiers.reduce((s, t) => s + pick(t), 0)
+      const lastMonthKuota = sum(t => t.lastMonthKuota)
+      const topUp = sum(t => t.topUp)
+
       return {
         brand, clientName: c.full_name,
-        lastMonthKuota, topUp, totalKuota, activeLive, planThisMonth, reports,
+        lastMonthKuota, topUp,
+        totalKuota: lastMonthKuota + topUp,
+        activeLive: sum(t => t.activeLive),
+        planThisMonth: sum(t => t.planThisMonth),
+        reports, tiers,
         isAuto: c.id.startsWith('auto:'),
       }
     })
@@ -232,7 +284,7 @@ function ClientListTab() {
             const exceeds = m.activeLive > m.totalKuota
             const sev = severity(pct, exceeds)
             const isExpanded = expandedBrand === m.brand
-            const canExpand = m.reports.length > 0
+            const canExpand = m.reports.length > 0 || m.tiers.length > 0
             const planPct = hasKuota ? Math.min((m.planThisMonth / m.totalKuota) * 100, 100) : 0
             const succeedPct = hasKuota ? Math.min((m.activeLive / m.totalKuota) * 100, 100) : 0
             return (
@@ -286,6 +338,60 @@ function ClientListTab() {
 
                 {isExpanded && (
                   <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-4">
+                    {m.tiers.length > 0 && (
+                      <div className="mb-4">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 pl-1">
+                          Kuota per Tipe Live
+                        </p>
+                        <div className="rounded-xl border border-gray-100 bg-white divide-y divide-gray-50">
+                          {m.tiers.map(t => {
+                            const tHas = t.totalKuota > 0
+                            const tPct = tHas ? Math.round((t.activeLive / t.totalKuota) * 100) : 0
+                            const tSev = severity(tPct, t.activeLive > t.totalKuota)
+                            const tPlanPct = tHas ? Math.min((t.planThisMonth / t.totalKuota) * 100, 100) : 0
+                            const tDonePct = tHas ? Math.min((t.activeLive / t.totalKuota) * 100, 100) : 0
+                            const isUntagged = t.tier === UNTAGGED
+                            return (
+                              <div key={t.tier} className="flex items-center gap-3 px-3 py-2.5">
+                                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${
+                                  isUntagged ? 'bg-amber-100 text-amber-700' : 'bg-brand-50 text-brand-700'
+                                }`}>
+                                  {isUntagged ? 'Belum Ditandai' : t.tier}
+                                </span>
+                                <span className="w-24 text-right text-xs font-semibold text-gray-800 tabular-nums">
+                                  {fmtSlots(t.activeLive)}
+                                </span>
+                                <span className="w-24 text-right text-xs text-gray-500 tabular-nums">
+                                  {fmtSlots(t.lastMonthKuota)}
+                                </span>
+                                <span className="w-20 text-right text-xs text-gray-500 tabular-nums">
+                                  {t.topUp > 0 ? `+${fmtSlots(t.topUp)}` : '—'}
+                                </span>
+                                <div className="flex-1 min-w-[100px]">
+                                  <div className="relative h-2 bg-white border border-gray-200 rounded-full overflow-hidden">
+                                    <div className="absolute inset-y-0 left-0 bg-brand-200 rounded-full" style={{ width: `${tPlanPct}%` }}/>
+                                    <div className="absolute inset-y-0 left-0 bg-brand-600 rounded-full" style={{ width: `${tDonePct}%` }}/>
+                                  </div>
+                                  <p className="text-[10px] text-gray-400 mt-0.5 tabular-nums">
+                                    {tHas ? `${fmtSlots(t.activeLive)} / ${fmtSlots(t.totalKuota)}` : `${fmtSlots(t.activeLive)} jam · tanpa kuota`}
+                                  </p>
+                                </div>
+                                <span className={`w-12 text-right text-[11px] font-bold px-1.5 py-0.5 rounded-full ${BADGE_CLASSES[tSev]}`}>
+                                  {tHas ? `${tPct}%` : '—'}
+                                </span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                        {m.tiers.some(t => t.tier === UNTAGGED) && (
+                          <p className="text-[10px] text-amber-600 mt-1.5 pl-1 leading-relaxed">
+                            &ldquo;Belum Ditandai&rdquo; = jam live yang jadwalnya belum punya Tipe Live (mis. data impor lama), jadi belum bisa dipotong dari kuota Regular/Silver.
+                            Angka minus di sini berarti jam terpakai yang belum ketahuan tipenya — bukan kuota minus. Total di baris atas tetap benar.
+                            Isi Tipe Live di Schedule supaya jamnya pindah ke kuota yang tepat.
+                          </p>
+                        )}
+                      </div>
+                    )}
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 pl-1">
                       Live {selectedMonth.label}
                     </p>

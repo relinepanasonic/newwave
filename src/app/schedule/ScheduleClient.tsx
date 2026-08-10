@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { SESSION_LABELS, PLATFORM_COLORS, getWeekDates, toLocalDateStr, cn } from '@/lib/utils'
 import { ChevronLeft, ChevronRight, ChevronDown, X, Save, Plus, Trash2, Copy } from 'lucide-react'
 import { tr } from '@/lib/i18n'
+import { UNTAGGED, itemQuotaHours, tierFromItemName, tierFromSlot } from '@/lib/kuota'
 import { useLang } from '@/lib/lang-context'
 
 const DAYS_ID = ['Senin','Selasa','Rabu','Kamis','Jumat','Sabtu','Minggu']
@@ -111,11 +112,6 @@ function calcJamSelesai(jamMulai: string, durasi: number): string {
   return `${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`
 }
 
-// Same Kuota unit as Client List: only "hour"-scaled invoice items count.
-function itemHours(it: { scale?: string | null; qty: number }): number {
-  if ((it.scale || '').toLowerCase() !== 'hour') return 0
-  return Number(it.qty) || 0
-}
 function monthRangeOf(dateStr: string): { start: string; end: string } {
   const [y, m] = dateStr.split('-').map(Number)
   return {
@@ -154,7 +150,7 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
   // the month of the slot being created -- Kuota minus what's already
   // Planned (scheduled), not minus what's Succeeded (reported). Warns
   // before double-booking a client past what they've actually paid for.
-  const [quotaWarning, setQuotaWarning] = useState<{ brand: string; remaining: number } | null>(null)
+  const [quotaWarning, setQuotaWarning] = useState<{ brand: string; remaining: number; tier: string | null } | null>(null)
   // Drag-and-drop (kanban) state. We keep the id in a ref too so drag handlers
   // read it synchronously (React state updates are async and lose the first
   // dragover events, which makes the native drop silently fail).
@@ -222,34 +218,44 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
 
   // Checks the selected brand's remaining Kuota (Kuota minus already-Planned
   // hours, not minus Succeeded) for the slot's month, and warns if under 10h.
+  // Scoped to the Tipe Live being booked, since quota is bought per tier --
+  // booking a Silver session must not read a healthy Regular balance. With no
+  // Tipe Live picked yet it falls back to the brand's combined balance.
   useEffect(() => {
     if (!editSlot || !form.brand) { setQuotaWarning(null); return }
+    const bookingTier = tierFromSlot(form.tipeLive)
+    // Non-live services (UGC, Pre Content, …) don't draw on live quota at all.
+    if (bookingTier === null) { setQuotaWarning(null); return }
+    const scoped = bookingTier !== UNTAGGED
     let cancelled = false
     const brand = form.brand
     const { start, end } = monthRangeOf(editSlot.date)
     const supabase = createClient()
     Promise.all([
-      supabase.from('invoices').select('invoice_date, invoice_items(qty, scale)').eq('brand', brand),
-      supabase.from('schedule_slots').select('id, slot_date, durasi').eq('brand', brand)
+      supabase.from('invoices').select('invoice_date, invoice_items(name, qty, scale)').eq('brand', brand),
+      supabase.from('schedule_slots').select('id, slot_date, durasi, tipe_live').eq('brand', brand)
         .gte('slot_date', start).lte('slot_date', end),
     ]).then(([{ data: invoices }, { data: monthSlots }]) => {
       if (cancelled) return
-      const kuotaBefore = (invoices || [])
-        .filter(inv => inv.invoice_date < start)
-        .reduce((s, inv) => s + (inv.invoice_items || []).reduce((si: number, it: any) => si + itemHours(it), 0), 0)
-      const kuotaThisMonth = (invoices || [])
-        .filter(inv => inv.invoice_date >= start && inv.invoice_date <= end)
-        .reduce((s, inv) => s + (inv.invoice_items || []).reduce((si: number, it: any) => si + itemHours(it), 0), 0)
-      const totalKuota = kuotaBefore + kuotaThisMonth
+      const kuotaOf = (inv: any) => (inv.invoice_items || []).reduce((si: number, it: any) => {
+        const hours = itemQuotaHours(it)
+        if (!hours) return si
+        if (scoped && (tierFromItemName(it.name) || UNTAGGED) !== bookingTier) return si
+        return si + hours
+      }, 0)
+      const totalKuota = (invoices || [])
+        .filter(inv => inv.invoice_date <= end)
+        .reduce((s, inv) => s + kuotaOf(inv), 0)
       // Exclude the slot currently being edited so it doesn't count against itself.
       const planHours = (monthSlots || [])
         .filter((s: any) => s.id !== editSlot.existing?.id)
+        .filter((s: any) => !scoped || tierFromSlot(s.tipe_live) === bookingTier)
         .reduce((s: number, x: any) => s + (Number(x.durasi) > 0 ? Number(x.durasi) : 1), 0)
       const remaining = totalKuota - planHours
-      setQuotaWarning(remaining < 10 ? { brand, remaining } : null)
+      setQuotaWarning(remaining < 10 ? { brand, remaining, tier: scoped ? bookingTier : null } : null)
     })
     return () => { cancelled = true }
-  }, [editSlot, form.brand])
+  }, [editSlot, form.brand, form.tipeLive])
 
   function toggleDupDay(dateStr: string) {
     setDupDays(prev => prev.includes(dateStr) ? prev.filter(d => d !== dateStr) : [...prev, dateStr])
@@ -806,7 +812,8 @@ export default function ScheduleClient({ profile, rooms, hosts, brands }: Props)
                     <div>
                       <p className="text-xs font-bold text-red-700">Warning</p>
                       <p className="text-[11px] text-red-600 mt-0.5">
-                        Remaining Quota for {form.brand} : {fmtHours(quotaWarning.remaining)} hour
+                        Remaining Quota for {form.brand}
+                        {quotaWarning.tier ? ` (${quotaWarning.tier})` : ''} : {fmtHours(quotaWarning.remaining)} hour
                       </p>
                     </div>
                   </div>
