@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import AppShell from '@/components/AppShell'
-import { FileBarChart2, Download, Presentation, Filter, Printer, X, ArrowLeft } from 'lucide-react'
+import { FileBarChart2, Presentation, FileSpreadsheet, X } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
@@ -9,6 +9,8 @@ import {
   tagSessions, computeSessionTimeEval, computeMoM, totalsOf, rankLabel, splitByPlatform,
   generateDailyHighlights, generateKeyFindings, generateSessionTimeInsight,
   generateHostInsight, generateProductInsight, generateMoMInsight,
+  computeSessionTimeEval2Month, computeHostEval2Month,
+  generateSessionTime2MonthInsight, generateHostEval2MonthInsight,
 } from './reportUtils'
 
 type ReportMode = 'Shopee' | 'TikTok' | 'Both' | null
@@ -16,8 +18,16 @@ type ReportMode = 'Shopee' | 'TikTok' | 'Both' | null
 const ALL_BRANDS = '__ALL__'
 const ALL_BRANDS_LABEL = 'Semua Client (Gabungan)'
 const PLATFORMS = ['TikTok', 'Shopee', 'Instagram', 'YouTube', 'Other']
-const BRAND_PURPLE = [124, 58, 237] as [number, number, number]
 const PPTXGENJS_CDN_URL = 'https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js'
+
+// Template palette extracted from the client-supplied .pptx (16:9, 10 x 5.625in).
+const T = {
+  purple: '7B6BA4', purpleLight: '9B8EC4', purpleBg: 'E8E4F0', purpleBgAlt: 'F0EDF8',
+  blueBg: 'E8F4F8', redBg: 'FFE8E0', dark: '2D2D2D', gray: '64748B', green: '15803D',
+  red: 'C0392B', border: 'DDDDDD', navy: '1A1A2E', white: 'FFFFFF',
+  lavender: 'D4CCE8', mutedLavender: '9B9BAA',
+}
+const FONT = 'Calibri'
 
 // pptxgenjs's npm build references Node built-ins (fs/https) that break the
 // webpack client bundle even behind a dynamic import, so it's loaded via its
@@ -87,6 +97,9 @@ function fmtDateFull(dateStr: string) {
   const [y, m, d] = dateStr.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
 }
+function csvEscape(v: string) {
+  return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
+}
 
 // The former /client-report page's content, now living directly on the
 // Dashboard. Client role is scoped to their own brand automatically;
@@ -104,9 +117,10 @@ export default function ReportBody({ profile }: { profile: any }) {
   const [prevReports, setPrevReports] = useState<ReportRow[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
-  const [exporting, setExporting] = useState<'pdf' | 'ppt' | null>(null)
-  // Generate Report flow: overrides the plain `platform` browsing filter
-  // while active. null = normal on-screen browsing using the filter dropdown.
+  const [exporting, setExporting] = useState<'report' | null>(null)
+  // Download Report flow: overrides the plain `platform` browsing filter
+  // while active, then triggers the pptx build once data has loaded.
+  // null = normal on-screen browsing using the filter dropdown.
   const [reportMode, setReportMode] = useState<ReportMode>(null)
   const [showReportModal, setShowReportModal] = useState(false)
 
@@ -123,7 +137,7 @@ export default function ReportBody({ profile }: { profile: any }) {
     })
   }, [isClientRole])
 
-  // reportMode (set via the Generate Report modal) overrides the plain
+  // reportMode (set via the Download Report modal) overrides the plain
   // platform dropdown filter for what gets fetched: 'Both' fetches Shopee +
   // TikTok together (not all 5 platforms), single mode fetches just that one.
   const fetchScope: { platform?: string; platforms?: string[] } = reportMode === 'Both'
@@ -161,21 +175,6 @@ export default function ReportBody({ profile }: { profile: any }) {
   }, [brand, isAllBrands, platform, reportMode, month.start, month.end])
 
   useEffect(() => { fetchReport() }, [fetchReport])
-
-  // Auto-print once the requested report's data has finished loading.
-  useEffect(() => {
-    if (!reportMode || loading) return
-    const id = setTimeout(() => window.print(), 300)
-    return () => clearTimeout(id)
-  }, [reportMode, loading])
-
-  // Leaving print mode (browser "afterprint" fires whether the user actually
-  // printed/saved or just cancelled the dialog) drops back to normal browsing.
-  useEffect(() => {
-    const handler = () => setReportMode(null)
-    window.addEventListener('afterprint', handler)
-    return () => window.removeEventListener('afterprint', handler)
-  }, [])
 
   // ── Aggregations ──────────────────────────────────────────────────────────
   const productsByReport = useMemo(() => {
@@ -229,6 +228,16 @@ export default function ReportBody({ profile }: { profile: any }) {
     return d.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
   }, [month.start])
 
+  // 2-month cumulative Session Time / Host evaluation (current + previous month combined).
+  const session2MonthEval = useMemo(() => computeSessionTimeEval2Month(reports, prevReports), [reports, prevReports])
+  const host2MonthEval = useMemo(() => computeHostEval2Month(reports, prevReports), [reports, prevReports])
+  const session2MonthInsight = useMemo(
+    () => generateSessionTime2MonthInsight(session2MonthEval, month.label, prevMonthLabel),
+    [session2MonthEval, month.label, prevMonthLabel])
+  const host2MonthInsight = useMemo(
+    () => generateHostEval2MonthInsight(host2MonthEval, month.label, prevMonthLabel),
+    [host2MonthEval, month.label, prevMonthLabel])
+
   const productBreakdown = useMemo(() => {
     const map: Record<string, { name: string; klik: number; itemSold: number; total: number }> = {}
     products.forEach(p => {
@@ -265,335 +274,321 @@ export default function ReportBody({ profile }: { profile: any }) {
     : ''
 
   const fileBase = `${platform || 'Report'}_${brandLabel || ''}_${month.label}`.replace(/\s+/g, '_')
+  const footerLine = `New Wave Live Specialist  |  ${platformLabel} Performance Report — ${month.label}  |  ${brandLabel}  |  Confidential`
 
-  // ── PDF export ────────────────────────────────────────────────────────────
-  async function exportPdf() {
+  // ── Download Details Live: raw session rows as CSV, uses whatever is on screen ──
+  function exportDetailsCsv() {
     if (!reports.length) return
-    setExporting('pdf')
-    try {
-      const { default: jsPDF } = await import('jspdf')
-      const autoTable = (await import('jspdf-autotable')).default
-      const doc = new jsPDF()
-      const pageWidth = doc.internal.pageSize.getWidth()
-      let y = 20
-
-      doc.setFontSize(9); doc.setTextColor(140)
-      doc.text('LIVE SHOPPING SPECIALIST', 14, 12)
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(20)
-      doc.text(`${platformLabel.toUpperCase()} PERFORMANCE REPORT`, 14, 20)
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(11)
-      doc.text(String(brandLabel), 14, 28)
-      doc.setFontSize(9); doc.setTextColor(100)
-      doc.text(`Periode: ${month.label}`, 14, 34)
-      doc.text(`Platform: ${platformLabel} | Periode Aktif: ${periodRangeLabel} | ${sessionCount} Sesi`, 14, 39)
-
-      y = 48
-      doc.setDrawColor(220); doc.line(14, y, pageWidth - 14, y); y += 8
-
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20)
-      doc.text('Executive Summary', 14, y); y += 6
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(60)
-      const summaryLines = doc.splitTextToSize(execSummary, pageWidth - 28)
-      doc.text(summaryLines, 14, y); y += summaryLines.length * 4.5 + 6
-
-      autoTable(doc, {
-        startY: y,
-        body: [
-          ['Total GMV', fmtRp(totalGmv)],
-          ['Total Viewers', fmtNum(totalViewer)],
-          ['Total Transaksi', String(totalTrans)],
-          ['Total Komentar', String(totalComment)],
-          ['Sesi Live', String(sessionCount)],
-          ...(topHost ? [['Top Host', `${topHost.name} — ${fmtRp(topHost.totalGmv)}`]] : []),
-          ...(topProduct ? [['Top Produk', `${topProduct.name} — ${fmtRp(topProduct.total)}`]] : []),
-        ],
-        theme: 'plain',
-        styles: { fontSize: 9 },
-        columnStyles: { 0: { fontStyle: 'bold', textColor: [90, 90, 90] }, 1: { halign: 'right', fontStyle: 'bold', textColor: [16, 110, 80] } },
-      })
-      y = (doc as any).lastAutoTable.finalY + 10
-
-      if (keyFindings.length) {
-        if (y > 250) { doc.addPage(); y = 20 }
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20)
-        doc.text('Key Findings', 14, y); y += 6
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(60)
-        keyFindings.forEach(f => {
-          const lines = doc.splitTextToSize(`•  ${f}`, pageWidth - 28)
-          doc.text(lines, 14, y); y += lines.length * 4 + 2
-        })
-        y += 4
-      }
-
-      if (dailyTrend.length) {
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20)
-        doc.text('Daily GMV Trend', 14, y); y += 6
-        const chartH = 32, chartW = pageWidth - 28
-        const maxGmv = Math.max(...dailyTrend.map(d => d.gmv), 1)
-        const barW = chartW / dailyTrend.length
-        dailyTrend.forEach((d, i) => {
-          const h = (d.gmv / maxGmv) * chartH
-          doc.setFillColor(...BRAND_PURPLE)
-          doc.rect(14 + i * barW, y + (chartH - h), Math.max(barW * 0.7, 1), h, 'F')
-        })
-        y += chartH + 10
-      }
-
-      if (y > 250) { doc.addPage(); y = 20 }
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20)
-      doc.text('Session Log', 14, y); y += 4
-      autoTable(doc, {
-        startY: y,
-        head: [['Tanggal', 'Jam', 'Host', 'GMV', 'Viewer', 'Trans', 'Komentar']],
-        body: reports.map(r => [
-          fmtDateShort(r.report_date), r.start_time?.slice(0, 5) || '-', r.profiles?.full_name || '-',
-          fmtRp(r.gmv), String(r.viewer || 0), String(r.trans || 0), String(r.comment_count || 0),
-        ]),
-        styles: { fontSize: 8 },
-        headStyles: { fillColor: BRAND_PURPLE },
-      })
-      y = (doc as any).lastAutoTable.finalY + 10
-
-      if (sessionTimeEval.length) {
-        if (y > 250) { doc.addPage(); y = 20 }
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20)
-        doc.text('Session Time Evaluation', 14, y); y += 4
-        autoTable(doc, {
-          startY: y,
-          head: [['Start Live', 'Sesi', 'GMV', 'Viewers', 'Trans', 'Komentar', 'CVR']],
-          body: sessionTimeEval.map(s => [s.startTime, String(s.sessions), fmtRp(s.gmv), fmtNum(s.viewer), String(s.trans), String(s.comment), `${s.cvr.toFixed(2)}%`]),
-          styles: { fontSize: 8 },
-          headStyles: { fillColor: BRAND_PURPLE },
-        })
-        y = (doc as any).lastAutoTable.finalY + 4
-        if (sessionTimeInsight) {
-          doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(90)
-          const lines = doc.splitTextToSize(sessionTimeInsight, pageWidth - 28)
-          doc.text(lines, 14, y); y += lines.length * 4 + 6
-        }
-      }
-
-      if (y > 250) { doc.addPage(); y = 20 }
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20)
-      doc.text('Host Evaluation', 14, y); y += 4
-      autoTable(doc, {
-        startY: y,
-        head: [['Host', 'Sesi', 'Total GMV', 'Avg GMV/Sesi', 'Viewer', 'Trans', 'CVR', 'Komentar']],
-        body: hostEval.map(h => [`${h.name} (${h.rank})`, String(h.sessions), fmtRp(h.totalGmv), fmtRp(h.avgGmv), String(h.totalViewer), String(h.totalTrans), `${h.cvr.toFixed(2)}%`, String(h.totalComment)]),
-        styles: { fontSize: 8 },
-        headStyles: { fillColor: BRAND_PURPLE },
-      })
-      y = (doc as any).lastAutoTable.finalY + 4
-      if (hostInsight) {
-        doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(90)
-        const lines = doc.splitTextToSize(hostInsight, pageWidth - 28)
-        doc.text(lines, 14, y); y += lines.length * 4 + 6
-      } else { y += 6 }
-
-      if (productBreakdown.length) {
-        if (y > 250) { doc.addPage(); y = 20 }
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20)
-        doc.text('Product Breakdown', 14, y); y += 4
-        autoTable(doc, {
-          startY: y,
-          head: [['Produk', 'Klik', 'Terjual', 'Total Revenue']],
-          body: productBreakdown.map(p => [p.name, String(p.klik), String(p.itemSold), fmtRp(p.total)]),
-          styles: { fontSize: 8 },
-          headStyles: { fillColor: BRAND_PURPLE },
-        })
-        y = (doc as any).lastAutoTable.finalY + 4
-        if (productInsight) {
-          doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(90)
-          const lines = doc.splitTextToSize(productInsight, pageWidth - 28)
-          doc.text(lines, 14, y); y += lines.length * 4 + 6
-        }
-      }
-
-      if (momMetrics.length && prevReports.length) {
-        if (y > 240) { doc.addPage(); y = 20 }
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20)
-        doc.text(`Month-on-Month Evaluation (${month.label} vs ${prevMonthLabel})`, 14, y); y += 4
-        autoTable(doc, {
-          startY: y,
-          head: [['Metric', prevMonthLabel, month.label, 'MoM']],
-          body: momMetrics.map(m => [
-            m.label,
-            m.label === 'GMV' ? fmtRp(m.previous) : fmtNum(m.previous),
-            m.label === 'GMV' ? fmtRp(m.current) : fmtNum(m.current),
-            m.pctChange === null ? '—' : `${m.pctChange >= 0 ? '+' : ''}${m.pctChange.toFixed(1)}%`,
-          ]),
-          styles: { fontSize: 8 },
-          headStyles: { fillColor: BRAND_PURPLE },
-        })
-        y = (doc as any).lastAutoTable.finalY + 4
-        if (momInsight) {
-          doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(90)
-          const lines = doc.splitTextToSize(momInsight, pageWidth - 28)
-          doc.text(lines, 14, y); y += lines.length * 4 + 6
-        }
-      }
-
-      if (shopeeTiktokSplit) {
-        doc.addPage(); y = 20
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(20)
-        doc.text('Shopee vs TikTok Comparison', 14, y); y += 8
-        const s = shopeeTiktokSplit['Shopee'] || totalsOf([])
-        const t = shopeeTiktokSplit['TikTok'] || totalsOf([])
-        autoTable(doc, {
-          startY: y,
-          head: [['Metric', 'Shopee', 'TikTok', 'Total']],
-          body: [
-            ['Sesi', String(s.sessions), String(t.sessions), String(s.sessions + t.sessions)],
-            ['GMV', fmtRp(s.gmv), fmtRp(t.gmv), fmtRp(s.gmv + t.gmv)],
-            ['Transaksi', String(s.trans), String(t.trans), String(s.trans + t.trans)],
-            ['Viewers', fmtNum(s.viewer), fmtNum(t.viewer), fmtNum(s.viewer + t.viewer)],
-            ['Comments', String(s.comment), String(t.comment), String(s.comment + t.comment)],
-          ],
-          styles: { fontSize: 9 },
-          headStyles: { fillColor: BRAND_PURPLE },
-        })
-      }
-
-      const pageCount = doc.getNumberOfPages()
-      for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i)
-        doc.setFontSize(7); doc.setTextColor(150)
-        doc.text(`New Wave Live Specialist | ${platformLabel} Performance Report — ${month.label} | ${brandLabel} | Confidential`, 14, 290)
-      }
-
-      doc.save(`${fileBase}.pdf`)
-    } finally {
-      setExporting(null)
-    }
+    const header = ['Tanggal', 'Start Live', 'Host', 'Platform', 'GMV', 'Impression', 'Viewer', 'Trans', 'Comment', 'Keterangan']
+    const rows = reports.map(r => {
+      const tags = sessionTags.get(r.id)
+      return [
+        r.report_date, r.start_time?.slice(0, 5) || '', r.profiles?.full_name || '', r.platform || '',
+        String(r.gmv || 0), String(r.impression || 0), String(r.viewer || 0), String(r.trans || 0), String(r.comment_count || 0),
+        tags ? tags.join('/') : '',
+      ]
+    })
+    const csv = [header, ...rows].map(row => row.map(csvEscape).join(',')).join('\r\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `Details_Live_${fileBase}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
   }
 
-  // ── PPT export ────────────────────────────────────────────────────────────
-  async function exportPpt() {
-    if (!reports.length) return
-    setExporting('ppt')
+  // ── Download Report: multi-slide PPTX matching the client-supplied template ──
+  async function exportReportPptx() {
+    if (!reports.length) { setReportMode(null); return }
+    setExporting('report')
     try {
       const PptxGenJS = await loadPptxGenCtor()
       const pptx = new PptxGenJS()
+      pptx.layout = 'LAYOUT_16x9'
+      const RECT = pptx.ShapeType.rect
 
-      let slide = pptx.addSlide()
-      slide.background = { color: 'F5F3FF' }
-      slide.addText('LIVE SHOPPING SPECIALIST', { x: 0.5, y: 0.4, fontSize: 10, color: '888888' })
-      slide.addText(`${platformLabel.toUpperCase()} PERFORMANCE REPORT`, { x: 0.5, y: 1.0, fontSize: 26, bold: true, color: '6D28D9' })
-      slide.addText(String(brandLabel), { x: 0.5, y: 1.9, fontSize: 18, bold: true, color: '111111' })
-      slide.addText(`Periode: ${month.label}`, { x: 0.5, y: 2.4, fontSize: 12, color: '555555' })
-      slide.addText(`Platform: ${platformLabel} | ${sessionCount} Sesi`, { x: 0.5, y: 2.7, fontSize: 12, color: '555555' })
-      slide.addText('Prepared by New Wave Live Specialist', { x: 0.5, y: 5.0, fontSize: 10, italic: true, color: '999999' })
-
-      slide = pptx.addSlide()
-      slide.addText('Executive Summary', { x: 0.5, y: 0.3, fontSize: 20, bold: true, color: '6D28D9' })
-      slide.addText(execSummary, { x: 0.5, y: 1.0, w: 9, fontSize: 11, color: '333333' })
-      const cardData: [string, string][] = [
-        ['Total GMV', fmtRp(totalGmv)],
-        ['Total Viewers', fmtNum(totalViewer)],
-        ['Total Transaksi', String(totalTrans)],
-        ['Total Komentar', String(totalComment)],
-      ]
-      cardData.forEach((c, i) => {
-        const x = 0.5 + (i % 4) * 2.3
-        slide.addText(c[0], { x, y: 3.2, w: 2.1, fontSize: 10, color: '888888' })
-        slide.addText(c[1], { x, y: 3.5, w: 2.1, fontSize: 16, bold: true, color: '059669' })
-      })
-      if (keyFindings.length) {
-        slide.addText('Key Findings', { x: 0.5, y: 4.2, fontSize: 12, bold: true, color: '6D28D9' })
-        slide.addText(keyFindings.map(f => ({ text: f, options: { bullet: true, breakLine: true } })), { x: 0.5, y: 4.55, w: 9, h: 2, fontSize: 9, color: '444444' })
+      const addChrome = (slide: any, title: string, subtitle: string) => {
+        slide.background = { color: T.white }
+        slide.addShape(RECT, { x: 0, y: 0, w: 10, h: 0.09, fill: { color: T.purple }, line: { type: 'none' } })
+        slide.addShape(RECT, { x: 0, y: 0.09, w: 0.07, h: 5.36, fill: { color: T.purpleLight }, line: { type: 'none' } })
+        slide.addText(title, { x: 0.27, y: 0.12, w: 8.6, h: 0.42, fontFace: FONT, fontSize: 20, bold: true, color: T.dark })
+        slide.addText(subtitle, { x: 0.27, y: 0.58, w: 9.3, h: 0.26, fontFace: FONT, fontSize: 10.5, color: T.gray })
+        slide.addShape(RECT, { x: 0.27, y: 0.88, w: 8.65, h: 0.018, fill: { color: T.purpleBg }, line: { type: 'none' } })
+        slide.addShape(RECT, { x: 0, y: 5.45, w: 10, h: 0.175, fill: { color: T.purple }, line: { type: 'none' } })
+        slide.addText(footerLine, { x: 0.27, y: 5.45, w: 9.46, h: 0.175, fontFace: FONT, fontSize: 7.5, color: T.white, valign: 'middle' })
       }
 
-      if (dailyTrend.length) {
-        slide = pptx.addSlide()
-        slide.addText('Daily GMV Trend', { x: 0.5, y: 0.3, fontSize: 20, bold: true, color: '6D28D9' })
-        slide.addChart(pptx.ChartType.bar, [
-          { name: 'GMV', labels: dailyTrend.map(d => d.label), values: dailyTrend.map(d => d.gmv) },
-        ], { x: 0.5, y: 1.0, w: 9, h: 3.8, chartColors: ['7C3AED'] })
-        if (dailyHighlights.length) {
-          const text = dailyHighlights.map(h => `${h.tag} (${h.dateLabel}, ${h.host}): ${fmtRp(h.gmv)}`).join('   |   ')
-          slide.addText(text, { x: 0.5, y: 5.0, w: 9, fontSize: 9, color: '92400E', italic: true })
-        }
+      const addStatCard = (slide: any, x: number, y: number, w: number, h: number, stripe: string, label: string, value: string, sub?: string) => {
+        slide.addShape(RECT, { x, y, w, h, fill: { color: T.white }, line: { color: T.border, width: 0.5 } })
+        slide.addShape(RECT, { x, y, w: 0.07, h, fill: { color: stripe }, line: { type: 'none' } })
+        slide.addText(label.toUpperCase(), { x: x + 0.14, y: y + 0.08, w: w - 0.24, h: 0.22, fontFace: FONT, fontSize: 8, bold: true, color: T.gray })
+        slide.addText(value, { x: x + 0.14, y: y + 0.30, w: w - 0.24, h: 0.4, fontFace: FONT, fontSize: 17, bold: true, color: T.dark })
+        if (sub) slide.addText(sub, { x: x + 0.14, y: y + 0.72, w: w - 0.24, h: 0.2, fontFace: FONT, fontSize: 7.5, color: T.gray })
       }
 
-      const addTableSlides = (title: string, header: string[], rows: string[][], insight?: string) => {
+      const addInsight = (slide: any, y: number, text: string) => {
+        if (!text) return y
+        const h = 0.62
+        slide.addShape(RECT, { x: 0.27, y, w: 8.65, h, fill: { color: T.purpleBgAlt }, line: { type: 'none' } })
+        slide.addText([
+          { text: 'INSIGHT   ', options: { bold: true, color: T.purple, fontSize: 8 } },
+          { text, options: { color: T.dark, fontSize: 8 } },
+        ], { x: 0.4, y: y + 0.06, w: 8.4, h: h - 0.12, fontFace: FONT, valign: 'top' })
+        return y + h + 0.1
+      }
+
+      // Generic table-slide builder: chunks rows so each slide stays readable,
+      // repeating chrome + header row on every continuation slide.
+      const addTableSlides = (
+        title: string, subtitle: string, header: string[], rows: (string | number)[][],
+        colW: number[], rightAlign: boolean[], insight?: string,
+      ) => {
         if (!rows.length) return
-        const chunkSize = 14
-        const totalChunks = Math.ceil(rows.length / chunkSize)
+        const chunkSize = 16
+        const chunks = Math.ceil(rows.length / chunkSize)
         for (let i = 0; i < rows.length; i += chunkSize) {
           const chunk = rows.slice(i, i + chunkSize)
-          const s = pptx.addSlide()
-          const part = totalChunks > 1 ? ` (${i / chunkSize + 1}/${totalChunks})` : ''
-          s.addText(title + part, { x: 0.5, y: 0.3, fontSize: 20, bold: true, color: '6D28D9' })
+          const slide = pptx.addSlide()
+          const part = chunks > 1 ? ` (${i / chunkSize + 1}/${chunks})` : ''
+          addChrome(slide, title + part, subtitle)
           const tableRows = [
-            header.map(h => ({ text: h, options: { bold: true, color: 'FFFFFF', fill: { color: '7C3AED' } } })),
-            ...chunk.map(row => row.map(cell => ({ text: cell }))),
+            header.map(h => ({ text: h, options: { bold: true, color: T.white, fill: { color: T.purple }, fontSize: 8.5, align: 'left' as const } })),
+            ...chunk.map(row => row.map((cell, ci) => ({
+              text: String(cell),
+              options: { color: T.dark, fill: { color: T.white }, fontSize: 8, align: rightAlign[ci] ? 'right' as const : 'left' as const },
+            }))),
           ]
-          s.addTable(tableRows as any, { x: 0.4, y: 1.0, w: 9.2, fontSize: 9, autoPage: false })
-          const isLastChunk = i + chunkSize >= rows.length
-          if (isLastChunk && insight) {
-            s.addText(`Insight: ${insight}`, { x: 0.4, y: 6.6, w: 9.2, fontSize: 9, italic: true, color: '6D28D9' })
-          }
+          slide.addTable(tableRows, {
+            x: 0.27, y: 1.0, w: 8.65, colW,
+            border: { type: 'solid', color: T.border, pts: 0.5 },
+            fontFace: FONT, valign: 'middle', autoPage: false,
+          })
+          const isLast = i + chunkSize >= rows.length
+          if (isLast && insight) addInsight(slide, 5.0, insight)
         }
       }
 
-      addTableSlides('Session Log',
-        ['Tanggal', 'Jam', 'Host', 'GMV', 'Viewer', 'Trans', 'Komentar'],
-        reports.map(r => [
-          fmtDateShort(r.report_date), r.start_time?.slice(0, 5) || '-', r.profiles?.full_name || '-',
-          fmtRp(r.gmv), String(r.viewer || 0), String(r.trans || 0), String(r.comment_count || 0),
-        ]))
+      // ── Slide 1: Title ──
+      {
+        const slide = pptx.addSlide()
+        slide.background = { color: T.dark }
+        slide.addShape(RECT, { x: 0, y: 0, w: 3.5, h: 5.625, fill: { color: T.purple }, line: { type: 'none' } })
+        slide.addShape(RECT, { x: 3.5, y: 0, w: 0.55, h: 5.625, fill: { color: T.purpleLight }, line: { type: 'none' } })
+        slide.addText('LIVE SHOPPING SPECIALIST', { x: 0.2, y: 3.57, w: 3.1, h: 0.28, fontFace: FONT, fontSize: 9, color: T.lavender, charSpacing: 2 })
+        slide.addShape(RECT, { x: 0.3, y: 3.92, w: 2.9, h: 0.03, fill: { color: T.purpleLight }, line: { type: 'none' } })
+        slide.addText('Prepared by New Wave Live Specialist', { x: 0.2, y: 4.02, w: 3.1, h: 0.25, fontFace: FONT, fontSize: 8, italic: true, color: T.mutedLavender })
 
-      addTableSlides('Session Time Evaluation',
-        ['Start Live', 'Sesi', 'GMV', 'Viewers', 'Trans', 'Komentar', 'CVR'],
-        sessionTimeEval.map(s => [s.startTime, String(s.sessions), fmtRp(s.gmv), fmtNum(s.viewer), String(s.trans), String(s.comment), `${s.cvr.toFixed(2)}%`]),
-        sessionTimeInsight)
-
-      addTableSlides('Host Evaluation',
-        ['Host', 'Sesi', 'Total GMV', 'Avg/Sesi', 'Viewer', 'Trans', 'CVR', 'Komentar'],
-        hostEval.map(h => [`${h.name} (${h.rank})`, String(h.sessions), fmtRp(h.totalGmv), fmtRp(h.avgGmv), String(h.totalViewer), String(h.totalTrans), `${h.cvr.toFixed(2)}%`, String(h.totalComment)]),
-        hostInsight)
-
-      addTableSlides('Product Breakdown',
-        ['Produk', 'Klik', 'Terjual', 'Total Revenue'],
-        productBreakdown.map(p => [p.name, String(p.klik), String(p.itemSold), fmtRp(p.total)]),
-        productInsight)
-
-      if (prevReports.length) {
-        addTableSlides(`Month-on-Month (${month.label} vs ${prevMonthLabel})`,
-          ['Metric', prevMonthLabel, month.label, 'MoM'],
-          momMetrics.map(m => [
-            m.label,
-            m.label === 'GMV' ? fmtRp(m.previous) : fmtNum(m.previous),
-            m.label === 'GMV' ? fmtRp(m.current) : fmtNum(m.current),
-            m.pctChange === null ? '—' : `${m.pctChange >= 0 ? '+' : ''}${m.pctChange.toFixed(1)}%`,
-          ]),
-          momInsight)
+        slide.addText(`${platformLabel.toUpperCase()} PERFORMANCE REPORT`, { x: 4.3, y: 2.72, w: 5.5, h: 0.3, fontFace: FONT, fontSize: 10, color: T.purpleBg, charSpacing: 2 })
+        slide.addText(brandLabel, { x: 4.3, y: 3.05, w: 5.5, h: 0.7, fontFace: FONT, fontSize: 34, bold: true, color: T.white })
+        slide.addText(`Periode: ${month.label}`, { x: 4.3, y: 3.75, w: 5.5, h: 0.45, fontFace: FONT, fontSize: 20, color: T.purpleBg })
+        slide.addShape(RECT, { x: 4.3, y: 4.27, w: 5.4, h: 0.03, fill: { color: T.purpleLight }, line: { type: 'none' } })
+        slide.addText(`Platform: ${platformLabel}`, { x: 4.3, y: 4.37, w: 5.4, h: 0.27, fontFace: FONT, fontSize: 10, color: T.mutedLavender })
+        slide.addText(`Periode Aktif: ${periodRangeLabel}  |  ${sessionCount} Sesi`, { x: 4.3, y: 4.65, w: 5.4, h: 0.27, fontFace: FONT, fontSize: 9.5, color: T.mutedLavender })
+        slide.addShape(RECT, { x: 4.3, y: 5.0, w: 5.4, h: 0.55, fill: { color: T.navy }, line: { type: 'none' } })
+        const sections = [
+          'Executive Summary', 'Daily Evaluation', 'Session Time', 'Host Evaluation',
+          'Product Breakdown', 'MoM Comparison', ...(shopeeTiktokSplit ? ['Shopee vs TikTok'] : []),
+        ]
+        slide.addText(`Laporan mencakup: ${sections.join(' • ')}`, { x: 4.4, y: 5.06, w: 5.2, h: 0.43, fontFace: FONT, fontSize: 8, color: T.purpleBg, valign: 'middle' })
       }
 
+      // ── Slide 2: Executive Summary ──
+      {
+        const slide = pptx.addSlide()
+        addChrome(slide, 'Executive Summary', `${brandLabel} — ${platformLabel} | ${month.label} | New Wave Live Specialist`)
+        slide.addText(execSummary, { x: 0.27, y: 1.03, w: 8.65, h: 0.78, fontFace: FONT, fontSize: 9.5, color: T.dark, valign: 'top' })
+
+        const cardW = 1.98, gap = 0.13, x0 = 0.27, y1 = 1.97, y2 = 3.07, cardH = 0.98
+        const xs = [x0, x0 + cardW + gap, x0 + 2 * (cardW + gap), x0 + 3 * (cardW + gap)]
+        addStatCard(slide, xs[0], y1, cardW, cardH, T.purple, 'Total GMV', fmtRp(totalGmv), `${sessionCount} Sesi Live`)
+        addStatCard(slide, xs[1], y1, cardW, cardH, T.green, 'Total Viewers', fmtNum(totalViewer), 'Session Viewers')
+        addStatCard(slide, xs[2], y1, cardW, cardH, T.red, 'Total Transaksi', String(totalTrans), 'Confirmed Orders')
+        addStatCard(slide, xs[3], y1, cardW, cardH, T.purpleLight, 'Total Komentar', String(totalComment), 'Audience Engagement')
+        if (topHost) addStatCard(slide, xs[0], y2, cardW, cardH, T.red, 'Top Host', topHost.name, `${fmtRp(topHost.totalGmv)} · ${topHost.sessions} sesi`)
+        if (topProduct) addStatCard(slide, xs[1], y2, cardW, cardH, T.purpleLight, 'Top Produk', topProduct.name.slice(0, 26), `${fmtRp(topProduct.total)} · ${topProduct.itemSold} item`)
+        if (keyFindings.length) {
+          slide.addShape(RECT, { x: xs[2], y: y2, w: cardW * 2 + gap, h: cardH, fill: { color: T.purpleBgAlt }, line: { type: 'none' } })
+          slide.addText([
+            { text: 'KEY FINDINGS\n', options: { bold: true, color: T.purple, fontSize: 8 } },
+            ...keyFindings.slice(0, 2).map(f => ({ text: `• ${f}\n`, options: { color: T.dark, fontSize: 7 } })),
+          ], { x: xs[2] + 0.12, y: y2 + 0.06, w: cardW * 2 + gap - 0.24, h: cardH - 0.12, fontFace: FONT, valign: 'top' })
+        }
+      }
+
+      // ── Slide 3: Daily Evaluation (chart + highlight cards) ──
+      if (dailyTrend.length) {
+        const slide = pptx.addSlide()
+        addChrome(slide, 'Daily Evaluation', `GMV Trend Harian (${platformLabel}) — ${month.label}`)
+        slide.addChart(pptx.ChartType.bar, [
+          { name: 'GMV', labels: dailyTrend.map(d => d.label), values: dailyTrend.map(d => d.gmv) },
+        ], { x: 0.27, y: 1.0, w: 8.65, h: 2.65, chartColors: [T.purple], showLegend: false, catAxisLabelFontSize: 6, valAxisLabelFontSize: 6 })
+        const tagColor: Record<string, { bg: string; icon: string }> = {
+          'Best Session': { bg: T.redBg, icon: '🏆' },
+          'Twindate': { bg: T.blueBg, icon: '📅' },
+          'Payday': { bg: T.purpleBgAlt, icon: '📅' },
+        }
+        const hw = (8.65 - 2 * 0.15) / 3
+        dailyHighlights.slice(0, 3).forEach((h, i) => {
+          const x = 0.27 + i * (hw + 0.15)
+          const c = tagColor[h.tag] || { bg: T.purpleBg, icon: '⭐' }
+          slide.addShape(RECT, { x, y: 3.8, w: hw, h: 1.5, fill: { color: c.bg }, line: { type: 'none' } })
+          slide.addText(`${c.icon}  ${h.tag} — ${h.dateLabel}`, { x: x + 0.1, y: 3.86, w: hw - 0.2, h: 0.3, fontFace: FONT, fontSize: 8.5, bold: true, color: T.dark })
+          slide.addText(`GMV: ${fmtRp(h.gmv)}  |  Trans: ${h.trans}  |  Viewer: ${fmtNum(h.viewer)}  |  Host: ${h.host}  |  ${h.startTime}`,
+            { x: x + 0.1, y: 4.18, w: hw - 0.2, h: 0.4, fontFace: FONT, fontSize: 7, color: T.dark })
+        })
+      }
+
+      // ── Daily Evaluation — Detail (Session Log) ──
+      addTableSlides(
+        'Daily Evaluation — Detail', `${platformLabel} Session Log, diurutkan berdasarkan tanggal — ${sessionCount} Sesi (${month.label})`,
+        ['Tanggal', 'Start Live', 'Host', 'GMV', 'Viewer', 'Trans', 'Comment', 'Keterangan'],
+        reports.map(r => {
+          const tags = sessionTags.get(r.id)
+          return [
+            fmtDateShort(r.report_date), r.start_time?.slice(0, 5) || '-', r.profiles?.full_name || '-',
+            fmtRp(r.gmv), fmtNum(r.viewer), r.trans || 0, r.comment_count || 0, tags ? tags.join(', ') : '-',
+          ]
+        }),
+        [0.95, 0.85, 1.1, 1.3, 0.95, 0.7, 0.9, 1.9],
+        [false, false, false, true, true, true, true, false])
+
+      // ── Session Time Evaluation ──
+      addTableSlides(
+        'Session Time Evaluation', `Performance Analysis by Start Live Time (${platformLabel}) — ${month.label}`,
+        ['Start Live', 'Sesi', 'GMV', 'Viewers', 'Trans', 'Comments', 'CVR', 'Keterangan'],
+        sessionTimeEval.map(s => [
+          s.startTime, s.sessions, fmtRp(s.gmv), fmtNum(s.viewer), s.trans, s.comment, `${s.cvr.toFixed(2)}%`,
+          [s.isMostSessions && '★ Most Sessions', s.isTopCvr && 'Top CVR'].filter(Boolean).join(' / ') || '-',
+        ]),
+        [1.0, 0.7, 1.2, 0.95, 0.75, 0.95, 0.8, 2.3],
+        [false, true, true, true, true, true, true, false],
+        sessionTimeInsight)
+
+      // ── Host Evaluation ──
+      addTableSlides(
+        'Host Evaluation', `GMV Performance & Conversion Rate per Host (${platformLabel}) — ${month.label}`,
+        ['Host', 'Sesi', 'Total GMV', 'Avg GMV/Sesi', 'Viewer', 'Trans', 'CVR', 'Comment', 'Ranking'],
+        hostEval.map(h => [h.name, h.sessions, fmtRp(h.totalGmv), fmtRp(h.avgGmv), fmtNum(h.totalViewer), h.totalTrans, `${h.cvr.toFixed(2)}%`, h.totalComment, h.rank]),
+        [1.0, 0.6, 1.15, 1.15, 0.85, 0.65, 0.75, 0.9, 1.6],
+        [false, true, true, true, true, true, true, true, false],
+        hostInsight)
+
+      // ── Product Breakdown ──
+      addTableSlides(
+        'Product Breakdown', `${platformLabel} Product Mix (Sesi New Wave) — ${month.label}`,
+        ['Produk', 'GMV', 'Item', 'Klik'],
+        productBreakdown.map(p => [p.name, fmtRp(p.total), p.itemSold, p.klik]),
+        [4.85, 1.6, 1.1, 1.1],
+        [false, true, true, true],
+        productInsight)
+
+      // ── Month-on-Month Evaluation ──
+      if (prevReports.length) {
+        const slide = pptx.addSlide()
+        addChrome(slide, 'Month-on-Month Evaluation', `${month.label} vs ${prevMonthLabel} — New Wave ${platformLabel} Performance`)
+        const cardW = 1.66, gap = 0.09, y = 1.05, h = 1.15
+        momMetrics.forEach((m, i) => {
+          const x = 0.27 + i * (cardW + gap)
+          const up = m.pctChange !== null && m.pctChange >= 0
+          slide.addShape(RECT, { x, y, w: cardW, h, fill: { color: T.white }, line: { color: T.border, width: 0.5 } })
+          slide.addText(m.label, { x: x + 0.08, y: y + 0.06, w: cardW - 0.16, h: 0.2, fontFace: FONT, fontSize: 8, bold: true, color: T.gray })
+          slide.addText(m.label === 'GMV' ? fmtRp(m.current) : fmtNum(m.current), { x: x + 0.08, y: y + 0.28, w: cardW - 0.16, h: 0.35, fontFace: FONT, fontSize: 12, bold: true, color: T.dark })
+          slide.addText(m.pctChange === null ? '—' : `${up ? '▲' : '▼'} ${Math.abs(m.pctChange).toFixed(1)}% MoM`,
+            { x: x + 0.08, y: y + 0.68, w: cardW - 0.16, h: 0.3, fontFace: FONT, fontSize: 9, bold: true, color: m.pctChange === null ? T.gray : up ? T.green : T.red })
+        })
+        const header = ['Metric', prevMonthLabel, month.label, 'MoM'].map(t => ({ text: t, options: { bold: true, color: T.white, fill: { color: T.purple }, fontSize: 8.5 } }))
+        const rows = momMetrics.map(m => [
+          { text: m.label, options: { color: T.dark, fontSize: 8 } },
+          { text: m.label === 'GMV' ? fmtRp(m.previous) : fmtNum(m.previous), options: { color: T.dark, fontSize: 8, align: 'right' as const } },
+          { text: m.label === 'GMV' ? fmtRp(m.current) : fmtNum(m.current), options: { color: T.dark, fontSize: 8, align: 'right' as const, bold: true } },
+          { text: m.pctChange === null ? '—' : `${m.pctChange >= 0 ? '+' : ''}${m.pctChange.toFixed(1)}%`, options: { color: m.pctChange === null ? T.gray : m.pctChange >= 0 ? T.green : T.red, fontSize: 8, align: 'right' as const, bold: true } },
+        ])
+        slide.addTable([header, ...rows], { x: 0.27, y: 2.4, w: 8.65, colW: [2.9, 1.95, 1.95, 1.85], border: { type: 'solid', color: T.border, pts: 0.5 }, fontFace: FONT, valign: 'middle', autoPage: false })
+        addInsight(slide, 4.55, momInsight)
+      }
+
+      // ── Session Time Evaluation — 2 Bulan (cumulative) ──
+      if (session2MonthEval.length) {
+        addTableSlides(
+          'Session Time Evaluation — 2 Bulan', `${prevMonthLabel} vs ${month.label} — New Wave ${platformLabel} (${sessionCount + prevReports.length} Sesi Gabungan)`,
+          ['Slot', `${prevMonthLabel} Sesi`, `${prevMonthLabel} GMV`, `${month.label} Sesi`, `${month.label} GMV`, 'Total Sesi', 'Total GMV', 'Avg GMV/Sesi', 'CVR', 'Keterangan'],
+          session2MonthEval.map(s => [
+            s.startTime, s.prevSessions, fmtRp(s.prevGmv), s.curSessions, fmtRp(s.curGmv),
+            s.totalSessions, fmtRp(s.totalGmv), fmtRp(s.avgGmv), `${s.cvr.toFixed(2)}%`,
+            [s.isMostSessions && '★ Most Sessions', s.isTopCvr && 'Top CVR', s.isCurOnly && `${month.label} Only`, s.isPrevOnly && `${prevMonthLabel} Only`].filter(Boolean).join(' / ') || '-',
+          ]),
+          [0.55, 0.6, 0.95, 0.6, 0.95, 0.6, 0.95, 0.95, 0.55, 1.95],
+          [false, true, true, true, true, true, true, true, true, false],
+          session2MonthInsight)
+      }
+
+      // ── Host Evaluation — 2 Bulan (cumulative) ──
+      if (host2MonthEval.length) {
+        addTableSlides(
+          'Host Evaluation — 2 Bulan', `${prevMonthLabel} vs ${month.label} — New Wave ${platformLabel} (Kumulatif)`,
+          ['Host', `${prevMonthLabel} Sesi`, `${prevMonthLabel} GMV`, `${month.label} Sesi`, `${month.label} GMV`, 'Total Sesi', 'Total GMV', 'Avg GMV/Sesi', 'CVR', 'Keterangan'],
+          host2MonthEval.map((h, i) => [
+            h.name, h.prevSessions, fmtRp(h.prevGmv), h.curSessions, fmtRp(h.curGmv),
+            h.totalSessions, fmtRp(h.totalGmv), fmtRp(h.avgGmv), `${h.cvr.toFixed(2)}%`,
+            [i === 0 && '🥇 #1 GMV Total', i === 1 && '🥈 #2 GMV', i === 2 && '🥉 #3 GMV', h.isCurOnly && `${month.label} Only`, h.isPrevOnly && `${prevMonthLabel} Only`].filter(Boolean).join(' / ') || '-',
+          ]),
+          [0.75, 0.55, 0.9, 0.55, 0.9, 0.55, 0.9, 0.9, 0.5, 2.15],
+          [false, true, true, true, true, true, true, true, true, false],
+          host2MonthInsight)
+      }
+
+      // ── Shopee vs TikTok Comparison (only in "Both" mode) ──
       if (shopeeTiktokSplit) {
         const s = shopeeTiktokSplit['Shopee'] || totalsOf([])
         const t = shopeeTiktokSplit['TikTok'] || totalsOf([])
-        addTableSlides('Shopee vs TikTok Comparison',
+        addTableSlides(
+          'Shopee vs TikTok Comparison', `${brandLabel} — ${month.label}`,
           ['Metric', 'Shopee', 'TikTok', 'Total'],
           [
-            ['Sesi', String(s.sessions), String(t.sessions), String(s.sessions + t.sessions)],
+            ['Sesi', s.sessions, t.sessions, s.sessions + t.sessions],
             ['GMV', fmtRp(s.gmv), fmtRp(t.gmv), fmtRp(s.gmv + t.gmv)],
-            ['Transaksi', String(s.trans), String(t.trans), String(s.trans + t.trans)],
+            ['Transaksi', s.trans, t.trans, s.trans + t.trans],
             ['Viewers', fmtNum(s.viewer), fmtNum(t.viewer), fmtNum(s.viewer + t.viewer)],
-            ['Comments', String(s.comment), String(t.comment), String(s.comment + t.comment)],
-          ])
+            ['Comments', s.comment, t.comment, s.comment + t.comment],
+          ],
+          [2.65, 2.0, 2.0, 2.0],
+          [false, true, true, true])
+      }
+
+      // ── Closing slide ──
+      {
+        const slide = pptx.addSlide()
+        slide.background = { color: T.dark }
+        slide.addShape(RECT, { x: 0, y: 0, w: 10, h: 0.09, fill: { color: T.purple }, line: { type: 'none' } })
+        slide.addShape(RECT, { x: 0, y: 5.535, w: 10, h: 0.09, fill: { color: T.purple }, line: { type: 'none' } })
+        slide.addText('TERIMA KASIH', { x: 0, y: 2.95, w: 10, h: 0.65, fontFace: FONT, fontSize: 32, bold: true, color: T.white, align: 'center' })
+        slide.addShape(RECT, { x: 4, y: 3.68, w: 2, h: 0.03, fill: { color: T.purpleLight }, line: { type: 'none' } })
+        slide.addText(`${platformLabel} Performance Report — ${brandLabel} — ${month.label}`, { x: 0, y: 3.8, w: 10, h: 0.3, fontFace: FONT, fontSize: 12, color: T.purpleBg, align: 'center' })
+        slide.addText('New Wave Live Specialist  |  Live Shopping Specialist', { x: 0, y: 4.15, w: 10, h: 0.28, fontFace: FONT, fontSize: 9.5, color: T.mutedLavender, align: 'center' })
+        slide.addText('Pertanyaan & diskusi lebih lanjut dapat disampaikan kepada tim New Wave Live Specialist.', { x: 0, y: 4.95, w: 10, h: 0.25, fontFace: FONT, fontSize: 9, color: T.mutedLavender, align: 'center' })
       }
 
       await pptx.writeFile({ fileName: `${fileBase}.pptx` })
     } finally {
       setExporting(null)
+      setReportMode(null)
     }
   }
 
+  // Kick off the pptx build once the picked platform's data has loaded.
+  useEffect(() => {
+    if (!reportMode || loading) return
+    exportReportPptx()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportMode, loading])
+
   return (
     <AppShell role={profile.role as any} userName={profile.full_name}>
-    <div className="p-6 max-w-6xl mx-auto print:p-0 print:max-w-none">
-      <div className="flex items-start justify-between mb-6 flex-wrap gap-3 print:hidden">
+    <div className="p-6 max-w-6xl mx-auto">
+      <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <FileBarChart2 size={22} className="text-brand-600" /> Dashboard
@@ -602,29 +597,23 @@ export default function ReportBody({ profile }: { profile: any }) {
             {isClientRole ? 'Laporan performa live brand kamu' : 'Performa live per client'}
           </p>
         </div>
-        {reports.length > 0 && !reportMode && (
-          <button onClick={() => setShowReportModal(true)}
-            className="flex items-center gap-1.5 text-sm bg-brand-600 text-white px-3.5 py-2 rounded-xl font-medium hover:bg-brand-700">
-            <Printer size={14} /> Generate Report
-          </button>
+        {reports.length > 0 && (
+          <div className="flex items-center gap-2">
+            <button onClick={exportDetailsCsv}
+              className="flex items-center gap-1.5 text-sm bg-white border border-gray-200 text-gray-700 px-3.5 py-2 rounded-xl font-medium hover:bg-gray-50">
+              <FileSpreadsheet size={14} /> Download Details Live
+            </button>
+            <button onClick={() => setShowReportModal(true)} disabled={exporting !== null}
+              className="flex items-center gap-1.5 text-sm bg-brand-600 text-white px-3.5 py-2 rounded-xl font-medium hover:bg-brand-700 disabled:opacity-50">
+              <Presentation size={14} /> {exporting ? 'Membuat laporan...' : 'Download Report'}
+            </button>
+          </div>
         )}
       </div>
 
-      {reportMode && (
-        <div className="flex items-center gap-2 mb-4 print:hidden">
-          <button onClick={() => setReportMode(null)}
-            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-xl px-3 py-1.5">
-            <ArrowLeft size={12} /> Kembali
-          </button>
-          <span className="text-xs text-gray-400">
-            {loading ? 'Menyiapkan laporan...' : `Mode cetak: ${platformLabel}`}
-          </span>
-        </div>
-      )}
-
-      {/* Generate Report modal */}
+      {/* Download Report modal */}
       {showReportModal && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 print:hidden"
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
           onClick={() => setShowReportModal(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-1">
@@ -647,7 +636,7 @@ export default function ReportBody({ profile }: { profile: any }) {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-5 print:hidden">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-5">
         <div className={`grid gap-2 ${isClientRole ? 'grid-cols-2' : 'grid-cols-3'}`}>
           <select value={monthIdx} onChange={e => setMonthIdx(Number(e.target.value))}
             className="text-xs border border-gray-200 rounded-xl px-2 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white truncate">
@@ -683,20 +672,6 @@ export default function ReportBody({ profile }: { profile: any }) {
         </div>
       ) : (
         <div className="space-y-5">
-          {/* Export buttons */}
-          <div className="flex items-center gap-2 justify-end print:hidden">
-            <Filter size={13} className="text-gray-400 mr-auto" />
-            <span className="text-xs text-gray-400 mr-2">{sessionCount} sesi</span>
-            <button onClick={exportPdf} disabled={exporting !== null}
-              className="flex items-center gap-1.5 text-sm bg-red-600 text-white px-3.5 py-2 rounded-xl font-medium hover:bg-red-700 disabled:opacity-50">
-              <Download size={14} /> {exporting === 'pdf' ? 'Membuat PDF...' : 'Unduh PDF'}
-            </button>
-            <button onClick={exportPpt} disabled={exporting !== null}
-              className="flex items-center gap-1.5 text-sm bg-orange-600 text-white px-3.5 py-2 rounded-xl font-medium hover:bg-orange-700 disabled:opacity-50">
-              <Presentation size={14} /> {exporting === 'ppt' ? 'Membuat PPT...' : 'Unduh PPT'}
-            </button>
-          </div>
-
           {/* Report header */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Live Shopping Specialist</p>
@@ -1015,57 +990,11 @@ export default function ReportBody({ profile }: { profile: any }) {
             </div>
           )}
 
-          {/* Shopee vs TikTok Comparison — only in "Both" report mode, own printed page */}
-          {shopeeTiktokSplit && (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 print:break-before-page">
-              <h3 className="text-sm font-bold text-gray-800 mb-1">Shopee vs TikTok Comparison</h3>
-              <p className="text-xs text-gray-400 mb-4">{brandLabel} — {month.label}</p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-gray-50 text-[10px] text-gray-400 uppercase tracking-wide border-b border-gray-100">
-                      <th className="px-3 py-2 text-left font-semibold">Metric</th>
-                      <th className="px-3 py-2 text-right font-semibold">Shopee</th>
-                      <th className="px-3 py-2 text-right font-semibold">TikTok</th>
-                      <th className="px-3 py-2 text-right font-semibold">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {([
-                      ['Sesi', 'sessions', (n: number) => String(n)],
-                      ['GMV', 'gmv', fmtRp],
-                      ['Transaksi', 'trans', (n: number) => String(n)],
-                      ['Viewers', 'viewer', fmtNum],
-                      ['Comments', 'comment', (n: number) => String(n)],
-                    ] as const).map(([label, key, fmt]) => {
-                      const shopeeVal = shopeeTiktokSplit['Shopee']?.[key] || 0
-                      const tiktokVal = shopeeTiktokSplit['TikTok']?.[key] || 0
-                      return (
-                        <tr key={label}>
-                          <td className="px-3 py-2 font-medium text-gray-800">{label}</td>
-                          <td className="px-3 py-2 text-right text-gray-600">{fmt(shopeeVal)}</td>
-                          <td className="px-3 py-2 text-right text-gray-600">{fmt(tiktokVal)}</td>
-                          <td className="px-3 py-2 text-right font-semibold text-gray-800">{fmt(shopeeVal + tiktokVal)}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <div className="grid grid-cols-2 gap-4 mt-5">
-                {(['Shopee', 'TikTok'] as const).map(p => {
-                  const totalBoth = (shopeeTiktokSplit['Shopee']?.gmv || 0) + (shopeeTiktokSplit['TikTok']?.gmv || 0)
-                  const gmv = shopeeTiktokSplit[p]?.gmv || 0
-                  const share = totalBoth > 0 ? (gmv / totalBoth) * 100 : 0
-                  return (
-                    <div key={p} className="border border-gray-100 rounded-xl p-3 text-center">
-                      <p className="text-[10px] text-gray-400 font-medium">{p} GMV Share</p>
-                      <p className="text-lg font-bold text-brand-700 mt-1">{share.toFixed(1)}%</p>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
+          {/* Shopee vs TikTok Comparison — only when browsing with no platform filter and both exist */}
+          {reportMode === null && shopeeTiktokSplit === null && platform === '' && reports.some(r => r.platform === 'Shopee') && reports.some(r => r.platform === 'TikTok') && (
+            <p className="text-xs text-gray-400 text-center">
+              Pilih "Shopee + TikTok (gabungan)" di Download Report untuk melihat halaman perbandingan Shopee vs TikTok.
+            </p>
           )}
         </div>
       )}

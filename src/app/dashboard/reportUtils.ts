@@ -115,7 +115,7 @@ export function rankLabel(index: number): string {
 // inputs), matching the template's "insight"-style prose without needing a
 // human to write it each month.
 
-function fmtRpShort(n: number): string {
+export function fmtRpShort(n: number): string {
   return 'Rp' + Math.round(n).toLocaleString('id-ID')
 }
 function hostNameOf(r: ReportRow): string {
@@ -239,6 +239,115 @@ export function generateMoMInsight(metrics: MoMMetric[]): string {
   const direction = gmv.pctChange >= 0 ? 'naik' : 'turun'
   return `GMV ${direction} ${Math.abs(gmv.pctChange).toFixed(1)}% dibanding bulan lalu. ` +
     `${up} dari ${metrics.length} metrik utama naik${down > 0 ? `, ${down} turun` : ''}.`
+}
+
+// ── 2-month cumulative aggregations (current + previous month combined) ────
+// Matches the template's "Session Time Evaluation — 2 Bulan" / "Host
+// Evaluation — 2 Bulan" slides. We already fetch the previous month's rows
+// for the MoM comparison, so these are derivable with no extra queries.
+
+export interface SessionTimeSlot2Month {
+  startTime: string
+  prevSessions: number; prevGmv: number
+  curSessions: number; curGmv: number
+  totalSessions: number; totalGmv: number; avgGmv: number
+  viewer: number; trans: number; comment: number; cvr: number
+  isMostSessions: boolean; isTopCvr: boolean
+  isCurOnly: boolean; isPrevOnly: boolean
+}
+export function computeSessionTimeEval2Month(current: ReportRow[], previous: ReportRow[]): SessionTimeSlot2Month[] {
+  const map: Record<string, { prevSessions: number; prevGmv: number; curSessions: number; curGmv: number; viewer: number; trans: number; comment: number }> = {}
+  const addTo = (r: ReportRow, isCur: boolean) => {
+    const hour = r.start_time ? r.start_time.slice(0, 5) : '—'
+    if (!map[hour]) map[hour] = { prevSessions: 0, prevGmv: 0, curSessions: 0, curGmv: 0, viewer: 0, trans: 0, comment: 0 }
+    if (isCur) { map[hour].curSessions += 1; map[hour].curGmv += r.gmv || 0 }
+    else { map[hour].prevSessions += 1; map[hour].prevGmv += r.gmv || 0 }
+    map[hour].viewer += r.viewer || 0
+    map[hour].trans += r.trans || 0
+    map[hour].comment += r.comment_count || 0
+  }
+  previous.forEach(r => addTo(r, false))
+  current.forEach(r => addTo(r, true))
+  const slots = Object.entries(map).map(([startTime, d]) => {
+    const totalSessions = d.prevSessions + d.curSessions
+    const totalGmv = d.prevGmv + d.curGmv
+    return {
+      startTime, ...d, totalSessions, totalGmv,
+      avgGmv: totalSessions ? totalGmv / totalSessions : 0,
+      cvr: d.viewer ? (d.trans / d.viewer) * 100 : 0,
+      isMostSessions: false, isTopCvr: false,
+      isCurOnly: d.prevSessions === 0 && d.curSessions > 0,
+      isPrevOnly: d.curSessions === 0 && d.prevSessions > 0,
+    }
+  })
+  if (slots.length) {
+    const maxSessions = Math.max(...slots.map(s => s.totalSessions))
+    const maxCvr = Math.max(...slots.map(s => s.cvr))
+    slots.forEach(s => {
+      s.isMostSessions = s.totalSessions === maxSessions
+      s.isTopCvr = s.cvr === maxCvr && s.cvr > 0
+    })
+  }
+  return slots.sort((a, b) => b.totalGmv - a.totalGmv)
+}
+
+export interface HostEval2Month {
+  name: string
+  prevSessions: number; prevGmv: number
+  curSessions: number; curGmv: number
+  totalSessions: number; totalGmv: number; avgGmv: number
+  viewer: number; trans: number; comment: number; cvr: number
+  isCurOnly: boolean; isPrevOnly: boolean
+}
+export function computeHostEval2Month(current: ReportRow[], previous: ReportRow[]): HostEval2Month[] {
+  const map: Record<string, HostEval2Month> = {}
+  const addTo = (r: ReportRow, isCur: boolean) => {
+    const name = r.profiles?.full_name || 'Tanpa Host'
+    const key = r.host_id || name
+    if (!map[key]) map[key] = {
+      name, prevSessions: 0, prevGmv: 0, curSessions: 0, curGmv: 0,
+      totalSessions: 0, totalGmv: 0, avgGmv: 0, viewer: 0, trans: 0, comment: 0, cvr: 0,
+      isCurOnly: false, isPrevOnly: false,
+    }
+    if (isCur) { map[key].curSessions += 1; map[key].curGmv += r.gmv || 0 }
+    else { map[key].prevSessions += 1; map[key].prevGmv += r.gmv || 0 }
+    map[key].viewer += r.viewer || 0
+    map[key].trans += r.trans || 0
+    map[key].comment += r.comment_count || 0
+  }
+  previous.forEach(r => addTo(r, false))
+  current.forEach(r => addTo(r, true))
+  return Object.values(map).map(h => {
+    h.totalSessions = h.prevSessions + h.curSessions
+    h.totalGmv = h.prevGmv + h.curGmv
+    h.avgGmv = h.totalSessions ? h.totalGmv / h.totalSessions : 0
+    h.cvr = h.viewer ? (h.trans / h.viewer) * 100 : 0
+    h.isCurOnly = h.prevSessions === 0 && h.curSessions > 0
+    h.isPrevOnly = h.curSessions === 0 && h.prevSessions > 0
+    return h
+  }).sort((a, b) => b.totalGmv - a.totalGmv)
+}
+
+export function generateSessionTime2MonthInsight(slots: SessionTimeSlot2Month[], curLabel: string, prevLabel: string): string {
+  if (!slots.length) return ''
+  const topByTotal = slots[0]
+  const topCvr = [...slots].sort((a, b) => b.cvr - a.cvr)[0]
+  let text = `Slot ${topByTotal.startTime} mencatat total GMV tertinggi (${fmtRpShort(topByTotal.totalGmv)}) dari ${topByTotal.totalSessions} sesi gabungan ${prevLabel} & ${curLabel}. `
+  const newSlot = slots.find(s => s.isCurOnly)
+  if (newSlot) text += `Slot ${newSlot.startTime} baru muncul di ${curLabel} (${newSlot.curSessions} sesi, ${fmtRpShort(newSlot.curGmv)}) — tidak ada di ${prevLabel}. `
+  if (topCvr && topCvr.cvr > 0) text += `Slot ${topCvr.startTime} mencatat CVR tertinggi (${topCvr.cvr.toFixed(2)}%).`
+  return text.trim()
+}
+
+export function generateHostEval2MonthInsight(hosts: HostEval2Month[], curLabel: string, prevLabel: string): string {
+  if (!hosts.length) return ''
+  const top = hosts[0]
+  const byAvg = [...hosts].filter(h => h.totalSessions >= 2).sort((a, b) => b.avgGmv - a.avgGmv)[0]
+  let text = `${top.name} memimpin total GMV kumulatif (${fmtRpShort(top.totalGmv)}) dari ${top.totalSessions} sesi (${prevLabel} + ${curLabel}). `
+  if (byAvg && byAvg.name !== top.name) text += `${byAvg.name} paling efisien dengan avg GMV/sesi ${fmtRpShort(byAvg.avgGmv)}. `
+  const dropped = hosts.find(h => h.isPrevOnly)
+  if (dropped) text += `${dropped.name} aktif di ${prevLabel} namun tidak tercatat di ${curLabel}.`
+  return text.trim()
 }
 
 // Splits a mixed-platform report set into per-platform totals, for the
