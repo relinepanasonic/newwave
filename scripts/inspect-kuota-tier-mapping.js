@@ -26,11 +26,9 @@ const supabase = createClient(
 // --- mirrors src/lib/kuota.ts ---
 const QUOTA_TIERS = ['Regular', 'Silver', 'Gold', 'Platinum', 'Rubi']
 const UNTAGGED = 'Untagged'
-const isServiceItem = n => (n || '').trim().toLowerCase() === 'service item'
 const tierFromItemName = n => QUOTA_TIERS.find(t => (n || '').toLowerCase().includes(t.toLowerCase())) || null
 const itemQuotaHours = it => {
   if ((it.scale || '').toLowerCase() !== 'hour') return 0
-  if (isServiceItem(it.name)) return 0
   return Number(it.qty) || 0
 }
 const tierFromSlot = tl => {
