@@ -44,6 +44,25 @@ function loadPptxGenCtor(): Promise<any> {
   })
 }
 
+// pptxgenjs embeds images as base64, so same-origin assets are read into a
+// data URL first. Returns null on failure so a missing logo never blocks the
+// whole export.
+async function loadImageDataUrl(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const blob = await res.blob()
+    return await new Promise<string | null>(resolve => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null)
+      reader.onerror = () => resolve(null)
+      reader.readAsDataURL(blob)
+    })
+  } catch {
+    return null
+  }
+}
+
 interface ReportRow {
   id: string; report_date: string; brand: string | null; platform: string | null
   start_time: string | null; duration_hours: number | null
@@ -217,6 +236,38 @@ export default function ReportBody({ profile }: { profile: any }) {
   // Best Session / Twindate / Payday — auto-detected, no manual tagging.
   const sessionTags = useMemo(() => tagSessions(reports), [reports])
 
+  // One row per live DATE (not per session) for the deck's "Daily Evaluation
+  // — Detail" page. The template brand ran ~1 session/day so its table was 1
+  // row per session; brands with several sessions a day would otherwise spill
+  // over many slides. The raw per-session rows stay available via the
+  // "Download Details Live" CSV.
+  const dailyDetail = useMemo(() => {
+    const map: Record<string, ReportRow[]> = {}
+    reports.forEach(r => { (map[r.report_date] ||= []).push(r) })
+    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b)).map(([date, rows]) => {
+      const times = (rows.map(r => r.start_time?.slice(0, 5)).filter(Boolean) as string[]).sort()
+      const byHost: Record<string, number> = {}
+      rows.forEach(r => {
+        const n = r.profiles?.full_name || 'Tanpa Host'
+        byHost[n] = (byHost[n] || 0) + (r.gmv || 0)
+      })
+      const hostNames = Object.entries(byHost).sort((a, b) => b[1] - a[1]).map(([n]) => n)
+      const tags = new Set<string>()
+      rows.forEach(r => (sessionTags.get(r.id) || []).forEach(t => { if (t) tags.add(t) }))
+      return {
+        date,
+        sessions: rows.length,
+        startLive: times.length === 0 ? '-' : times.length === 1 ? times[0] : `${times[0]}–${times[times.length - 1]}`,
+        host: hostNames.length === 0 ? '-' : hostNames.length === 1 ? hostNames[0] : `${hostNames[0]} +${hostNames.length - 1}`,
+        gmv: rows.reduce((s, r) => s + (r.gmv || 0), 0),
+        viewer: rows.reduce((s, r) => s + (r.viewer || 0), 0),
+        trans: rows.reduce((s, r) => s + (r.trans || 0), 0),
+        comment: rows.reduce((s, r) => s + (r.comment_count || 0), 0),
+        keterangan: tags.size ? Array.from(tags).join(', ') : '-',
+      }
+    })
+  }, [reports, sessionTags])
+
   // Performance grouped by Start Live hour.
   const sessionTimeEval = useMemo(() => computeSessionTimeEval(reports), [reports])
 
@@ -300,12 +351,20 @@ export default function ReportBody({ profile }: { profile: any }) {
     URL.revokeObjectURL(url)
   }
 
-  // ── Download Report: multi-slide PPTX matching the client-supplied template ──
+  // ── Download Report: PPTX built page-per-page from the client template ────
+  // Slide order mirrors the supplied template exactly:
+  //   1 Title · 2 Executive Summary · 3 Daily Evaluation · 4 Daily Evaluation
+  //   — Detail · 5 Session Time · 6 Host Evaluation · 7 Product Breakdown ·
+  //   8 Month-on-Month · 9 Terima Kasih · 10 Session Time 2 Bulan ·
+  //   11 Host Evaluation 2 Bulan
+  // (the template's own "Account Overview" page is intentionally omitted — it
+  // compared against platform account-wide numbers we don't track per client).
+  // Every section is capped to a single slide so the deck stays a summary.
   async function exportReportPptx() {
     if (!reports.length) { setReportMode(null); return }
     setExporting('report')
     try {
-      const PptxGenJS = await loadPptxGenCtor()
+      const [PptxGenJS, logo] = await Promise.all([loadPptxGenCtor(), loadImageDataUrl('/logo.png')])
       const pptx = new PptxGenJS()
       pptx.layout = 'LAYOUT_16x9'
       const RECT = pptx.ShapeType.rect
@@ -329,55 +388,67 @@ export default function ReportBody({ profile }: { profile: any }) {
         if (sub) slide.addText(sub, { x: x + 0.14, y: y + 0.72, w: w - 0.24, h: 0.2, fontFace: FONT, fontSize: 7.5, color: T.gray })
       }
 
-      const addInsight = (slide: any, y: number, text: string) => {
-        if (!text) return y
-        const h = 0.62
-        slide.addShape(RECT, { x: 0.27, y, w: 8.65, h, fill: { color: T.purpleBgAlt }, line: { type: 'none' } })
+      // Insight strip sits above the footer bar (which starts at y=5.45).
+      const addInsight = (slide: any, text: string) => {
+        if (!text) return
+        slide.addShape(RECT, { x: 0.27, y: 4.75, w: 8.65, h: 0.6, fill: { color: T.purpleBgAlt }, line: { type: 'none' } })
         slide.addText([
           { text: 'INSIGHT   ', options: { bold: true, color: T.purple, fontSize: 8 } },
           { text, options: { color: T.dark, fontSize: 8 } },
-        ], { x: 0.4, y: y + 0.06, w: 8.4, h: h - 0.12, fontFace: FONT, valign: 'top' })
-        return y + h + 0.1
+        ], { x: 0.4, y: 4.8, w: 8.4, h: 0.5, fontFace: FONT, valign: 'top' })
       }
 
-      // Generic table-slide builder: chunks rows so each slide stays readable,
-      // repeating chrome + header row on every continuation slide.
-      const addTableSlides = (
+      // One section = exactly one slide. Rows beyond `maxRows` collapse into a
+      // final "... N lainnya" line, and row height/font shrink to fit whatever
+      // vertical space is left once the insight strip is accounted for.
+      const addSection = (
         title: string, subtitle: string, header: string[], rows: (string | number)[][],
-        colW: number[], rightAlign: boolean[], insight?: string,
+        colW: number[], rightAlign: boolean[], insight: string, maxRows: number, moreLabel: string,
       ) => {
         if (!rows.length) return
-        const chunkSize = 16
-        const chunks = Math.ceil(rows.length / chunkSize)
-        for (let i = 0; i < rows.length; i += chunkSize) {
-          const chunk = rows.slice(i, i + chunkSize)
-          const slide = pptx.addSlide()
-          const part = chunks > 1 ? ` (${i / chunkSize + 1}/${chunks})` : ''
-          addChrome(slide, title + part, subtitle)
-          const tableRows = [
-            header.map(h => ({ text: h, options: { bold: true, color: T.white, fill: { color: T.purple }, fontSize: 8.5, align: 'left' as const } })),
-            ...chunk.map(row => row.map((cell, ci) => ({
-              text: String(cell),
-              options: { color: T.dark, fill: { color: T.white }, fontSize: 8, align: rightAlign[ci] ? 'right' as const : 'left' as const },
-            }))),
-          ]
-          slide.addTable(tableRows, {
-            x: 0.27, y: 1.0, w: 8.65, colW,
-            border: { type: 'solid', color: T.border, pts: 0.5 },
-            fontFace: FONT, valign: 'middle', autoPage: false,
-          })
-          const isLast = i + chunkSize >= rows.length
-          if (isLast && insight) addInsight(slide, 5.0, insight)
+        const slide = pptx.addSlide()
+        addChrome(slide, title, subtitle)
+
+        let shown = rows
+        if (rows.length > maxRows) {
+          shown = rows.slice(0, maxRows)
+          const extra: (string | number)[] = new Array(header.length).fill('')
+          extra[0] = `… dan ${rows.length - maxRows} ${moreLabel} lainnya`
+          shown = [...shown, extra]
         }
+
+        const yTop = 1.0
+        const yBottom = insight ? 4.68 : 5.35
+        const rowH = Math.min(0.26, (yBottom - yTop) / (shown.length + 1))
+        const fontSize = rowH >= 0.22 ? 8.5 : rowH >= 0.17 ? 7.5 : rowH >= 0.14 ? 6.5 : 6
+        // PowerPoint grows a row when its content + cell padding exceeds rowH,
+        // which would push a dense table off the slide. Shrink the padding to
+        // whatever room is left after the text's own line height.
+        const margin = Math.max(0, Math.min(2, (rowH * 72 - fontSize * 1.2) / 2))
+
+        const tableRows = [
+          header.map(h => ({ text: h, options: { bold: true, color: T.white, fill: { color: T.purple }, fontSize, align: 'left' as const } })),
+          ...shown.map(row => row.map((cell, ci) => ({
+            text: String(cell),
+            options: { color: T.dark, fill: { color: T.white }, fontSize, align: rightAlign[ci] ? 'right' as const : 'left' as const },
+          }))),
+        ]
+        slide.addTable(tableRows, {
+          x: 0.27, y: yTop, w: 8.65, colW, rowH, margin,
+          border: { type: 'solid', color: T.border, pts: 0.5 },
+          fontFace: FONT, valign: 'middle', autoPage: false,
+        })
+        addInsight(slide, insight)
       }
 
-      // ── Slide 1: Title ──
+      // ── 1. Title ──
       {
         const slide = pptx.addSlide()
         slide.background = { color: T.dark }
         slide.addShape(RECT, { x: 0, y: 0, w: 3.5, h: 5.625, fill: { color: T.purple }, line: { type: 'none' } })
         slide.addShape(RECT, { x: 3.5, y: 0, w: 0.55, h: 5.625, fill: { color: T.purpleLight }, line: { type: 'none' } })
-        slide.addText('LIVE SHOPPING SPECIALIST', { x: 0.2, y: 3.57, w: 3.1, h: 0.28, fontFace: FONT, fontSize: 9, color: T.lavender, charSpacing: 2 })
+        if (logo) slide.addImage({ data: logo, x: 0.35, y: 0.65, w: 2.8, h: 2.8 })
+        slide.addText('LIVE SHOPPING SPECIALIST', { x: 0.2, y: 3.57, w: 3.1, h: 0.28, fontFace: FONT, fontSize: 7.5, color: T.lavender, charSpacing: 2 })
         slide.addShape(RECT, { x: 0.3, y: 3.92, w: 2.9, h: 0.03, fill: { color: T.purpleLight }, line: { type: 'none' } })
         slide.addText('Prepared by New Wave Live Specialist', { x: 0.2, y: 4.02, w: 3.1, h: 0.25, fontFace: FONT, fontSize: 8, italic: true, color: T.mutedLavender })
 
@@ -388,14 +459,13 @@ export default function ReportBody({ profile }: { profile: any }) {
         slide.addText(`Platform: ${platformLabel}`, { x: 4.3, y: 4.37, w: 5.4, h: 0.27, fontFace: FONT, fontSize: 10, color: T.mutedLavender })
         slide.addText(`Periode Aktif: ${periodRangeLabel}  |  ${sessionCount} Sesi`, { x: 4.3, y: 4.65, w: 5.4, h: 0.27, fontFace: FONT, fontSize: 9.5, color: T.mutedLavender })
         slide.addShape(RECT, { x: 4.3, y: 5.0, w: 5.4, h: 0.55, fill: { color: T.navy }, line: { type: 'none' } })
-        const sections = [
-          'Executive Summary', 'Daily Evaluation', 'Session Time', 'Host Evaluation',
-          'Product Breakdown', 'MoM Comparison', ...(shopeeTiktokSplit ? ['Shopee vs TikTok'] : []),
-        ]
-        slide.addText(`Laporan mencakup: ${sections.join(' • ')}`, { x: 4.4, y: 5.06, w: 5.2, h: 0.43, fontFace: FONT, fontSize: 8, color: T.purpleBg, valign: 'middle' })
+        slide.addText(
+          'Laporan mencakup: Executive Summary • Daily Evaluation • Session Time • Host Evaluation\nProduct Breakdown • MoM Comparison' +
+          (shopeeTiktokSplit ? ' • Shopee vs TikTok' : ''),
+          { x: 4.4, y: 5.02, w: 5.2, h: 0.5, fontFace: FONT, fontSize: 8, color: T.purpleBg, valign: 'middle' })
       }
 
-      // ── Slide 2: Executive Summary ──
+      // ── 2. Executive Summary ──
       {
         const slide = pptx.addSlide()
         addChrome(slide, 'Executive Summary', `${brandLabel} — ${platformLabel} | ${month.label} | New Wave Live Specialist`)
@@ -405,8 +475,8 @@ export default function ReportBody({ profile }: { profile: any }) {
         const xs = [x0, x0 + cardW + gap, x0 + 2 * (cardW + gap), x0 + 3 * (cardW + gap)]
         addStatCard(slide, xs[0], y1, cardW, cardH, T.purple, 'Total GMV', fmtRp(totalGmv), `${sessionCount} Sesi Live`)
         addStatCard(slide, xs[1], y1, cardW, cardH, T.green, 'Total Viewers', fmtNum(totalViewer), 'Session Viewers')
-        addStatCard(slide, xs[2], y1, cardW, cardH, T.red, 'Total Transaksi', String(totalTrans), 'Confirmed Orders')
-        addStatCard(slide, xs[3], y1, cardW, cardH, T.purpleLight, 'Total Komentar', String(totalComment), 'Audience Engagement')
+        addStatCard(slide, xs[2], y1, cardW, cardH, T.red, 'Total Transaksi', fmtNum(totalTrans), 'Confirmed Orders')
+        addStatCard(slide, xs[3], y1, cardW, cardH, T.purpleLight, 'Total Komentar', fmtNum(totalComment), 'Audience Engagement')
         if (topHost) addStatCard(slide, xs[0], y2, cardW, cardH, T.red, 'Top Host', topHost.name, `${fmtRp(topHost.totalGmv)} · ${topHost.sessions} sesi`)
         if (topProduct) addStatCard(slide, xs[1], y2, cardW, cardH, T.purpleLight, 'Top Produk', topProduct.name.slice(0, 26), `${fmtRp(topProduct.total)} · ${topProduct.itemSold} item`)
         if (keyFindings.length) {
@@ -416,76 +486,82 @@ export default function ReportBody({ profile }: { profile: any }) {
             ...keyFindings.slice(0, 2).map(f => ({ text: `• ${f}\n`, options: { color: T.dark, fontSize: 7 } })),
           ], { x: xs[2] + 0.12, y: y2 + 0.06, w: cardW * 2 + gap - 0.24, h: cardH - 0.12, fontFace: FONT, valign: 'top' })
         }
+        if (keyFindings.length > 2) {
+          slide.addShape(RECT, { x: 0.27, y: 4.2, w: 8.65, h: 1.1, fill: { color: T.purpleBgAlt }, line: { type: 'none' } })
+          slide.addText([
+            { text: 'KEY FINDINGS (lanjutan)\n', options: { bold: true, color: T.purple, fontSize: 8 } },
+            ...keyFindings.slice(2).map(f => ({ text: `• ${f}\n`, options: { color: T.dark, fontSize: 7.5 } })),
+          ], { x: 0.4, y: 4.26, w: 8.4, h: 1.0, fontFace: FONT, valign: 'top' })
+        }
       }
 
-      // ── Slide 3: Daily Evaluation (chart + highlight cards) ──
+      // ── 3. Daily Evaluation (chart + highlight cards) ──
       if (dailyTrend.length) {
         const slide = pptx.addSlide()
         addChrome(slide, 'Daily Evaluation', `GMV Trend Harian (${platformLabel}) — ${month.label}`)
         slide.addChart(pptx.ChartType.bar, [
           { name: 'GMV', labels: dailyTrend.map(d => d.label), values: dailyTrend.map(d => d.gmv) },
         ], { x: 0.27, y: 1.0, w: 8.65, h: 2.65, chartColors: [T.purple], showLegend: false, catAxisLabelFontSize: 6, valAxisLabelFontSize: 6 })
-        const tagColor: Record<string, { bg: string; icon: string }> = {
+        const tagStyle: Record<string, { bg: string; icon: string }> = {
           'Best Session': { bg: T.redBg, icon: '🏆' },
           'Twindate': { bg: T.blueBg, icon: '📅' },
-          'Payday': { bg: T.purpleBgAlt, icon: '📅' },
+          'Payday': { bg: T.purpleBgAlt, icon: '💰' },
         }
         const hw = (8.65 - 2 * 0.15) / 3
         dailyHighlights.slice(0, 3).forEach((h, i) => {
           const x = 0.27 + i * (hw + 0.15)
-          const c = tagColor[h.tag] || { bg: T.purpleBg, icon: '⭐' }
+          const c = tagStyle[h.tag] || { bg: T.purpleBg, icon: '⭐' }
           slide.addShape(RECT, { x, y: 3.8, w: hw, h: 1.5, fill: { color: c.bg }, line: { type: 'none' } })
           slide.addText(`${c.icon}  ${h.tag} — ${h.dateLabel}`, { x: x + 0.1, y: 3.86, w: hw - 0.2, h: 0.3, fontFace: FONT, fontSize: 8.5, bold: true, color: T.dark })
-          slide.addText(`GMV: ${fmtRp(h.gmv)}  |  Trans: ${h.trans}  |  Viewer: ${fmtNum(h.viewer)}  |  Host: ${h.host}  |  ${h.startTime}`,
-            { x: x + 0.1, y: 4.18, w: hw - 0.2, h: 0.4, fontFace: FONT, fontSize: 7, color: T.dark })
+          slide.addText(`GMV: ${fmtRp(h.gmv)}  |  Trans: ${fmtNum(h.trans)}`, { x: x + 0.1, y: 4.18, w: hw - 0.2, h: 0.25, fontFace: FONT, fontSize: 7.5, color: T.dark })
+          slide.addText(`Viewer: ${fmtNum(h.viewer)}  |  Host: ${h.host}  |  ${h.startTime}`, { x: x + 0.1, y: 4.45, w: hw - 0.2, h: 0.25, fontFace: FONT, fontSize: 7.5, color: T.dark })
         })
       }
 
-      // ── Daily Evaluation — Detail (Session Log) ──
-      addTableSlides(
-        'Daily Evaluation — Detail', `${platformLabel} Session Log, diurutkan berdasarkan tanggal — ${sessionCount} Sesi (${month.label})`,
-        ['Tanggal', 'Start Live', 'Host', 'GMV', 'Viewer', 'Trans', 'Comment', 'Keterangan'],
-        reports.map(r => {
-          const tags = sessionTags.get(r.id)
-          return [
-            fmtDateShort(r.report_date), r.start_time?.slice(0, 5) || '-', r.profiles?.full_name || '-',
-            fmtRp(r.gmv), fmtNum(r.viewer), r.trans || 0, r.comment_count || 0, tags ? tags.join(', ') : '-',
-          ]
-        }),
-        [0.95, 0.85, 1.1, 1.3, 0.95, 0.7, 0.9, 1.9],
-        [false, false, false, true, true, true, true, false])
+      // ── 4. Daily Evaluation — Detail (one row per live date) ──
+      addSection(
+        'Daily Evaluation — Detail',
+        `${platformLabel} Daily Log, diurutkan berdasarkan tanggal — ${dailyDetail.length} Hari Live / ${sessionCount} Sesi (${month.label})`,
+        ['Tanggal', 'Sesi', 'Start Live', 'Host', 'GMV', 'Viewer', 'Trans', 'Comment', 'Keterangan'],
+        dailyDetail.map(d => [
+          fmtDateShort(d.date), d.sessions, d.startLive, d.host,
+          fmtRp(d.gmv), fmtNum(d.viewer), fmtNum(d.trans), fmtNum(d.comment), d.keterangan,
+        ]),
+        [0.85, 0.5, 0.95, 1.5, 1.35, 0.8, 0.7, 0.8, 1.2],
+        [false, true, false, false, true, true, true, true, false],
+        '', 32, 'hari')
 
-      // ── Session Time Evaluation ──
-      addTableSlides(
+      // ── 5. Session Time Evaluation ──
+      addSection(
         'Session Time Evaluation', `Performance Analysis by Start Live Time (${platformLabel}) — ${month.label}`,
         ['Start Live', 'Sesi', 'GMV', 'Viewers', 'Trans', 'Comments', 'CVR', 'Keterangan'],
         sessionTimeEval.map(s => [
-          s.startTime, s.sessions, fmtRp(s.gmv), fmtNum(s.viewer), s.trans, s.comment, `${s.cvr.toFixed(2)}%`,
+          s.startTime, s.sessions, fmtRp(s.gmv), fmtNum(s.viewer), fmtNum(s.trans), fmtNum(s.comment), `${s.cvr.toFixed(2)}%`,
           [s.isMostSessions && '★ Most Sessions', s.isTopCvr && 'Top CVR'].filter(Boolean).join(' / ') || '-',
         ]),
         [1.0, 0.7, 1.2, 0.95, 0.75, 0.95, 0.8, 2.3],
         [false, true, true, true, true, true, true, false],
-        sessionTimeInsight)
+        sessionTimeInsight, 24, 'slot')
 
-      // ── Host Evaluation ──
-      addTableSlides(
+      // ── 6. Host Evaluation ──
+      addSection(
         'Host Evaluation', `GMV Performance & Conversion Rate per Host (${platformLabel}) — ${month.label}`,
         ['Host', 'Sesi', 'Total GMV', 'Avg GMV/Sesi', 'Viewer', 'Trans', 'CVR', 'Comment', 'Ranking'],
-        hostEval.map(h => [h.name, h.sessions, fmtRp(h.totalGmv), fmtRp(h.avgGmv), fmtNum(h.totalViewer), h.totalTrans, `${h.cvr.toFixed(2)}%`, h.totalComment, h.rank]),
-        [1.0, 0.6, 1.15, 1.15, 0.85, 0.65, 0.75, 0.9, 1.6],
+        hostEval.map(h => [h.name, h.sessions, fmtRp(h.totalGmv), fmtRp(h.avgGmv), fmtNum(h.totalViewer), fmtNum(h.totalTrans), `${h.cvr.toFixed(2)}%`, fmtNum(h.totalComment), h.rank]),
+        [1.4, 0.55, 1.25, 1.25, 0.8, 0.65, 0.7, 0.8, 1.25],
         [false, true, true, true, true, true, true, true, false],
-        hostInsight)
+        hostInsight, 20, 'host')
 
-      // ── Product Breakdown ──
-      addTableSlides(
+      // ── 7. Product Breakdown ──
+      addSection(
         'Product Breakdown', `${platformLabel} Product Mix (Sesi New Wave) — ${month.label}`,
         ['Produk', 'GMV', 'Item', 'Klik'],
-        productBreakdown.map(p => [p.name, fmtRp(p.total), p.itemSold, p.klik]),
+        productBreakdown.map(p => [p.name, fmtRp(p.total), fmtNum(p.itemSold), fmtNum(p.klik)]),
         [4.85, 1.6, 1.1, 1.1],
         [false, true, true, true],
-        productInsight)
+        productInsight, 14, 'produk')
 
-      // ── Month-on-Month Evaluation ──
+      // ── 8. Month-on-Month Evaluation ──
       if (prevReports.length) {
         const slide = pptx.addSlide()
         addChrome(slide, 'Month-on-Month Evaluation', `${month.label} vs ${prevMonthLabel} — New Wave ${platformLabel} Performance`)
@@ -506,15 +582,52 @@ export default function ReportBody({ profile }: { profile: any }) {
           { text: m.label === 'GMV' ? fmtRp(m.current) : fmtNum(m.current), options: { color: T.dark, fontSize: 8, align: 'right' as const, bold: true } },
           { text: m.pctChange === null ? '—' : `${m.pctChange >= 0 ? '+' : ''}${m.pctChange.toFixed(1)}%`, options: { color: m.pctChange === null ? T.gray : m.pctChange >= 0 ? T.green : T.red, fontSize: 8, align: 'right' as const, bold: true } },
         ])
-        slide.addTable([header, ...rows], { x: 0.27, y: 2.4, w: 8.65, colW: [2.9, 1.95, 1.95, 1.85], border: { type: 'solid', color: T.border, pts: 0.5 }, fontFace: FONT, valign: 'middle', autoPage: false })
-        addInsight(slide, 4.55, momInsight)
+        slide.addTable([header, ...rows], { x: 0.27, y: 2.4, w: 8.65, colW: [2.9, 1.95, 1.95, 1.85], rowH: 0.28, border: { type: 'solid', color: T.border, pts: 0.5 }, fontFace: FONT, valign: 'middle', autoPage: false })
+        addInsight(slide, momInsight)
       }
 
-      // ── Session Time Evaluation — 2 Bulan (cumulative) ──
-      if (session2MonthEval.length) {
-        addTableSlides(
-          'Session Time Evaluation — 2 Bulan', `${prevMonthLabel} vs ${month.label} — New Wave ${platformLabel} (${sessionCount + prevReports.length} Sesi Gabungan)`,
-          ['Slot', `${prevMonthLabel} Sesi`, `${prevMonthLabel} GMV`, `${month.label} Sesi`, `${month.label} GMV`, 'Total Sesi', 'Total GMV', 'Avg GMV/Sesi', 'CVR', 'Keterangan'],
+      // ── Shopee vs TikTok Comparison (only in "Both" mode) ──
+      if (shopeeTiktokSplit) {
+        const s = shopeeTiktokSplit['Shopee'] || totalsOf([])
+        const t = shopeeTiktokSplit['TikTok'] || totalsOf([])
+        const totalGmvBoth = s.gmv + t.gmv
+        addSection(
+          'Shopee vs TikTok Comparison', `${brandLabel} — ${month.label}`,
+          ['Metric', 'Shopee', 'TikTok', 'Total'],
+          [
+            ['Sesi', fmtNum(s.sessions), fmtNum(t.sessions), fmtNum(s.sessions + t.sessions)],
+            ['GMV', fmtRp(s.gmv), fmtRp(t.gmv), fmtRp(totalGmvBoth)],
+            ['Transaksi', fmtNum(s.trans), fmtNum(t.trans), fmtNum(s.trans + t.trans)],
+            ['Viewers', fmtNum(s.viewer), fmtNum(t.viewer), fmtNum(s.viewer + t.viewer)],
+            ['Comments', fmtNum(s.comment), fmtNum(t.comment), fmtNum(s.comment + t.comment)],
+            ['GMV Share', totalGmvBoth ? `${((s.gmv / totalGmvBoth) * 100).toFixed(1)}%` : '—', totalGmvBoth ? `${((t.gmv / totalGmvBoth) * 100).toFixed(1)}%` : '—', '100%'],
+          ],
+          [2.65, 2.0, 2.0, 2.0],
+          [false, true, true, true],
+          '', 10, 'metrik')
+      }
+
+      // ── 9. Terima Kasih (closing) ──
+      {
+        const slide = pptx.addSlide()
+        slide.background = { color: T.dark }
+        slide.addShape(RECT, { x: 0, y: 0, w: 10, h: 0.09, fill: { color: T.purple }, line: { type: 'none' } })
+        slide.addShape(RECT, { x: 0, y: 5.535, w: 10, h: 0.09, fill: { color: T.purple }, line: { type: 'none' } })
+        if (logo) slide.addImage({ data: logo, x: 4.05, y: 0.85, w: 1.9, h: 1.9 })
+        slide.addText('TERIMA KASIH', { x: 0, y: 2.95, w: 10, h: 0.65, fontFace: FONT, fontSize: 32, bold: true, color: T.white, align: 'center' })
+        slide.addShape(RECT, { x: 4, y: 3.68, w: 2, h: 0.03, fill: { color: T.purpleLight }, line: { type: 'none' } })
+        slide.addText(`${platformLabel} Performance Report — ${brandLabel} — ${month.label}`, { x: 0, y: 3.8, w: 10, h: 0.3, fontFace: FONT, fontSize: 12, color: T.purpleBg, align: 'center' })
+        slide.addText('New Wave Live Specialist  |  Live Shopping Specialist', { x: 0, y: 4.15, w: 10, h: 0.28, fontFace: FONT, fontSize: 9.5, color: T.mutedLavender, align: 'center' })
+        slide.addText('Pertanyaan & diskusi lebih lanjut dapat disampaikan kepada tim New Wave Live Specialist.', { x: 0, y: 4.95, w: 10, h: 0.25, fontFace: FONT, fontSize: 9, color: T.mutedLavender, align: 'center' })
+      }
+
+      // ── 10-11. Two-month cumulative appendix (template keeps these after the
+      // closing slide, so the order below matches it deliberately) ──
+      if (prevReports.length && session2MonthEval.length) {
+        addSection(
+          'Session Time Evaluation — 2 Bulan',
+          `${prevMonthLabel} vs ${month.label} — New Wave ${platformLabel} (${sessionCount + prevReports.length} Sesi Gabungan)`,
+          ['Slot', `Sesi ${prevMonthLabel}`, `GMV ${prevMonthLabel}`, `Sesi ${month.label}`, `GMV ${month.label}`, 'Total Sesi', 'Total GMV', 'Avg/Sesi', 'CVR', 'Keterangan'],
           session2MonthEval.map(s => [
             s.startTime, s.prevSessions, fmtRp(s.prevGmv), s.curSessions, fmtRp(s.curGmv),
             s.totalSessions, fmtRp(s.totalGmv), fmtRp(s.avgGmv), `${s.cvr.toFixed(2)}%`,
@@ -522,53 +635,21 @@ export default function ReportBody({ profile }: { profile: any }) {
           ]),
           [0.55, 0.6, 0.95, 0.6, 0.95, 0.6, 0.95, 0.95, 0.55, 1.95],
           [false, true, true, true, true, true, true, true, true, false],
-          session2MonthInsight)
+          session2MonthInsight, 22, 'slot')
       }
 
-      // ── Host Evaluation — 2 Bulan (cumulative) ──
-      if (host2MonthEval.length) {
-        addTableSlides(
+      if (prevReports.length && host2MonthEval.length) {
+        addSection(
           'Host Evaluation — 2 Bulan', `${prevMonthLabel} vs ${month.label} — New Wave ${platformLabel} (Kumulatif)`,
-          ['Host', `${prevMonthLabel} Sesi`, `${prevMonthLabel} GMV`, `${month.label} Sesi`, `${month.label} GMV`, 'Total Sesi', 'Total GMV', 'Avg GMV/Sesi', 'CVR', 'Keterangan'],
+          ['Host', `Sesi ${prevMonthLabel}`, `GMV ${prevMonthLabel}`, `Sesi ${month.label}`, `GMV ${month.label}`, 'Total Sesi', 'Total GMV', 'Avg/Sesi', 'CVR', 'Keterangan'],
           host2MonthEval.map((h, i) => [
             h.name, h.prevSessions, fmtRp(h.prevGmv), h.curSessions, fmtRp(h.curGmv),
             h.totalSessions, fmtRp(h.totalGmv), fmtRp(h.avgGmv), `${h.cvr.toFixed(2)}%`,
-            [i === 0 && '🥇 #1 GMV Total', i === 1 && '🥈 #2 GMV', i === 2 && '🥉 #3 GMV', h.isCurOnly && `${month.label} Only`, h.isPrevOnly && `${prevMonthLabel} Only`].filter(Boolean).join(' / ') || '-',
+            [i === 0 && '#1 GMV Total', i === 1 && '#2 GMV', i === 2 && '#3 GMV', h.isCurOnly && `${month.label} Only`, h.isPrevOnly && `${prevMonthLabel} Only`].filter(Boolean).join(' / ') || '-',
           ]),
-          [0.75, 0.55, 0.9, 0.55, 0.9, 0.55, 0.9, 0.9, 0.5, 2.15],
+          [0.85, 0.6, 0.9, 0.6, 0.9, 0.6, 0.9, 0.9, 0.5, 1.9],
           [false, true, true, true, true, true, true, true, true, false],
-          host2MonthInsight)
-      }
-
-      // ── Shopee vs TikTok Comparison (only in "Both" mode) ──
-      if (shopeeTiktokSplit) {
-        const s = shopeeTiktokSplit['Shopee'] || totalsOf([])
-        const t = shopeeTiktokSplit['TikTok'] || totalsOf([])
-        addTableSlides(
-          'Shopee vs TikTok Comparison', `${brandLabel} — ${month.label}`,
-          ['Metric', 'Shopee', 'TikTok', 'Total'],
-          [
-            ['Sesi', s.sessions, t.sessions, s.sessions + t.sessions],
-            ['GMV', fmtRp(s.gmv), fmtRp(t.gmv), fmtRp(s.gmv + t.gmv)],
-            ['Transaksi', s.trans, t.trans, s.trans + t.trans],
-            ['Viewers', fmtNum(s.viewer), fmtNum(t.viewer), fmtNum(s.viewer + t.viewer)],
-            ['Comments', s.comment, t.comment, s.comment + t.comment],
-          ],
-          [2.65, 2.0, 2.0, 2.0],
-          [false, true, true, true])
-      }
-
-      // ── Closing slide ──
-      {
-        const slide = pptx.addSlide()
-        slide.background = { color: T.dark }
-        slide.addShape(RECT, { x: 0, y: 0, w: 10, h: 0.09, fill: { color: T.purple }, line: { type: 'none' } })
-        slide.addShape(RECT, { x: 0, y: 5.535, w: 10, h: 0.09, fill: { color: T.purple }, line: { type: 'none' } })
-        slide.addText('TERIMA KASIH', { x: 0, y: 2.95, w: 10, h: 0.65, fontFace: FONT, fontSize: 32, bold: true, color: T.white, align: 'center' })
-        slide.addShape(RECT, { x: 4, y: 3.68, w: 2, h: 0.03, fill: { color: T.purpleLight }, line: { type: 'none' } })
-        slide.addText(`${platformLabel} Performance Report — ${brandLabel} — ${month.label}`, { x: 0, y: 3.8, w: 10, h: 0.3, fontFace: FONT, fontSize: 12, color: T.purpleBg, align: 'center' })
-        slide.addText('New Wave Live Specialist  |  Live Shopping Specialist', { x: 0, y: 4.15, w: 10, h: 0.28, fontFace: FONT, fontSize: 9.5, color: T.mutedLavender, align: 'center' })
-        slide.addText('Pertanyaan & diskusi lebih lanjut dapat disampaikan kepada tim New Wave Live Specialist.', { x: 0, y: 4.95, w: 10, h: 0.25, fontFace: FONT, fontSize: 9, color: T.mutedLavender, align: 'center' })
+          host2MonthInsight, 20, 'host')
       }
 
       await pptx.writeFile({ fileName: `${fileBase}.pptx` })
@@ -577,7 +658,6 @@ export default function ReportBody({ profile }: { profile: any }) {
       setReportMode(null)
     }
   }
-
   // Kick off the pptx build once the picked platform's data has loaded.
   useEffect(() => {
     if (!reportMode || loading) return
