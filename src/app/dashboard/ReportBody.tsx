@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import AppShell from '@/components/AppShell'
 import { FileBarChart2, Presentation, FileSpreadsheet, X } from 'lucide-react'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  ComposedChart, Bar, Line, Legend, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import {
   tagSessions, computeSessionTimeEval, computeMoM, totalsOf, rankLabel, splitByPlatform,
@@ -24,10 +24,14 @@ const PPTXGENJS_CDN_URL = 'https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/ppt
 const T = {
   purple: '7B6BA4', purpleLight: '9B8EC4', purpleBg: 'E8E4F0', purpleBgAlt: 'F0EDF8',
   blueBg: 'E8F4F8', redBg: 'FFE8E0', dark: '2D2D2D', gray: '64748B', green: '15803D',
-  red: 'C0392B', border: 'DDDDDD', navy: '1A1A2E', white: 'FFFFFF',
+  red: 'C0392B', blue: '7B9EC4', border: 'DDDDDD', navy: '1A1A2E', white: 'FFFFFF',
   lavender: 'D4CCE8', mutedLavender: '9B9BAA',
 }
 const FONT = 'Calibri'
+
+// Row highlight colors, matching how the template marks standout rows: the
+// whole row takes the fill and switches to bold white text.
+const HL = { best: T.red, twindate: T.green, payday: T.blue, primary: T.purple }
 
 // pptxgenjs's npm build references Node built-ins (fs/https) that break the
 // webpack client bundle even behind a dynamic import, so it's loaded via its
@@ -209,10 +213,16 @@ export default function ReportBody({ profile }: { profile: any }) {
   const sessionCount = reports.length
 
   const dailyTrend = useMemo(() => {
-    const map: Record<string, number> = {}
-    reports.forEach(r => { map[r.report_date] = (map[r.report_date] || 0) + (r.gmv || 0) })
+    const map: Record<string, { gmv: number; impression: number; viewer: number; comment: number }> = {}
+    reports.forEach(r => {
+      const d = (map[r.report_date] ||= { gmv: 0, impression: 0, viewer: 0, comment: 0 })
+      d.gmv += r.gmv || 0
+      d.impression += r.impression || 0
+      d.viewer += r.viewer || 0
+      d.comment += r.comment_count || 0
+    })
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, gmv]) => ({ date, label: fmtDateShort(date), gmv }))
+      .map(([date, v]) => ({ date, label: fmtDateShort(date), ...v }))
   }, [reports])
 
   const hostEval = useMemo(() => {
@@ -404,13 +414,16 @@ export default function ReportBody({ profile }: { profile: any }) {
       const addSection = (
         title: string, subtitle: string, header: string[], rows: (string | number)[][],
         colW: number[], rightAlign: boolean[], insight: string, maxRows: number, moreLabel: string,
+        highlight?: (rowIndex: number) => string | null,
       ) => {
         if (!rows.length) return
         const slide = pptx.addSlide()
         addChrome(slide, title, subtitle)
 
         let shown = rows
+        let truncatedAt = -1
         if (rows.length > maxRows) {
+          truncatedAt = maxRows
           shown = rows.slice(0, maxRows)
           const extra: (string | number)[] = new Array(header.length).fill('')
           extra[0] = `… dan ${rows.length - maxRows} ${moreLabel} lainnya`
@@ -426,12 +439,23 @@ export default function ReportBody({ profile }: { profile: any }) {
         // whatever room is left after the text's own line height.
         const margin = Math.max(0, Math.min(2, (rowH * 72 - fontSize * 1.2) / 2))
 
+        // Zebra striping by default; a highlighted row takes its accent fill
+        // with bold white text, exactly like the template marks standout rows.
         const tableRows = [
           header.map(h => ({ text: h, options: { bold: true, color: T.white, fill: { color: T.purple }, fontSize, align: 'left' as const } })),
-          ...shown.map(row => row.map((cell, ci) => ({
-            text: String(cell),
-            options: { color: T.dark, fill: { color: T.white }, fontSize, align: rightAlign[ci] ? 'right' as const : 'left' as const },
-          }))),
+          ...shown.map((row, ri) => {
+            const isMoreRow = truncatedAt >= 0 && ri === truncatedAt
+            const hl = isMoreRow || !highlight ? null : highlight(ri)
+            const bg = hl || (isMoreRow ? T.purpleBgAlt : ri % 2 === 0 ? T.white : T.purpleBg)
+            const fg = hl ? T.white : isMoreRow ? T.gray : T.dark
+            return row.map((cell, ci) => ({
+              text: String(cell),
+              options: {
+                color: fg, bold: !!hl, italic: isMoreRow, fill: { color: bg }, fontSize,
+                align: rightAlign[ci] ? 'right' as const : 'left' as const,
+              },
+            }))
+          }),
         ]
         slide.addTable(tableRows, {
           x: 0.27, y: yTop, w: 8.65, colW, rowH, margin,
@@ -529,7 +553,14 @@ export default function ReportBody({ profile }: { profile: any }) {
         ]),
         [0.85, 0.5, 0.95, 1.5, 1.35, 0.8, 0.7, 0.8, 1.2],
         [false, true, false, false, true, true, true, true, false],
-        '', 32, 'hari')
+        '', 32, 'hari',
+        i => {
+          const k = dailyDetail[i].keterangan
+          if (k.includes('Best Session')) return HL.best
+          if (k.includes('Twindate')) return HL.twindate
+          if (k.includes('Payday')) return HL.payday
+          return null
+        })
 
       // ── 5. Session Time Evaluation ──
       addSection(
@@ -541,7 +572,8 @@ export default function ReportBody({ profile }: { profile: any }) {
         ]),
         [1.0, 0.7, 1.2, 0.95, 0.75, 0.95, 0.8, 2.3],
         [false, true, true, true, true, true, true, false],
-        sessionTimeInsight, 24, 'slot')
+        sessionTimeInsight, 24, 'slot',
+        i => sessionTimeEval[i].isTopCvr ? HL.best : sessionTimeEval[i].isMostSessions ? HL.primary : null)
 
       // ── 6. Host Evaluation ──
       addSection(
@@ -550,7 +582,8 @@ export default function ReportBody({ profile }: { profile: any }) {
         hostEval.map(h => [h.name, h.sessions, fmtRp(h.totalGmv), fmtRp(h.avgGmv), fmtNum(h.totalViewer), fmtNum(h.totalTrans), `${h.cvr.toFixed(2)}%`, fmtNum(h.totalComment), h.rank]),
         [1.4, 0.55, 1.25, 1.25, 0.8, 0.65, 0.7, 0.8, 1.25],
         [false, true, true, true, true, true, true, true, false],
-        hostInsight, 20, 'host')
+        hostInsight, 20, 'host',
+        i => i === 0 ? HL.best : i === 1 ? HL.payday : i === 2 ? HL.primary : null)
 
       // ── 7. Product Breakdown ──
       addSection(
@@ -559,7 +592,8 @@ export default function ReportBody({ profile }: { profile: any }) {
         productBreakdown.map(p => [p.name, fmtRp(p.total), fmtNum(p.itemSold), fmtNum(p.klik)]),
         [4.85, 1.6, 1.1, 1.1],
         [false, true, true, true],
-        productInsight, 14, 'produk')
+        productInsight, 14, 'produk',
+        i => i === 0 ? HL.best : i === 1 ? HL.payday : i === 2 ? HL.primary : null)
 
       // ── 8. Month-on-Month Evaluation ──
       if (prevReports.length) {
@@ -576,12 +610,15 @@ export default function ReportBody({ profile }: { profile: any }) {
             { x: x + 0.08, y: y + 0.68, w: cardW - 0.16, h: 0.3, fontFace: FONT, fontSize: 9, bold: true, color: m.pctChange === null ? T.gray : up ? T.green : T.red })
         })
         const header = ['Metric', prevMonthLabel, month.label, 'MoM'].map(t => ({ text: t, options: { bold: true, color: T.white, fill: { color: T.purple }, fontSize: 8.5 } }))
-        const rows = momMetrics.map(m => [
-          { text: m.label, options: { color: T.dark, fontSize: 8 } },
-          { text: m.label === 'GMV' ? fmtRp(m.previous) : fmtNum(m.previous), options: { color: T.dark, fontSize: 8, align: 'right' as const } },
-          { text: m.label === 'GMV' ? fmtRp(m.current) : fmtNum(m.current), options: { color: T.dark, fontSize: 8, align: 'right' as const, bold: true } },
-          { text: m.pctChange === null ? '—' : `${m.pctChange >= 0 ? '+' : ''}${m.pctChange.toFixed(1)}%`, options: { color: m.pctChange === null ? T.gray : m.pctChange >= 0 ? T.green : T.red, fontSize: 8, align: 'right' as const, bold: true } },
-        ])
+        const rows = momMetrics.map((m, i) => {
+          const bg = { color: i % 2 === 0 ? T.white : T.purpleBg }
+          return [
+            { text: m.label, options: { color: T.dark, fontSize: 8, fill: bg } },
+            { text: m.label === 'GMV' ? fmtRp(m.previous) : fmtNum(m.previous), options: { color: T.dark, fontSize: 8, align: 'right' as const, fill: bg } },
+            { text: m.label === 'GMV' ? fmtRp(m.current) : fmtNum(m.current), options: { color: T.dark, fontSize: 8, align: 'right' as const, bold: true, fill: bg } },
+            { text: m.pctChange === null ? '—' : `${m.pctChange >= 0 ? '+' : ''}${m.pctChange.toFixed(1)}%`, options: { color: m.pctChange === null ? T.gray : m.pctChange >= 0 ? T.green : T.red, fontSize: 8, align: 'right' as const, bold: true, fill: bg } },
+          ]
+        })
         slide.addTable([header, ...rows], { x: 0.27, y: 2.4, w: 8.65, colW: [2.9, 1.95, 1.95, 1.85], rowH: 0.28, border: { type: 'solid', color: T.border, pts: 0.5 }, fontFace: FONT, valign: 'middle', autoPage: false })
         addInsight(slide, momInsight)
       }
@@ -607,22 +644,7 @@ export default function ReportBody({ profile }: { profile: any }) {
           '', 10, 'metrik')
       }
 
-      // ── 9. Terima Kasih (closing) ──
-      {
-        const slide = pptx.addSlide()
-        slide.background = { color: T.dark }
-        slide.addShape(RECT, { x: 0, y: 0, w: 10, h: 0.09, fill: { color: T.purple }, line: { type: 'none' } })
-        slide.addShape(RECT, { x: 0, y: 5.535, w: 10, h: 0.09, fill: { color: T.purple }, line: { type: 'none' } })
-        if (logo) slide.addImage({ data: logo, x: 4.05, y: 0.85, w: 1.9, h: 1.9 })
-        slide.addText('TERIMA KASIH', { x: 0, y: 2.95, w: 10, h: 0.65, fontFace: FONT, fontSize: 32, bold: true, color: T.white, align: 'center' })
-        slide.addShape(RECT, { x: 4, y: 3.68, w: 2, h: 0.03, fill: { color: T.purpleLight }, line: { type: 'none' } })
-        slide.addText(`${platformLabel} Performance Report — ${brandLabel} — ${month.label}`, { x: 0, y: 3.8, w: 10, h: 0.3, fontFace: FONT, fontSize: 12, color: T.purpleBg, align: 'center' })
-        slide.addText('New Wave Live Specialist  |  Live Shopping Specialist', { x: 0, y: 4.15, w: 10, h: 0.28, fontFace: FONT, fontSize: 9.5, color: T.mutedLavender, align: 'center' })
-        slide.addText('Pertanyaan & diskusi lebih lanjut dapat disampaikan kepada tim New Wave Live Specialist.', { x: 0, y: 4.95, w: 10, h: 0.25, fontFace: FONT, fontSize: 9, color: T.mutedLavender, align: 'center' })
-      }
-
-      // ── 10-11. Two-month cumulative appendix (template keeps these after the
-      // closing slide, so the order below matches it deliberately) ──
+      // ── 9-10. Two-month cumulative appendix ──
       if (prevReports.length && session2MonthEval.length) {
         addSection(
           'Session Time Evaluation — 2 Bulan',
@@ -635,7 +657,8 @@ export default function ReportBody({ profile }: { profile: any }) {
           ]),
           [0.55, 0.6, 0.95, 0.6, 0.95, 0.6, 0.95, 0.95, 0.55, 1.95],
           [false, true, true, true, true, true, true, true, true, false],
-          session2MonthInsight, 22, 'slot')
+          session2MonthInsight, 22, 'slot',
+          i => session2MonthEval[i].isTopCvr ? HL.best : session2MonthEval[i].isMostSessions ? HL.primary : session2MonthEval[i].isCurOnly ? HL.payday : null)
       }
 
       if (prevReports.length && host2MonthEval.length) {
@@ -649,7 +672,22 @@ export default function ReportBody({ profile }: { profile: any }) {
           ]),
           [0.85, 0.6, 0.9, 0.6, 0.9, 0.6, 0.9, 0.9, 0.5, 1.9],
           [false, true, true, true, true, true, true, true, true, false],
-          host2MonthInsight, 20, 'host')
+          host2MonthInsight, 20, 'host',
+          i => i === 0 ? HL.best : i === 1 ? HL.payday : i === 2 ? HL.primary : null)
+      }
+
+      // ── Terima Kasih — always the final slide ──
+      {
+        const slide = pptx.addSlide()
+        slide.background = { color: T.dark }
+        slide.addShape(RECT, { x: 0, y: 0, w: 10, h: 0.09, fill: { color: T.purple }, line: { type: 'none' } })
+        slide.addShape(RECT, { x: 0, y: 5.535, w: 10, h: 0.09, fill: { color: T.purple }, line: { type: 'none' } })
+        if (logo) slide.addImage({ data: logo, x: 4.05, y: 0.85, w: 1.9, h: 1.9 })
+        slide.addText('TERIMA KASIH', { x: 0, y: 2.95, w: 10, h: 0.65, fontFace: FONT, fontSize: 32, bold: true, color: T.white, align: 'center' })
+        slide.addShape(RECT, { x: 4, y: 3.68, w: 2, h: 0.03, fill: { color: T.purpleLight }, line: { type: 'none' } })
+        slide.addText(`${platformLabel} Performance Report — ${brandLabel} — ${month.label}`, { x: 0, y: 3.8, w: 10, h: 0.3, fontFace: FONT, fontSize: 12, color: T.purpleBg, align: 'center' })
+        slide.addText('New Wave Live Specialist  |  Live Shopping Specialist', { x: 0, y: 4.15, w: 10, h: 0.28, fontFace: FONT, fontSize: 9.5, color: T.mutedLavender, align: 'center' })
+        slide.addText('Pertanyaan & diskusi lebih lanjut dapat disampaikan kepada tim New Wave Live Specialist.', { x: 0, y: 4.95, w: 10, h: 0.25, fontFace: FONT, fontSize: 9, color: T.mutedLavender, align: 'center' })
       }
 
       await pptx.writeFile({ fileName: `${fileBase}.pptx` })
@@ -818,16 +856,24 @@ export default function ReportBody({ profile }: { profile: any }) {
           {/* Daily GMV trend */}
           {dailyTrend.length > 0 && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <h3 className="text-sm font-bold text-gray-800 mb-3">Daily Evaluation — GMV Trend</h3>
-              <div style={{ width: '100%', height: 220 }}>
+              <h3 className="text-sm font-bold text-gray-800 mb-1">Daily Evaluation — GMV Trend</h3>
+              <p className="text-[11px] text-gray-400 mb-3">
+                Bar = GMV (sumbu kiri) · Garis = Impresi / Viewer / Komentar (sumbu kanan, skala terpisah untuk melihat tren naik-turun)
+              </p>
+              <div style={{ width: '100%', height: 260 }}>
                 <ResponsiveContainer>
-                  <BarChart data={dailyTrend}>
+                  <ComposedChart data={dailyTrend}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
-                    <Tooltip formatter={(v: any) => fmtRp(Number(v))} />
-                    <Bar dataKey="gmv" fill="#7C3AED" radius={[4, 4, 0, 0]} />
-                  </BarChart>
+                    <YAxis yAxisId="gmv" tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
+                    <YAxis yAxisId="traffic" orientation="right" tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
+                    <Tooltip formatter={(v: any, name: any) => name === 'GMV' ? fmtRp(Number(v)) : fmtNum(Number(v))} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar yAxisId="gmv" dataKey="gmv" name="GMV" fill="#7C3AED" radius={[4, 4, 0, 0]} />
+                    <Line yAxisId="traffic" type="monotone" dataKey="impression" name="Impresi" stroke="#0EA5E9" strokeWidth={2} dot={false} />
+                    <Line yAxisId="traffic" type="monotone" dataKey="viewer" name="Viewer" stroke="#10B981" strokeWidth={2} dot={false} />
+                    <Line yAxisId="traffic" type="monotone" dataKey="comment" name="Komentar" stroke="#F59E0B" strokeWidth={2} dot={false} />
+                  </ComposedChart>
                 </ResponsiveContainer>
               </div>
               {dailyHighlights.length > 0 && (
