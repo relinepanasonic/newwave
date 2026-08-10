@@ -108,17 +108,17 @@ function fmtRp(n: number) {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n || 0)
 }
 function fmtNum(n: number) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return (n || 0).toString()
+  return Math.round(n || 0).toLocaleString('id-ID')
 }
-// Daily trend panels: GMV as a bar, everything else as a gradient-filled
-// line, each stacked in its own row but sharing the same day-by-day x-axis.
+// Daily trend panels: GMV as a bar (given more visual weight — taller panel,
+// wider axis for its larger Rupiah values), everything else as a
+// gradient-filled line, each stacked in its own row but sharing the same
+// day-by-day x-axis.
 const TREND_METRICS = [
-  { key: 'gmv', label: 'GMV', color: '#7C3AED', kind: 'bar' as const, fmt: fmtRp },
-  { key: 'impression', label: 'Impresi', color: '#0EA5E9', kind: 'area' as const, fmt: fmtNum },
-  { key: 'viewer', label: 'Viewer', color: '#10B981', kind: 'area' as const, fmt: fmtNum },
-  { key: 'comment', label: 'Komentar', color: '#F59E0B', kind: 'area' as const, fmt: fmtNum },
+  { key: 'gmv', label: 'GMV', color: '#7C3AED', kind: 'bar' as const, fmt: fmtRp, height: 140, axisWidth: 64 },
+  { key: 'impression', label: 'Impresi', color: '#0EA5E9', kind: 'area' as const, fmt: fmtNum, height: 82, axisWidth: 54 },
+  { key: 'viewer', label: 'Viewer', color: '#10B981', kind: 'area' as const, fmt: fmtNum, height: 82, axisWidth: 54 },
+  { key: 'comment', label: 'Komentar', color: '#F59E0B', kind: 'area' as const, fmt: fmtNum, height: 100, axisWidth: 54 },
 ]
 
 function fmtDateShort(dateStr: string) {
@@ -316,8 +316,15 @@ export default function ReportBody({ profile }: { profile: any }) {
       map[p.produk_terjual].itemSold += p.item_sold || 0
       map[p.produk_terjual].total += p.total || 0
     })
-    return Object.values(map).sort((a, b) => b.total - a.total)
+    // Top 10 best-selling products only — matches the Session Log's Top 10.
+    return Object.values(map).sort((a, b) => b.total - a.total).slice(0, 10)
   }, [products])
+
+  // Top 10 sessions by GMV for the on-screen Session Log — the raw per-session
+  // data (for CSV export, tags, charts, etc.) still uses the full `reports`.
+  const topSessionsByGmv = useMemo(
+    () => [...reports].sort((a, b) => (b.gmv || 0) - (a.gmv || 0)).slice(0, 10),
+    [reports])
 
   const topHost = hostEval[0]
   const topProduct = productBreakdown[0]
@@ -596,7 +603,7 @@ export default function ReportBody({ profile }: { profile: any }) {
 
       // ── 7. Product Breakdown ──
       addSection(
-        'Product Breakdown', `${platformLabel} Product Mix (Sesi New Wave) — ${month.label}`,
+        'Top 10 Produk Terlaris', `${platformLabel} Product Mix (Sesi New Wave) — ${month.label}`,
         ['Produk', 'GMV', 'Item', 'Klik'],
         productBreakdown.map(p => [p.name, fmtRp(p.total), fmtNum(p.itemSold), fmtNum(p.klik)]),
         [4.85, 1.6, 1.1, 1.1],
@@ -769,11 +776,6 @@ export default function ReportBody({ profile }: { profile: any }) {
             className="text-xs border border-gray-200 rounded-xl px-2 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white truncate">
             {monthOptions.map((m, i) => <option key={i} value={i}>{m.label}</option>)}
           </select>
-          <select value={platform} onChange={e => setPlatform(e.target.value)}
-            className="text-xs border border-gray-200 rounded-xl px-2 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white truncate">
-            <option value="">Semua Platform</option>
-            {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
           {!isClientRole && (
             <select value={selectedBrand} onChange={e => setSelectedBrand(e.target.value)}
               className="text-xs border border-gray-200 rounded-xl px-2 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white truncate">
@@ -782,6 +784,11 @@ export default function ReportBody({ profile }: { profile: any }) {
               {clientOptions.map(c => <option key={c.id} value={c.client_brand}>{c.client_brand}</option>)}
             </select>
           )}
+          <select value={platform} onChange={e => setPlatform(e.target.value)}
+            className="text-xs border border-gray-200 rounded-xl px-2 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white truncate">
+            <option value="">Semua Platform</option>
+            {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
         </div>
       </div>
 
@@ -879,13 +886,13 @@ export default function ReportBody({ profile }: { profile: any }) {
                         <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: m.color }}/>
                         {m.label}
                       </p>
-                      <div style={{ width: '100%', height: isLast ? 100 : 78 }}>
+                      <div style={{ width: '100%', height: m.height }}>
                         <ResponsiveContainer>
                           {m.kind === 'bar' ? (
                             <BarChart data={dailyTrend} margin={margin}>
                               <CartesianGrid strokeDasharray="3 3" stroke="#f3f1f8" vertical={false}/>
                               <XAxis dataKey="label" tick={isLast ? { fontSize: 10 } : false} axisLine={false} tickLine={false} hide={!isLast}/>
-                              <YAxis width={40} tick={{ fontSize: 9 }} tickFormatter={fmtNum} axisLine={false} tickLine={false}/>
+                              <YAxis width={m.axisWidth} domain={[0, 'auto']} tick={{ fontSize: 9 }} tickFormatter={fmtNum} axisLine={false} tickLine={false}/>
                               <Tooltip formatter={(v: any) => m.fmt(Number(v))} labelFormatter={l => l}/>
                               <Bar dataKey={m.key} fill={m.color} radius={[3, 3, 0, 0]} maxBarSize={18}/>
                             </BarChart>
@@ -899,7 +906,7 @@ export default function ReportBody({ profile }: { profile: any }) {
                               </defs>
                               <CartesianGrid strokeDasharray="3 3" stroke="#f3f1f8" vertical={false}/>
                               <XAxis dataKey="label" tick={isLast ? { fontSize: 10 } : false} axisLine={false} tickLine={false} hide={!isLast}/>
-                              <YAxis width={40} tick={{ fontSize: 9 }} tickFormatter={fmtNum} axisLine={false} tickLine={false}/>
+                              <YAxis width={m.axisWidth} domain={[0, 'auto']} tick={{ fontSize: 9 }} tickFormatter={fmtNum} axisLine={false} tickLine={false}/>
                               <Tooltip formatter={(v: any) => m.fmt(Number(v))} labelFormatter={l => l}/>
                               <Area type="monotone" dataKey={m.key} stroke={m.color} strokeWidth={2}
                                 fill={`url(#grad-${m.key})`} dot={false}/>
@@ -927,9 +934,9 @@ export default function ReportBody({ profile }: { profile: any }) {
             </div>
           )}
 
-          {/* Session log */}
+          {/* Session log — Top 10 sessions by GMV */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <h3 className="text-sm font-bold text-gray-800 px-5 pt-4 pb-2">Session Log</h3>
+            <h3 className="text-sm font-bold text-gray-800 px-5 pt-4 pb-2">10 Sesi Live Terbaik (by GMV)</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
@@ -945,7 +952,7 @@ export default function ReportBody({ profile }: { profile: any }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {reports.map(r => {
+                  {topSessionsByGmv.map(r => {
                     const tags = sessionTags.get(r.id)
                     return (
                       <tr key={r.id} className={`hover:bg-gray-50 ${tags ? 'bg-amber-50/50' : ''}`}>
@@ -1064,7 +1071,7 @@ export default function ReportBody({ profile }: { profile: any }) {
           {/* Product breakdown */}
           {productBreakdown.length > 0 && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-              <h3 className="text-sm font-bold text-gray-800 px-5 pt-4 pb-2">Product Breakdown</h3>
+              <h3 className="text-sm font-bold text-gray-800 px-5 pt-4 pb-2">Top 10 Produk Terlaris</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
@@ -1149,13 +1156,6 @@ export default function ReportBody({ profile }: { profile: any }) {
                 </div>
               )}
             </div>
-          )}
-
-          {/* Shopee vs TikTok Comparison — only when browsing with no platform filter and both exist */}
-          {reportMode === null && shopeeTiktokSplit === null && platform === '' && reports.some(r => r.platform === 'Shopee') && reports.some(r => r.platform === 'TikTok') && (
-            <p className="text-xs text-gray-400 text-center">
-              Pilih "Shopee + TikTok (gabungan)" di Download Report untuk melihat halaman perbandingan Shopee vs TikTok.
-            </p>
           )}
         </div>
       )}
