@@ -620,6 +620,23 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
 
   async function saveDetailEdit() {
     if (!detailRow?.app || !editForm) return
+    // Saving a form nobody actually edited writes the same numbers back and
+    // leaves the row "Berbeda" -- which reads as a broken save. Say what's
+    // wrong instead of issuing a pointless write.
+    const app = detailRow.app
+    const unchanged =
+      editForm.host_id === app.host_id &&
+      (editForm.start_time || '') === (app.start_time?.slice(0, 5) || '') &&
+      (editForm.platform || '') === (app.platform || '') &&
+      editForm.gmv === (Number(app.gmv) || 0) &&
+      editForm.impression === (Number(app.impression) || 0) &&
+      editForm.viewer === (Number(app.viewer) || 0) &&
+      editForm.trans === (Number(app.trans) || 0) &&
+      editForm.comment_count === (Number(app.comment_count) || 0)
+    if (unchanged) {
+      setDetailSaveError('Belum ada yang diubah. Klik "← Samakan Semua dengan CSV" atau "← CSV" di baris yang merah untuk memakai nilai CSV.')
+      return
+    }
     setSavingDetail(true); setDetailSaveError('')
     const supabase = createClient()
     const { data, error } = await supabase.from('live_reports').update({
@@ -952,7 +969,21 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
                       <Pencil size={11} className="text-brand-600"/>
                     </div>
                     <p className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">{tr('dataAplikasi', lang)}</p>
-                    <span className="text-[9px] bg-brand-50 text-brand-500 border border-brand-100 px-1.5 py-0.5 rounded-full font-semibold ml-auto">{tr('bisaDiedit', lang)}</span>
+                    {/* The common case is "make the app match the CSV" -- without
+                        this, every differing number had to be retyped by hand,
+                        and saving an untouched form looked like nothing happened. */}
+                    {editForm && (live.gmv || live.impression || live.viewer || live.trans || live.comment) && (
+                      <button type="button"
+                        onClick={() => setEditForm(f => f && ({
+                          ...f,
+                          gmv: detailRow.csv.gmv, impression: detailRow.csv.impression,
+                          viewer: detailRow.csv.viewer, trans: detailRow.csv.trans,
+                          comment_count: detailRow.csv.comment,
+                        }))}
+                        className="ml-auto text-[10px] font-bold text-white bg-pink-500 hover:bg-pink-600 px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-colors shadow-sm">
+                        ← Samakan Semua dengan CSV
+                      </button>
+                    )}
                   </div>
 
                   {detailRow.app?.screenshot_url ? (
@@ -990,25 +1021,30 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
                           {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
                         </select>
                       </EditRow>
-                      <EditRow label={tr('gmvCol', lang)} highlight={live.gmv}>
+                      <EditRow label={tr('gmvCol', lang)} highlight={live.gmv}
+                        onUseCsv={live.gmv ? () => setEditForm(f => f && ({ ...f, gmv: detailRow.csv.gmv })) : undefined}>
                         <CurrencyInput value={editForm.gmv} onChange={v => setEditForm(f => f && ({ ...f, gmv: v }))}
                           wrapperClassName="flex items-center border border-gray-200 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-brand-400 bg-white"
                           prefixClassName="px-2 py-1.5 bg-gray-50 text-[10px] font-semibold text-gray-400 flex-shrink-0"
                           className="w-24 min-w-0 px-2 py-1.5 text-xs text-right focus:outline-none"/>
                       </EditRow>
-                      <EditRow label={tr('impresiCol', lang)} highlight={live.impression}>
+                      <EditRow label={tr('impresiCol', lang)} highlight={live.impression}
+                        onUseCsv={live.impression ? () => setEditForm(f => f && ({ ...f, impression: detailRow.csv.impression })) : undefined}>
                         <input type="number" value={editForm.impression} onChange={e => setEditForm(f => f && ({ ...f, impression: Number(e.target.value) || 0 }))}
                           className="w-24 text-xs text-right font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"/>
                       </EditRow>
-                      <EditRow label={tr('penontonCol', lang)} highlight={live.viewer}>
+                      <EditRow label={tr('penontonCol', lang)} highlight={live.viewer}
+                        onUseCsv={live.viewer ? () => setEditForm(f => f && ({ ...f, viewer: detailRow.csv.viewer })) : undefined}>
                         <input type="number" value={editForm.viewer} onChange={e => setEditForm(f => f && ({ ...f, viewer: Number(e.target.value) || 0 }))}
                           className="w-24 text-xs text-right font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"/>
                       </EditRow>
-                      <EditRow label={tr('transCol', lang)} highlight={live.trans}>
+                      <EditRow label={tr('transCol', lang)} highlight={live.trans}
+                        onUseCsv={live.trans ? () => setEditForm(f => f && ({ ...f, trans: detailRow.csv.trans })) : undefined}>
                         <input type="number" value={editForm.trans} onChange={e => setEditForm(f => f && ({ ...f, trans: Number(e.target.value) || 0 }))}
                           className="w-24 text-xs text-right font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"/>
                       </EditRow>
-                      <EditRow label={tr('komentarCol', lang)} highlight={live.comment}>
+                      <EditRow label={tr('komentarCol', lang)} highlight={live.comment}
+                        onUseCsv={live.comment ? () => setEditForm(f => f && ({ ...f, comment_count: detailRow.csv.comment })) : undefined}>
                         <input type="number" value={editForm.comment_count} onChange={e => setEditForm(f => f && ({ ...f, comment_count: Number(e.target.value) || 0 }))}
                           className="w-24 text-xs text-right font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"/>
                       </EditRow>
@@ -1082,11 +1118,24 @@ function ReadRow({ label, value, highlight }: { label: string; value: string; hi
   )
 }
 
-function EditRow({ label, highlight, children }: { label: string; highlight?: boolean; children: React.ReactNode }) {
+function EditRow({ label, highlight, children, onUseCsv }: {
+  label: string; highlight?: boolean; children: React.ReactNode; onUseCsv?: () => void
+}) {
   return (
-    <div className={`flex items-center justify-between gap-3 px-3 py-1.5 rounded-xl transition-colors ${highlight ? 'bg-pink-50' : ''}`}>
+    <div className={`flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl transition-colors ${highlight ? 'bg-pink-50' : ''}`}>
       <span className={`font-medium flex-shrink-0 ${highlight ? 'text-pink-500' : 'text-gray-400'}`}>{label}</span>
-      {children}
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        {/* Only rendered for fields that actually differ -- the whole point of
+            the popup is copying CSV over app, and before this there was no way
+            to do it except retyping each number by hand. */}
+        {onUseCsv && (
+          <button type="button" onClick={onUseCsv} title="Pakai nilai CSV"
+            className="text-[9px] font-bold text-pink-600 hover:text-white hover:bg-pink-500 border border-pink-300 rounded-md px-1.5 py-1 whitespace-nowrap transition-colors">
+            ← CSV
+          </button>
+        )}
+        {children}
+      </div>
     </div>
   )
 }
