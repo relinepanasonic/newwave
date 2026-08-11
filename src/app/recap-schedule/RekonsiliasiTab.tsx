@@ -136,6 +136,9 @@ interface CompareRow {
   status: 'match' | 'mismatch' | 'missing_in_app' | 'not_reported_confirmed'
   isManual: boolean
   notReportedSlot: ScheduleSlotRow | null
+  // Admin decided the app's numbers are right and the CSV is wrong, so the
+  // row is settled even though the two still differ.
+  acceptedApp: boolean
 }
 
 function MetricCell({ csvVal, appVal, mismatch, fmt }: { csvVal: number; appVal?: number; mismatch: boolean; fmt: (n: number) => string }) {
@@ -187,6 +190,10 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
   const [detailSaveError, setDetailSaveError] = useState('')
   // Session-only log of rows corrected via the detail popup: csv row index -> ISO timestamp fixed.
   const [fixedLog, setFixedLog] = useState<Record<number, string>>({})
+  // Rows where the CSV is the wrong one -- the host's own report is correct,
+  // so the difference is expected and the row shouldn't keep flagging as
+  // "Berbeda" forever. csv row index -> ISO timestamp accepted.
+  const [acceptedApp, setAcceptedApp] = useState<Record<number, string>>({})
   const fileRef = useRef<HTMLInputElement>(null)
   // The ±1-day-widened date range the currently-loaded CSV was fetched
   // against -- kept so a refresh can re-fetch live_reports/schedule_slots
@@ -269,6 +276,7 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
     setNotReportedReportIds({})
     setCreatedSlotIds({})
     setFixedLog({})
+    setAcceptedApp({})
     e.target.value = ''
     if (!parsed.length) { fetchRangeRef.current = null; return }
 
@@ -352,9 +360,15 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
         // durable source of truth so the badge survives a page revisit.
         status = 'not_reported_confirmed'
       }
-      return { csv, csvIdx, app, mismatches, status, isManual, notReportedSlot }
+      // "App yang benar": the host's report is right and the CSV is wrong, so
+      // this row is settled. Clearing mismatches too keeps the row visually
+      // clean (no leftover pink cells under a green badge) and moves it out
+      // of the Berbeda count/filter, same as a genuine match.
+      const isAcceptedApp = !!acceptedApp[csvIdx] && status === 'mismatch'
+      if (isAcceptedApp) { mismatches.clear(); status = 'match' }
+      return { csv, csvIdx, app, mismatches, status, isManual, notReportedSlot, acceptedApp: isAcceptedApp }
     })
-  }, [csvRows, appReports, hostMap, manualMatches, appById, notReportedMatches, scheduleById])
+  }, [csvRows, appReports, hostMap, manualMatches, appById, notReportedMatches, scheduleById, acceptedApp])
 
   const usedAppIds = useMemo(() => new Set(compareRows.filter(r => r.app).map(r => r.app!.id)), [compareRows])
 
@@ -634,7 +648,7 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
       editForm.trans === (Number(app.trans) || 0) &&
       editForm.comment_count === (Number(app.comment_count) || 0)
     if (unchanged) {
-      setDetailSaveError('Belum ada yang diubah. Klik "← Samakan Semua dengan CSV" atau "← CSV" di baris yang merah untuk memakai nilai CSV.')
+      setDetailSaveError('Nilai app sudah sama dengan yang di form — tidak ada yang perlu disimpan. Kalau CSV-nya yang salah, klik "Data App Benar". Kalau app-nya yang salah, pakai "← Samakan Semua dengan CSV" atau "← CSV" di baris merah.')
       return
     }
     setSavingDetail(true); setDetailSaveError('')
@@ -811,7 +825,12 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
                       <td className="px-1.5 py-1.5 text-center">
                         <div className="flex items-center justify-center gap-1 flex-wrap">
                           {r.status === 'match' && (
-                            fixedLog[r.csvIdx] ? (
+                            r.acceptedApp ? (
+                              <span className="text-[9px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap"
+                                title="Data app dianggap benar, CSV-nya yang salah">
+                                App Benar
+                              </span>
+                            ) : fixedLog[r.csvIdx] ? (
                               <span className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">
                                 {tr('fixedLabel', lang)} · {fmtFixedDate(fixedLog[r.csvIdx])}
                               </span>
@@ -1092,6 +1111,16 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
                     <button onClick={closeDetail} disabled={savingDetail}
                       className="px-4 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-500 hover:bg-gray-50 disabled:opacity-50 transition-colors">
                       {tr('cancel', lang)}
+                    </button>
+                    {/* Not every difference means the app is wrong -- sometimes the
+                        CSV is. Without this the row would stay "Berbeda" forever
+                        with no way to settle it short of falsifying the report. */}
+                    <button onClick={() => {
+                        setAcceptedApp(prev => ({ ...prev, [detailRow.csvIdx]: new Date().toISOString() }))
+                        closeDetail()
+                      }} disabled={savingDetail}
+                      className="px-4 py-2.5 text-sm font-semibold border border-sky-300 text-sky-700 rounded-xl hover:bg-sky-50 disabled:opacity-50 transition-colors whitespace-nowrap">
+                      Data App Benar
                     </button>
                     <button onClick={saveDetailEdit} disabled={savingDetail}
                       className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white rounded-xl shadow-sm hover:shadow-md disabled:opacity-60 transition-all"
