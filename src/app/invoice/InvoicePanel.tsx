@@ -132,24 +132,30 @@ const FORM_DEFAULT = {
   bank_account_number: BANK_ACCOUNTS[0].bank_account_number, notes: '',
 }
 
-// Status is mirrored verbatim from whichever source created the invoice --
-// New Wave's own form still writes 'unpaid'/'paid'/'cancelled', but a
-// ProOne-pushed invoice can carry ProOne's own vocabulary (draft, pending,
-// overdue, ...). Known values get a styled badge; anything else still shows
-// (title-cased) via statusConfigFor's fallback instead of being hidden.
+// Whatever raw status value a pushing app writes (New Wave's own form uses
+// 'unpaid'/'paid'/'cancelled'; ProOne has used 'draft', 'pending', 'partial',
+// 'overdue', ...) is folded into ProOne's own three-value vocabulary --
+// Pending / Partial / Paid -- so both sides always read the same words for
+// the same invoice, with Overdue/Close kept as distinct extra states since
+// they carry information the 3-value set would otherwise hide.
+function canonicalStatus(raw: string | null | undefined): string {
+  const s = (raw || '').toLowerCase().trim()
+  if (s === 'paid' || s === 'lunas') return 'paid'
+  if (s === 'partial' || s === 'partially_paid' || s === 'partially-paid' || s === 'sebagian') return 'partial'
+  if (s === 'overdue') return 'overdue'
+  if (s === 'cancelled' || s === 'canceled' || s === 'close' || s === 'closed') return 'cancelled'
+  // draft, unpaid, pending, blank, or anything else not-yet-paid -> pending
+  return 'pending'
+}
 const STATUS_CONFIG: Record<string, { label: string; badge: string; border: string }> = {
-  unpaid:    { label: 'Billed',  badge: 'bg-amber-100 text-amber-700',   border: 'border-l-amber-400' },
   pending:   { label: 'Pending', badge: 'bg-amber-100 text-amber-700',   border: 'border-l-amber-400' },
-  draft:     { label: 'Draft',   badge: 'bg-gray-100 text-gray-500',     border: 'border-l-gray-300' },
-  overdue:   { label: 'Overdue', badge: 'bg-red-100 text-red-700',       border: 'border-l-red-400' },
+  partial:   { label: 'Partial', badge: 'bg-blue-100 text-blue-700',     border: 'border-l-blue-400' },
   paid:      { label: 'Paid',    badge: 'bg-emerald-100 text-emerald-700', border: 'border-l-emerald-400' },
+  overdue:   { label: 'Overdue', badge: 'bg-red-100 text-red-700',       border: 'border-l-red-400' },
   cancelled: { label: 'Close',   badge: 'bg-gray-100 text-gray-500',     border: 'border-l-gray-300' },
 }
 function statusConfigFor(status: string) {
-  return STATUS_CONFIG[status] || {
-    label: status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Billed',
-    badge: 'bg-gray-100 text-gray-500', border: 'border-l-gray-300',
-  }
+  return STATUS_CONFIG[canonicalStatus(status)]
 }
 
 interface NwPackage { id: string; name: string; description: string | null; tipe_live: string; jam_per_sesi: number; price_per_jam: number; is_active: boolean }
@@ -633,16 +639,16 @@ export default function InvoicePanel({ profile }: { profile: any }) {
   const clientOptions = useMemo(() =>
     Array.from(new Set(invoices.map(i => i.brand).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
     [invoices])
-  // Built from whatever status values are actually present (not a fixed
-  // enum) so a status ProOne introduces later still shows up as a filter.
+  // Deduped by canonical status (not the raw value) so e.g. 'draft' and
+  // 'unpaid' invoices don't show as two separately-labeled "Pending" options.
   const statusOptions = useMemo(() =>
-    Array.from(new Set(invoices.map(i => i.status).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    Array.from(new Set(invoices.map(i => canonicalStatus(i.status)))).sort((a, b) => a.localeCompare(b)),
     [invoices])
   const filteredInvoices = useMemo(() => invoices.filter(inv =>
     (monthFilter === 'all' || inv.invoice_date.slice(0, 7) === monthFilter) &&
     (clientFilter === 'all' || inv.brand === clientFilter) &&
     (dueMonthFilter === 'all' || inv.due_date?.slice(0, 7) === dueMonthFilter) &&
-    (statusFilter === 'all' || inv.status === statusFilter)
+    (statusFilter === 'all' || canonicalStatus(inv.status) === statusFilter)
   ), [invoices, monthFilter, clientFilter, dueMonthFilter, statusFilter])
 
   return (
@@ -915,7 +921,7 @@ export default function InvoicePanel({ profile }: { profile: any }) {
                                 </div>
                               </div>
 
-                              {isSuperadmin && inv.status !== 'paid' && (
+                              {isSuperadmin && canonicalStatus(inv.status) !== 'paid' && (
                                 <button onClick={() => markPaid(inv.id)}
                                   className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-xs font-semibold hover:bg-emerald-700 transition-colors shadow-sm">
                                   <CheckCircle size={13}/> Tandai Lunas

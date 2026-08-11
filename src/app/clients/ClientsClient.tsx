@@ -1026,12 +1026,15 @@ function BlackoutTab() {
 }
 
 // ── Log Top Up ────────────────────────────────────────────────────────────
-// Flat audit/management view over every kuota_adjustments row (across all
-// brands/months), so an admin doesn't have to open each client on Client
-// List one at a time to find and fix a top-up they entered earlier.
+// Flat audit view over EVERY source of Kuota top-up, across all brands/
+// months: manual kuota_adjustments entries (editable/deletable here) plus
+// every hour-scaled invoice line (read-only -- edit those from Invoice).
+// Without both together this log would miss most top-ups, since the bulk of
+// Kuota actually comes from invoice_items, not manual adjustments.
 interface TopUpRow {
   id: string; brand: string; tier: string; month_start: string
   delta_hours: number; note: string | null; created_at: string
+  source: 'manual' | 'invoice'; invoiceNumber?: string
 }
 const EMPTY_TOPUP_FORM = { brand: '', tier: 'Regular', month_start: '', delta_hours: '', note: '' }
 
@@ -1044,9 +1047,11 @@ function fmtLogDate(dateStr: string): string {
 }
 
 function TopUpLogTab() {
-  const [rows, setRows] = useState<TopUpRow[]>([])
+  const [manualRows, setManualRows] = useState<TopUpRow[]>([])
+  const [invoiceRows, setInvoiceRows] = useState<TopUpRow[]>([])
   const [loading, setLoading] = useState(true)
   const [brandFilter, setBrandFilter] = useState('all')
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'manual' | 'invoice'>('all')
   const [sortBy, setSortBy] = useState<'month' | 'brand' | 'created'>('created')
 
   const [formModal, setFormModal] = useState<{ id: string | null } & typeof EMPTY_TOPUP_FORM | null>(null)
@@ -1055,23 +1060,48 @@ function TopUpLogTab() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
 
+  function loadManual() {
+    return createClient().from('kuota_adjustments')
+      .select('id, brand, tier, month_start, delta_hours, note, created_at')
+      .then(({ data }) => setManualRows(((data || []) as any[]).map(r => ({ ...r, source: 'manual' as const }))))
+  }
+  function loadInvoiceTopUps() {
+    return createClient().from('invoices')
+      .select('invoice_number, brand, invoice_date, invoice_items(id, name, qty, scale)')
+      .then(({ data }) => {
+        const rows: TopUpRow[] = []
+        ;(data || []).forEach((inv: any) => {
+          if (!inv.brand) return
+          ;(inv.invoice_items || []).forEach((it: any) => {
+            const hours = itemQuotaHours(it)
+            if (!hours) return
+            rows.push({
+              id: `inv-${it.id}`, brand: inv.brand, tier: tierFromItemName(it.name) || UNTAGGED,
+              month_start: `${inv.invoice_date.slice(0, 7)}-01`, delta_hours: hours, note: it.name,
+              created_at: inv.invoice_date, source: 'invoice', invoiceNumber: inv.invoice_number,
+            })
+          })
+        })
+        setInvoiceRows(rows)
+      })
+  }
   function load() {
     setLoading(true)
-    createClient().from('kuota_adjustments')
-      .select('id, brand, tier, month_start, delta_hours, note, created_at')
-      .then(({ data }) => { setRows((data || []) as TopUpRow[]); setLoading(false) })
+    Promise.all([loadManual(), loadInvoiceTopUps()]).then(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
 
+  const rows = useMemo(() => [...manualRows, ...invoiceRows], [manualRows, invoiceRows])
   const brands = useMemo(() => Array.from(new Set(rows.map(r => r.brand))).sort(), [rows])
   const filtered = useMemo(() => {
-    const list = brandFilter === 'all' ? rows : rows.filter(r => r.brand === brandFilter)
+    let list = brandFilter === 'all' ? rows : rows.filter(r => r.brand === brandFilter)
+    if (sourceFilter !== 'all') list = list.filter(r => r.source === sourceFilter)
     return [...list].sort((a, b) => {
       if (sortBy === 'month') return b.month_start.localeCompare(a.month_start)
       if (sortBy === 'brand') return a.brand.localeCompare(b.brand)
       return b.created_at.localeCompare(a.created_at)
     })
-  }, [rows, brandFilter, sortBy])
+  }, [rows, brandFilter, sourceFilter, sortBy])
 
   function openCreate() {
     setFormError('')
@@ -1107,7 +1137,7 @@ function TopUpLogTab() {
   async function handleDelete(id: string) {
     setDeleting(true)
     await createClient().from('kuota_adjustments').delete().eq('id', id)
-    setRows(prev => prev.filter(r => r.id !== id))
+    setManualRows(prev => prev.filter(r => r.id !== id))
     setConfirmDeleteId(null); setDeleting(false)
   }
 
@@ -1116,7 +1146,7 @@ function TopUpLogTab() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="font-bold text-gray-900">Log Top Up</h2>
-          <p className="text-sm text-gray-500">Riwayat semua penyesuaian Top Up Kuota, lintas client & bulan</p>
+          <p className="text-sm text-gray-500">Riwayat semua Top Up Kuota — dari invoice & penyesuaian manual — lintas client & bulan</p>
         </div>
         <button onClick={openCreate}
           className="flex items-center gap-2 bg-brand-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-brand-700 transition-colors shadow-sm">
@@ -1129,6 +1159,12 @@ function TopUpLogTab() {
           className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
           <option value="all">Semua Client</option>
           {brands.map(b => <option key={b} value={b}>{b}</option>)}
+        </select>
+        <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value as typeof sourceFilter)}
+          className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+          <option value="all">Semua Sumber</option>
+          <option value="invoice">Dari Invoice</option>
+          <option value="manual">Penyesuaian Manual</option>
         </select>
         <select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)}
           className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
@@ -1143,7 +1179,7 @@ function TopUpLogTab() {
         <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">Memuat...</div>
       ) : filtered.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center">
-          <p className="text-sm font-medium text-gray-400">Belum ada penyesuaian Top Up</p>
+          <p className="text-sm font-medium text-gray-400">Belum ada data Top Up untuk filter ini</p>
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -1156,6 +1192,7 @@ function TopUpLogTab() {
                   <th className="px-4 py-3 text-left font-semibold">Bulan</th>
                   <th className="px-4 py-3 text-right font-semibold">Jam</th>
                   <th className="px-4 py-3 text-left font-semibold">Catatan</th>
+                  <th className="px-4 py-3 text-left font-semibold">Sumber</th>
                   <th className="px-4 py-3 text-left font-semibold">Dibuat</th>
                   <th className="px-4 py-3 text-left font-semibold w-20">Aksi</th>
                 </tr>
@@ -1178,9 +1215,22 @@ function TopUpLogTab() {
                         {r.delta_hours > 0 ? '+' : ''}{fmtSlots(r.delta_hours)}
                       </td>
                       <td className="px-4 py-3 text-gray-500 max-w-[220px] truncate">{r.note || <span className="text-gray-300">—</span>}</td>
+                      <td className="px-4 py-3">
+                        {r.source === 'invoice' ? (
+                          <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap" title={r.invoiceNumber}>
+                            {r.invoiceNumber || 'Invoice'}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] bg-brand-50 text-brand-600 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">
+                            Manual
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{fmtLogDate(r.created_at)}</td>
                       <td className="px-4 py-3">
-                        {isConfirm ? (
+                        {r.source !== 'manual' ? (
+                          <span className="text-[10px] text-gray-300 px-1.5">—</span>
+                        ) : isConfirm ? (
                           <div className="flex items-center gap-1.5">
                             <button onClick={() => handleDelete(r.id)} disabled={deleting}
                               className="text-[10px] bg-red-500 text-white px-2 py-1 rounded-lg font-semibold hover:bg-red-600 disabled:opacity-60">Hapus</button>
