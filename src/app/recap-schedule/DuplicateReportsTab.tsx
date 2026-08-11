@@ -217,12 +217,22 @@ export default function DuplicateReportsTab() {
           {visibleGroups.map(g => {
             const chosen = keepId[g.key]
             const vals = editVals[g.key]
+            const brands = Array.from(new Set(g.rows.map(r => r.brand || '—')))
+            const brandsDiffer = brands.length > 1
             return (
               <div key={g.key} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
                   <div>
-                    <p className="text-sm font-bold text-gray-900">{g.hostName} · {fmtDate(g.report_date)} · {g.start_time}</p>
+                    <p className="text-sm font-bold text-gray-900">
+                      {g.hostName} · {fmtDate(g.report_date)} · {g.start_time}
+                      {!brandsDiffer && <span className="text-gray-400 font-medium"> · {brands[0]}</span>}
+                    </p>
                     <p className="text-xs text-gray-400">{g.rows.length} baris untuk sesi yang sama</p>
+                    {brandsDiffer && (
+                      <p className="text-[11px] text-amber-600 font-semibold flex items-center gap-1 mt-0.5">
+                        <AlertTriangle size={11}/> Brand berbeda ({brands.join(' vs ')}) — cek dulu, mungkin bukan duplikat
+                      </p>
+                    )}
                   </div>
                   <button onClick={() => dismissGroup(g.key)}
                     className="text-[11px] font-semibold text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg px-2.5 py-1.5">
@@ -246,6 +256,9 @@ export default function DuplicateReportsTab() {
                           </span>
                           {isChosen && <span className="text-[10px] font-bold text-brand-600 flex items-center gap-1"><CheckCircle2 size={12}/> Disimpan</span>}
                         </div>
+                        <p className={`text-xs font-semibold mb-1.5 ${brandsDiffer ? 'text-amber-700' : 'text-gray-700'}`}>
+                          {r.brand || '—'}{r.platform ? ` · ${r.platform}` : ''}
+                        </p>
                         <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-2">
                           {METRICS.map(m => (
                             <div key={m.key} className="flex justify-between">
