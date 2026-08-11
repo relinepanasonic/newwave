@@ -14,6 +14,25 @@ import { UNTAGGED, QUOTA_TIERS, itemQuotaHours, tierFromItemName, tierFromSlot, 
 
 type Tab = 'clients' | 'invoice' | 'topuplog' | 'servicepkg' | 'products' | 'blackout'
 
+// PostgREST caps any query at 1000 rows unless explicitly paginated. Tables
+// that can realistically grow past that (live_reports already has) need
+// this instead of a bare .select() -- otherwise rows silently drop off the
+// end with no error, and since queries here sort ascending by date, it's
+// always the newest data (the current month) that goes missing first.
+async function fetchAllRows(supabase: ReturnType<typeof createClient>, table: string, columns: string, orderBy: string) {
+  const pageSize = 1000
+  let from = 0
+  const all: any[] = []
+  while (true) {
+    const { data, error } = await supabase.from(table).select(columns).order(orderBy).range(from, from + pageSize - 1)
+    if (error || !data || data.length === 0) break
+    all.push(...data)
+    if (data.length < pageSize) break
+    from += pageSize
+  }
+  return all
+}
+
 interface ClientProfile { id: string; full_name: string; client_brand: string }
 interface LiveReportRow {
   id: string; report_date: string; brand: string | null; platform: string | null
@@ -168,10 +187,14 @@ function ClientListTab() {
         .not('host_id', 'is', null)
         .order('slot_date')
         .then(({ data }) => data || []),
-      supabase.from('live_reports')
-        .select('id, report_date, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, slot_id, tier_override, profiles:host_id(full_name)')
-        .order('report_date')
-        .then(({ data }) => data || []),
+      // PostgREST caps a query at 1000 rows by default, and live_reports has
+      // long since passed that -- an unpaginated fetch here silently drops
+      // every recent month (sorted ascending, so the newest data is what
+      // gets cut), making Active Live/Kuota read as 0 for the current month
+      // with no error anywhere. Page through in batches of 1000 instead.
+      fetchAllRows(supabase, 'live_reports',
+        'id, report_date, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, slot_id, tier_override, profiles:host_id(full_name)',
+        'report_date'),
       supabase.from('invoices').select('brand, invoice_to, invoice_date, invoice_items(name, qty, scale, jam_per_sesi)')
         .order('invoice_date', { ascending: true })
         .then(({ data }) => data || []),
