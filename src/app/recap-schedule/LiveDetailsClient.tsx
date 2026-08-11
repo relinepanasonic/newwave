@@ -22,6 +22,10 @@ const TABS: { key: Tab; labelKey: string; shortKey: string; icon: any }[] = [
 export default function LiveDetailsClient({ profile }: { profile: any }) {
   const { lang } = useLang()
   const [tab, setTab] = useState<Tab>('recap')
+  // Bumped whenever Duplikat changes live_reports data, so Reconciliation
+  // (which caches its own snapshot) knows to refetch instead of quietly
+  // going stale -- see the two tabs' own comments for the full story.
+  const [refreshSignal, setRefreshSignal] = useState(0)
 
   return (
     <AppShell role={profile.role as any} userName={profile.full_name}>
@@ -48,10 +52,14 @@ export default function LiveDetailsClient({ profile }: { profile: any }) {
           ))}
         </div>
 
-        {tab === 'recap' && <RecapTab profile={profile} />}
-        {tab === 'report' && <ReportDetailTab profile={profile} />}
-        {tab === 'rekonsiliasi' && <RekonsiliasiTab profile={profile} />}
-        {tab === 'duplicates' && <DuplicateReportsTab />}
+        {/* All four tabs stay mounted (hidden via CSS, not unmounted) so
+            switching tabs never loses an in-progress CSV upload, and so
+            Reconciliation is still listening for refreshSignal even while
+            you're on a different tab. */}
+        <div className={tab === 'recap' ? '' : 'hidden'}><RecapTab profile={profile} /></div>
+        <div className={tab === 'report' ? '' : 'hidden'}><ReportDetailTab profile={profile} /></div>
+        <div className={tab === 'rekonsiliasi' ? '' : 'hidden'}><RekonsiliasiTab profile={profile} refreshSignal={refreshSignal} /></div>
+        <div className={tab === 'duplicates' ? '' : 'hidden'}><DuplicateReportsTab onDataChanged={() => setRefreshSignal(s => s + 1)} /></div>
       </div>
     </AppShell>
   )

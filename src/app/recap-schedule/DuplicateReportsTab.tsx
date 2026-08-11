@@ -52,7 +52,7 @@ function fmtCreated(iso: string) {
     ' ' + new Date(iso).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
 }
 
-export default function DuplicateReportsTab() {
+export default function DuplicateReportsTab({ onDataChanged }: { onDataChanged?: () => void }) {
   const [loading, setLoading] = useState(true)
   const [groups, setGroups] = useState<DupGroup[]>([])
   const [monthFilter, setMonthFilter] = useState<string>('all')
@@ -152,6 +152,10 @@ export default function DuplicateReportsTab() {
     }
     setSaving(null)
     setResolvedKeys(prev => new Set(prev).add(g.key))
+    // Reconciliation caches its own snapshot of live_reports independent of
+    // this tab's fetch -- without this it would keep showing whichever row
+    // just got deleted here as still "the" matched app report.
+    onDataChanged?.()
   }
 
   function dismissGroup(key: string) {

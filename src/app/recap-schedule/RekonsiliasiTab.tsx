@@ -1,10 +1,10 @@
 'use client'
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, PLATFORM_COLORS } from '@/lib/utils'
 import {
   Upload, AlertTriangle, CheckCircle2, XCircle, Link2, X, CalendarSearch, ExternalLink,
-  Pencil, FileSpreadsheet, Save, Sparkles, CalendarPlus,
+  Pencil, FileSpreadsheet, Save, Sparkles, CalendarPlus, RefreshCw,
 } from 'lucide-react'
 import CurrencyInput from '@/components/CurrencyInput'
 import TimeInput from '@/components/TimeInput'
@@ -148,7 +148,7 @@ function MetricCell({ csvVal, appVal, mismatch, fmt }: { csvVal: number; appVal?
   )
 }
 
-export default function RekonsiliasiTab({ profile: _profile }: { profile: any }) {
+export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { profile: any; refreshSignal?: number }) {
   const { lang } = useLang()
   const [csvRows, setCsvRows] = useState<CsvRow[]>([])
   const [appReports, setAppReports] = useState<AppReport[]>([])
@@ -188,6 +188,52 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
   // Session-only log of rows corrected via the detail popup: csv row index -> ISO timestamp fixed.
   const [fixedLog, setFixedLog] = useState<Record<number, string>>({})
   const fileRef = useRef<HTMLInputElement>(null)
+  // The ±1-day-widened date range the currently-loaded CSV was fetched
+  // against -- kept so a refresh can re-fetch live_reports/schedule_slots
+  // for the same window without needing the CSV file again.
+  const fetchRangeRef = useRef<{ start: string; end: string } | null>(null)
+
+  // Re-fetches live_reports/schedule_slots/hosts/rooms for a date range,
+  // WITHOUT touching csvRows or any manual match/dismiss state -- used both
+  // by the initial CSV upload and by refreshData() below, so "the Duplikat
+  // tab changed something" and "I just uploaded a CSV" both converge on the
+  // same fetch instead of two separate, potentially-diverging code paths.
+  async function fetchAppData(fetchStart: string, fetchEnd: string) {
+    setLoading(true)
+    const supabase = createClient()
+    const [reportsRes, slotsRes, hostsRes, roomsRes] = await Promise.all([
+      supabase.from('live_reports')
+        .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, profiles:host_id(full_name, username)')
+        .gte('report_date', fetchStart).lte('report_date', fetchEnd),
+      supabase.from('schedule_slots')
+        .select('id, slot_date, session_no, jam_mulai, durasi, brand, platform, host_id')
+        .gte('slot_date', fetchStart).lte('slot_date', fetchEnd).not('host_id', 'is', null),
+      supabase.from('profiles').select('id, full_name, username').in('role', ['host', 'host_manager']),
+      supabase.from('rooms').select('id, name').eq('is_active', true).order('sort_order'),
+    ])
+    setAppReports((reportsRes.data as any) || [])
+    setScheduleSlots((slotsRes.data as any) || [])
+    setHosts(hostsRes.data || [])
+    setRooms(roomsRes.data || [])
+    setLoading(false)
+  }
+
+  // Re-fetches for the CSV already loaded, without re-parsing the file --
+  // called on refreshSignal (Duplikat tab made a change) and by the manual
+  // "Muat Ulang" button. A no-op if no CSV is loaded yet.
+  function refreshData() {
+    if (!fetchRangeRef.current) return
+    fetchAppData(fetchRangeRef.current.start, fetchRangeRef.current.end)
+  }
+
+  // Runs on every refreshSignal bump except the very first render (there's
+  // nothing to refresh before a CSV has even been uploaded once).
+  const skipFirstRefresh = useRef(true)
+  useEffect(() => {
+    if (skipFirstRefresh.current) { skipFirstRefresh.current = false; return }
+    refreshData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshSignal])
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -224,30 +270,15 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
     setCreatedSlotIds({})
     setFixedLog({})
     e.target.value = ''
-    if (!parsed.length) return
+    if (!parsed.length) { fetchRangeRef.current = null; return }
 
-    setLoading(true)
     const minDate = parsed.reduce((m, r) => r.tanggal < m ? r.tanggal : m, parsed[0].tanggal)
     const maxDate = parsed.reduce((m, r) => r.tanggal > m ? r.tanggal : m, parsed[0].tanggal)
     // Widen by a day on each side so midnight-crossing sessions can still be found.
     const fetchStart = shiftDate(minDate, -1)
     const fetchEnd = shiftDate(maxDate, 1)
-    const supabase = createClient()
-    const [reportsRes, slotsRes, hostsRes, roomsRes] = await Promise.all([
-      supabase.from('live_reports')
-        .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, profiles:host_id(full_name, username)')
-        .gte('report_date', fetchStart).lte('report_date', fetchEnd),
-      supabase.from('schedule_slots')
-        .select('id, slot_date, session_no, jam_mulai, durasi, brand, platform, host_id')
-        .gte('slot_date', fetchStart).lte('slot_date', fetchEnd).not('host_id', 'is', null),
-      supabase.from('profiles').select('id, full_name, username').in('role', ['host', 'host_manager']),
-      supabase.from('rooms').select('id, name').eq('is_active', true).order('sort_order'),
-    ])
-    setAppReports((reportsRes.data as any) || [])
-    setScheduleSlots((slotsRes.data as any) || [])
-    setHosts(hostsRes.data || [])
-    setRooms(roomsRes.data || [])
-    setLoading(false)
+    fetchRangeRef.current = { start: fetchStart, end: fetchEnd }
+    await fetchAppData(fetchStart, fetchEnd)
   }
 
   const hostMap = useMemo(() => {
@@ -615,10 +646,19 @@ export default function RekonsiliasiTab({ profile: _profile }: { profile: any })
         <p className="text-sm font-bold text-gray-900 mb-1">{tr('uploadCsvRekonTitle', lang)}</p>
         <p className="text-xs text-gray-500 mb-3">{tr('uploadCsvRekonDesc', lang)}</p>
         <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleFile}/>
-        <button onClick={() => fileRef.current?.click()}
-          className="flex items-center gap-1.5 text-sm bg-brand-600 text-white px-3.5 py-2 rounded-xl font-medium hover:bg-brand-700 transition-colors shadow-sm">
-          <Upload size={14}/> {tr('pilihFileCsv', lang)}
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => fileRef.current?.click()}
+            className="flex items-center gap-1.5 text-sm bg-brand-600 text-white px-3.5 py-2 rounded-xl font-medium hover:bg-brand-700 transition-colors shadow-sm">
+            <Upload size={14}/> {tr('pilihFileCsv', lang)}
+          </button>
+          {csvRows.length > 0 && (
+            <button onClick={refreshData} disabled={loading}
+              title="Ambil ulang data app terbaru untuk CSV yang sudah dimuat -- pakai ini setelah membereskan sesuatu di tab Duplikat"
+              className="flex items-center gap-1.5 text-sm border border-gray-200 text-gray-600 px-3.5 py-2 rounded-xl font-medium hover:bg-gray-50 transition-colors disabled:opacity-50">
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''}/> Muat Ulang Data
+            </button>
+          )}
+        </div>
         {fileName && <p className="text-xs text-gray-400 mt-2">{loading ? tr('loading', lang) : `File: ${fileName} · ${csvRows.length} baris`}</p>}
       </div>
 
