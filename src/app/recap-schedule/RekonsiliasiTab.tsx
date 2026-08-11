@@ -630,14 +630,23 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
       trans: editForm.trans, comment_count: editForm.comment_count,
     }).eq('id', detailRow.app.id)
       .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, profiles:host_id(full_name, username)')
-      .single()
     setSavingDetail(false)
     if (error) { setDetailSaveError(error.message); return }
-    if (data) {
-      setAppReports(prev => prev.map(a => a.id === (data as any).id ? (data as any) : a))
-      setFixedLog(prev => ({ ...prev, [detailRow.csvIdx]: new Date().toISOString() }))
-      closeDetail()
+    // No .single() here on purpose: an UPDATE that matches no row is not a
+    // Postgres error, so .single() would surface it as a cryptic "0 rows"
+    // parse failure. Matching 0 rows means this report no longer exists --
+    // typically deleted from the Duplikat tab -- or RLS blocked the write.
+    // Either way the snapshot is stale, so say so plainly and refetch rather
+    // than letting it look like the save silently did nothing.
+    if (!data || data.length === 0) {
+      setDetailSaveError('Baris ini sudah tidak ada di database (mungkin sudah dihapus di tab Duplikat). Data dimuat ulang — tutup lalu coba lagi.')
+      refreshData()
+      return
     }
+    const updated = data[0] as any
+    setAppReports(prev => prev.map(a => a.id === updated.id ? updated : a))
+    setFixedLog(prev => ({ ...prev, [detailRow.csvIdx]: new Date().toISOString() }))
+    closeDetail()
   }
 
   return (
