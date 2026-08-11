@@ -12,7 +12,7 @@ import TimeInput from '@/components/TimeInput'
 import { formatCurrency, PLATFORM_COLORS } from '@/lib/utils'
 import { UNTAGGED, QUOTA_TIERS, itemQuotaHours, tierFromItemName, tierFromSlot, tierFromReport } from '@/lib/kuota'
 
-type Tab = 'clients' | 'invoice' | 'servicepkg' | 'products' | 'blackout'
+type Tab = 'clients' | 'invoice' | 'topuplog' | 'servicepkg' | 'products' | 'blackout'
 
 interface ClientProfile { id: string; full_name: string; client_brand: string }
 interface LiveReportRow {
@@ -1025,6 +1025,253 @@ function BlackoutTab() {
   )
 }
 
+// ── Log Top Up ────────────────────────────────────────────────────────────
+// Flat audit/management view over every kuota_adjustments row (across all
+// brands/months), so an admin doesn't have to open each client on Client
+// List one at a time to find and fix a top-up they entered earlier.
+interface TopUpRow {
+  id: string; brand: string; tier: string; month_start: string
+  delta_hours: number; note: string | null; created_at: string
+}
+const EMPTY_TOPUP_FORM = { brand: '', tier: 'Regular', month_start: '', delta_hours: '', note: '' }
+
+function monthLabelOf(dateStr: string): string {
+  const [y, m] = dateStr.split('-').map(Number)
+  return new Date(y, m - 1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
+}
+function fmtLogDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function TopUpLogTab() {
+  const [rows, setRows] = useState<TopUpRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [brandFilter, setBrandFilter] = useState('all')
+  const [sortBy, setSortBy] = useState<'month' | 'brand' | 'created'>('created')
+
+  const [formModal, setFormModal] = useState<{ id: string | null } & typeof EMPTY_TOPUP_FORM | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  function load() {
+    setLoading(true)
+    createClient().from('kuota_adjustments')
+      .select('id, brand, tier, month_start, delta_hours, note, created_at')
+      .then(({ data }) => { setRows((data || []) as TopUpRow[]); setLoading(false) })
+  }
+  useEffect(() => { load() }, [])
+
+  const brands = useMemo(() => Array.from(new Set(rows.map(r => r.brand))).sort(), [rows])
+  const filtered = useMemo(() => {
+    const list = brandFilter === 'all' ? rows : rows.filter(r => r.brand === brandFilter)
+    return [...list].sort((a, b) => {
+      if (sortBy === 'month') return b.month_start.localeCompare(a.month_start)
+      if (sortBy === 'brand') return a.brand.localeCompare(b.brand)
+      return b.created_at.localeCompare(a.created_at)
+    })
+  }, [rows, brandFilter, sortBy])
+
+  function openCreate() {
+    setFormError('')
+    setFormModal({ id: null, ...EMPTY_TOPUP_FORM, month_start: getMonthOptions()[new Date().getMonth()].start })
+  }
+  function openEdit(r: TopUpRow) {
+    setFormError('')
+    setFormModal({ id: r.id, brand: r.brand, tier: r.tier, month_start: r.month_start, delta_hours: String(r.delta_hours), note: r.note || '' })
+  }
+
+  async function saveForm() {
+    if (!formModal) return
+    if (!formModal.brand.trim()) { setFormError('Brand wajib diisi'); return }
+    const delta = Number(formModal.delta_hours)
+    if (formModal.delta_hours.trim() === '' || Number.isNaN(delta)) { setFormError('Jam harus berupa angka'); return }
+    setSaving(true); setFormError('')
+    const supabase = createClient()
+    const payload = {
+      brand: formModal.brand.trim(), tier: formModal.tier,
+      month_start: formModal.month_start, delta_hours: delta, note: formModal.note.trim() || null,
+    }
+    const { data: { user } } = await supabase.auth.getUser()
+    if (formModal.id) {
+      const { error } = await supabase.from('kuota_adjustments').update(payload).eq('id', formModal.id)
+      if (error) { setFormError(error.message); setSaving(false); return }
+    } else {
+      const { error } = await supabase.from('kuota_adjustments').insert({ ...payload, created_by: user?.id || null })
+      if (error) { setFormError(error.message); setSaving(false); return }
+    }
+    setSaving(false); setFormModal(null); load()
+  }
+
+  async function handleDelete(id: string) {
+    setDeleting(true)
+    await createClient().from('kuota_adjustments').delete().eq('id', id)
+    setRows(prev => prev.filter(r => r.id !== id))
+    setConfirmDeleteId(null); setDeleting(false)
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="font-bold text-gray-900">Log Top Up</h2>
+          <p className="text-sm text-gray-500">Riwayat semua penyesuaian Top Up Kuota, lintas client & bulan</p>
+        </div>
+        <button onClick={openCreate}
+          className="flex items-center gap-2 bg-brand-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-brand-700 transition-colors shadow-sm">
+          <Plus size={15}/> Tambah Penyesuaian
+        </button>
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <select value={brandFilter} onChange={e => setBrandFilter(e.target.value)}
+          className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+          <option value="all">Semua Client</option>
+          {brands.map(b => <option key={b} value={b}>{b}</option>)}
+        </select>
+        <select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)}
+          className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+          <option value="created">Urutkan: Terbaru Dibuat</option>
+          <option value="month">Urutkan: Bulan</option>
+          <option value="brand">Urutkan: Client</option>
+        </select>
+        <span className="text-xs text-gray-400">{filtered.length} entri</span>
+      </div>
+
+      {loading ? (
+        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">Memuat...</div>
+      ) : filtered.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center">
+          <p className="text-sm font-medium text-gray-400">Belum ada penyesuaian Top Up</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
+                  <th className="px-4 py-3 text-left font-semibold">Client</th>
+                  <th className="px-4 py-3 text-left font-semibold">Tipe Live</th>
+                  <th className="px-4 py-3 text-left font-semibold">Bulan</th>
+                  <th className="px-4 py-3 text-right font-semibold">Jam</th>
+                  <th className="px-4 py-3 text-left font-semibold">Catatan</th>
+                  <th className="px-4 py-3 text-left font-semibold">Dibuat</th>
+                  <th className="px-4 py-3 text-left font-semibold w-20">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {filtered.map(r => {
+                  const isConfirm = confirmDeleteId === r.id
+                  return (
+                    <tr key={r.id} className="hover:bg-gray-50/60 transition-colors">
+                      <td className="px-4 py-3 font-semibold text-gray-900">{r.brand}</td>
+                      <td className="px-4 py-3">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                          r.tier === UNTAGGED ? 'bg-amber-100 text-amber-700' : 'bg-brand-50 text-brand-700'
+                        }`}>
+                          {r.tier === UNTAGGED ? 'Belum Ditandai' : r.tier}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{monthLabelOf(r.month_start)}</td>
+                      <td className={`px-4 py-3 text-right font-semibold tabular-nums ${r.delta_hours < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                        {r.delta_hours > 0 ? '+' : ''}{fmtSlots(r.delta_hours)}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 max-w-[220px] truncate">{r.note || <span className="text-gray-300">—</span>}</td>
+                      <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{fmtLogDate(r.created_at)}</td>
+                      <td className="px-4 py-3">
+                        {isConfirm ? (
+                          <div className="flex items-center gap-1.5">
+                            <button onClick={() => handleDelete(r.id)} disabled={deleting}
+                              className="text-[10px] bg-red-500 text-white px-2 py-1 rounded-lg font-semibold hover:bg-red-600 disabled:opacity-60">Hapus</button>
+                            <button onClick={() => setConfirmDeleteId(null)}
+                              className="text-[10px] bg-gray-100 text-gray-600 px-2 py-1 rounded-lg font-semibold hover:bg-gray-200">Batal</button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => openEdit(r)} title="Edit"
+                              className="p-1.5 bg-gray-100 text-gray-500 rounded-lg hover:bg-brand-100 hover:text-brand-700 transition-colors">
+                              <Pencil size={13}/>
+                            </button>
+                            <button onClick={() => setConfirmDeleteId(r.id)} title="Hapus"
+                              className="p-1.5 bg-gray-100 text-gray-500 rounded-lg hover:bg-red-100 hover:text-red-600 transition-colors">
+                              <Trash2 size={13}/>
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Add / edit modal */}
+      {formModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+          onClick={() => !saving && setFormModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-gray-900">{formModal.id ? 'Edit Penyesuaian' : 'Tambah Penyesuaian'}</h3>
+              <button onClick={() => setFormModal(null)}><X size={16} className="text-gray-400"/></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-500 uppercase block mb-1.5">Client (Brand)</label>
+                <input value={formModal.brand} onChange={e => setFormModal(f => f && ({ ...f, brand: e.target.value }))}
+                  placeholder="e.g. Niko Electronic"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase block mb-1.5">Tipe Live</label>
+                  <select value={formModal.tier} onChange={e => setFormModal(f => f && ({ ...f, tier: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-400">
+                    {QUOTA_TIERS.map(t => <option key={t} value={t}>{t}</option>)}
+                    <option value={UNTAGGED}>Belum Ditandai</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase block mb-1.5">Bulan</label>
+                  <input type="month" value={formModal.month_start.slice(0, 7)}
+                    onChange={e => setFormModal(f => f && ({ ...f, month_start: `${e.target.value}-01` }))}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 uppercase block mb-1.5">Penyesuaian (jam, boleh minus)</label>
+                <input type="number" step="0.5" value={formModal.delta_hours}
+                  onChange={e => setFormModal(f => f && ({ ...f, delta_hours: e.target.value }))}
+                  placeholder="e.g. -50 atau 50"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 uppercase block mb-1.5">Catatan (opsional)</label>
+                <input value={formModal.note} onChange={e => setFormModal(f => f && ({ ...f, note: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+              </div>
+              {formError && <p className="text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2">{formError}</p>}
+            </div>
+            <div className="flex gap-2.5 mt-5">
+              <button onClick={() => setFormModal(null)} disabled={saving}
+                className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50">
+                Batal
+              </button>
+              <button onClick={saveForm} disabled={saving}
+                className="flex-1 bg-brand-600 text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-brand-700 disabled:opacity-60">
+                {saving ? 'Menyimpan...' : 'Simpan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ClientsClient({ profile }: { profile: any }) {
   const { lang } = useLang()
   const [tab, setTab] = useState<Tab>('clients')
@@ -1038,13 +1285,14 @@ export default function ClientsClient({ profile }: { profile: any }) {
         </div>
 
         <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-5 flex-wrap">
-          {(['clients', 'invoice', 'servicepkg', 'products', 'blackout'] as Tab[]).map(t => (
+          {(['clients', 'invoice', 'topuplog', 'servicepkg', 'products', 'blackout'] as Tab[]).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
                 tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}>
               {t === 'clients' ? (lang === 'id' ? 'Client List' : 'Clients')
                 : t === 'invoice' ? 'Invoice'
+                : t === 'topuplog' ? 'Log Top Up'
                 : t === 'servicepkg' ? 'NW Service Package'
                 : t === 'products' ? (lang === 'id' ? 'Product Etalase' : 'Products')
                 : tr('blackoutTitle', lang)}
@@ -1054,6 +1302,7 @@ export default function ClientsClient({ profile }: { profile: any }) {
 
         {tab === 'clients' ? <ClientListTab/>
           : tab === 'invoice' ? <InvoicePanel profile={profile}/>
+          : tab === 'topuplog' ? <TopUpLogTab/>
           : tab === 'servicepkg' ? <ServicePackagePanel/>
           : tab === 'products' ? <ProductEtalasePanel profile={profile}/>
           : <BlackoutTab/>}
