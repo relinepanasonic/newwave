@@ -36,6 +36,8 @@ export const t: Record<string, Record<Lang, string>> = {
   recap:         { id: 'Recap',          en: 'Recap' },
   rekon:         { id: 'Rekon',          en: 'Recon' },
   reportShort:   { id: 'Report',         en: 'Report' },
+  duplicateReports:      { id: 'Report Duplikat', en: 'Duplicate Reports' },
+  duplicateReportsShort: { id: 'Duplikat',        en: 'Duplicates' },
   host:          { id: 'Host',           en: 'Host' },
   brand:         { id: 'Brand',          en: 'Brand' },
   platform:      { id: 'Platform',       en: 'Platform' },

@@ -1,20 +1,22 @@
 'use client'
 import { useState } from 'react'
 import AppShell from '@/components/AppShell'
-import { CalendarDays, BarChart2, GitCompareArrows } from 'lucide-react'
+import { CalendarDays, BarChart2, GitCompareArrows, Copy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { tr } from '@/lib/i18n'
 import { useLang } from '@/lib/lang-context'
 import RecapTab from './RecapClient'
 import ReportDetailTab from './ReportDetailTab'
 import RekonsiliasiTab from './RekonsiliasiTab'
+import DuplicateReportsTab from './DuplicateReportsTab'
 
-type Tab = 'recap' | 'report' | 'rekonsiliasi'
+type Tab = 'recap' | 'report' | 'rekonsiliasi' | 'duplicates'
 
 const TABS: { key: Tab; labelKey: string; shortKey: string; icon: any }[] = [
   { key: 'recap',        labelKey: 'recapschedule',    shortKey: 'recap', icon: CalendarDays },
   { key: 'report',       labelKey: 'liveReportDetail',  shortKey: 'reportShort', icon: BarChart2 },
   { key: 'rekonsiliasi', labelKey: 'rekonsiliasi',      shortKey: 'rekon', icon: GitCompareArrows },
+  { key: 'duplicates',   labelKey: 'duplicateReports',  shortKey: 'duplicateReportsShort', icon: Copy },
 ]
 
 export default function LiveDetailsClient({ profile }: { profile: any }) {
@@ -49,6 +51,7 @@ export default function LiveDetailsClient({ profile }: { profile: any }) {
         {tab === 'recap' && <RecapTab profile={profile} />}
         {tab === 'report' && <ReportDetailTab profile={profile} />}
         {tab === 'rekonsiliasi' && <RekonsiliasiTab profile={profile} />}
+        {tab === 'duplicates' && <DuplicateReportsTab />}
       </div>
     </AppShell>
   )
