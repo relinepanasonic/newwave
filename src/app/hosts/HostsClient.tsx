@@ -33,7 +33,8 @@ export default function HostsClient({ profile }: { profile: any }) {
 
   // Invite form
   const [showInviteModal, setShowInviteModal] = useState(false)
-  const [inviteForm, setInviteForm] = useState({ role: 'host', name: '', tipe_host: 'Regular', target_hours: 155, hourly_rate: 0 })
+  const [inviteForm, setInviteForm] = useState({ role: 'host', name: '', tipe_host: 'Regular', target_hours: 155, hourly_rate: 0, client_brand: '' })
+  const [emails, setEmails] = useState<Record<string, string>>({})
   const [inviteSaving, setInviteSaving] = useState(false)
   const [inviteError, setInviteError] = useState('')
   const [generatedLink, setGeneratedLink] = useState<string | null>(null)
@@ -114,6 +115,12 @@ export default function HostsClient({ profile }: { profile: any }) {
       setLoading(false)
     })
     fetchPackages()
+    // Login emails live in auth.users, not profiles, so they need a
+    // service-role lookup server-side rather than a direct query here.
+    fetch('/api/client-emails')
+      .then(r => r.ok ? r.json() : { emails: {} })
+      .then(j => setEmails(j.emails || {}))
+      .catch(() => {})
   }, [])
 
   // ── Invite ──────────────────────────────────────────────────
@@ -125,15 +132,20 @@ export default function HostsClient({ profile }: { profile: any }) {
       .insert({
         role: inviteForm.role,
         name: inviteForm.name,
-        tipe_host: inviteForm.role === 'operator' ? 'Regular' : inviteForm.tipe_host,
-        target_hours: inviteForm.role === 'operator' ? 0 : inviteForm.target_hours,
-        hourly_rate: inviteForm.hourly_rate,
+        // A client has no host grading/target/rate -- only the brand, which
+        // must come from here rather than the signup form, since Kuota and
+        // invoices are matched on that exact brand string.
+        tipe_host: inviteForm.role === 'client' ? null : inviteForm.role === 'operator' ? 'Regular' : inviteForm.tipe_host,
+        target_hours: inviteForm.role === 'client' ? 0 : inviteForm.role === 'operator' ? 0 : inviteForm.target_hours,
+        hourly_rate: inviteForm.role === 'client' ? 0 : inviteForm.hourly_rate,
+        client_brand: inviteForm.role === 'client' ? inviteForm.client_brand.trim() : null,
         created_by: profile.id,
       })
       .select().single()
     setInviteSaving(false)
     if (error) { setInviteError(error.message); return }
-    const link = `${window.location.origin}/onboard?token=${data.token}`
+    const path = inviteForm.role === 'client' ? 'onboard-client' : 'onboard'
+    const link = `${window.location.origin}/${path}?token=${data.token}`
     setGeneratedLink(link)
     setInvites(prev => [data, ...prev])
   }
@@ -155,7 +167,7 @@ export default function HostsClient({ profile }: { profile: any }) {
   function resetInviteModal() {
     setShowInviteModal(false)
     setGeneratedLink(null)
-    setInviteForm({ role: 'host', name: '', tipe_host: 'Regular', target_hours: 155, hourly_rate: 0 })
+    setInviteForm({ role: 'host', name: '', tipe_host: 'Regular', target_hours: 155, hourly_rate: 0, client_brand: '' })
     setInviteError('')
   }
 
@@ -424,6 +436,7 @@ export default function HostsClient({ profile }: { profile: any }) {
                 <tr className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
                   <th className="px-4 py-3 text-left font-semibold">Nama</th>
                   <th className="px-4 py-3 text-left font-semibold">Brand</th>
+                  <th className="px-4 py-3 text-left font-semibold">Email Login</th>
                   <th className="px-4 py-3 text-left font-semibold">Telepon</th>
                   <th className="px-4 py-3 text-center font-semibold">Status</th>
                   <th className="px-4 py-3 text-center font-semibold">Aksi</th>
@@ -431,13 +444,14 @@ export default function HostsClient({ profile }: { profile: any }) {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {loading ? (
-                  <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400 text-sm">Memuat...</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400 text-sm">Memuat...</td></tr>
                 ) : filteredClients.length === 0 ? (
-                  <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400 text-sm">Belum ada client</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400 text-sm">Belum ada client</td></tr>
                 ) : filteredClients.map(h => (
                   <tr key={h.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-semibold text-gray-900">{h.full_name}</td>
                     <td className="px-4 py-3 text-gray-600">{h.client_brand || '—'}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{emails[h.id] || <span className="text-gray-300">—</span>}</td>
                     <td className="px-4 py-3 text-gray-500">{h.phone || '—'}</td>
                     <td className="px-4 py-3 text-center">
                       <button onClick={() => toggleActive(h)}
@@ -608,7 +622,8 @@ export default function HostsClient({ profile }: { profile: any }) {
                 <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
                   <h3 className="font-bold text-gray-900">
                     Buat Link Onboarding —{' '}
-                    {inviteForm.role === 'host' ? 'Host' : inviteForm.role === 'operator' ? 'Operator' : 'Host Manager'}
+                    {inviteForm.role === 'host' ? 'Host' : inviteForm.role === 'operator' ? 'Operator'
+                      : inviteForm.role === 'client' ? 'Client' : 'Host Manager'}
                   </h3>
                   <button onClick={resetInviteModal}><X size={16} className="text-gray-400"/></button>
                 </div>
@@ -616,8 +631,8 @@ export default function HostsClient({ profile }: { profile: any }) {
                   {/* Role dropdown — first */}
                   <div>
                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Role</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {([['host', 'Host'], ['operator', 'Operator'], ['host_manager', 'Host Manager']] as const).map(([val, lbl]) => (
+                    <div className="grid grid-cols-2 gap-2">
+                      {([['host', 'Host'], ['operator', 'Operator'], ['host_manager', 'Host Manager'], ['client', 'Client']] as const).map(([val, lbl]) => (
                         <button key={val} type="button"
                           onClick={() => setInviteForm(f => ({ ...f, role: val }))}
                           className={cn('py-2.5 rounded-xl text-sm font-semibold border transition-all',
@@ -634,12 +649,26 @@ export default function HostsClient({ profile }: { profile: any }) {
                   <div>
                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Nama</label>
                     <input value={inviteForm.name} onChange={e => setInviteForm(f => ({...f, name: e.target.value}))}
-                      placeholder="e.g. Regina Putri"
+                      placeholder={inviteForm.role === 'client' ? 'e.g. Sundoro' : 'e.g. Regina Putri'}
                       className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
                   </div>
 
+                  {/* Client only — brand is set here, not by the client, since
+                      Kuota/invoices/live reports all match on this exact text. */}
+                  {inviteForm.role === 'client' && (
+                    <div>
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Brand</label>
+                      <input value={inviteForm.client_brand} onChange={e => setInviteForm(f => ({...f, client_brand: e.target.value}))}
+                        placeholder="e.g. Niko Electronic"
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"/>
+                      <p className="text-[10px] text-gray-400 mt-1.5">
+                        Harus sama persis dengan brand di invoice &amp; live report, karena Kuota dicocokkan dari teks ini.
+                      </p>
+                    </div>
+                  )}
+
                   {/* Host / Host Manager only fields */}
-                  {inviteForm.role !== 'operator' && (<>
+                  {inviteForm.role !== 'operator' && inviteForm.role !== 'client' && (<>
                     <div>
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Tipe Host</label>
                       <select value={inviteForm.tipe_host} onChange={e => setInviteForm(f => ({...f, tipe_host: e.target.value}))}
@@ -671,7 +700,7 @@ export default function HostsClient({ profile }: { profile: any }) {
                     </div>
                   </>)}
 
-                  {inviteForm.role !== 'operator' && (
+                  {inviteForm.role !== 'operator' && inviteForm.role !== 'client' && (
                     <div>
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Fee per Jam</label>
                       <CurrencyInput value={inviteForm.hourly_rate}
@@ -684,7 +713,7 @@ export default function HostsClient({ profile }: { profile: any }) {
                 <div className="px-6 pb-6 flex gap-2">
                   <button onClick={resetInviteModal}
                     className="flex-1 border border-gray-200 rounded-xl py-2.5 text-sm text-gray-600 hover:bg-gray-50">Batal</button>
-                  <button onClick={createInvite} disabled={inviteSaving || !inviteForm.name}
+                  <button onClick={createInvite} disabled={inviteSaving || !inviteForm.name || (inviteForm.role === 'client' && !inviteForm.client_brand.trim())}
                     className="flex-1 bg-brand-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-brand-700 disabled:opacity-60 flex items-center justify-center gap-2">
                     <Link2 size={14}/>{inviteSaving ? 'Membuat...' : 'Buat Link'}
                   </button>
