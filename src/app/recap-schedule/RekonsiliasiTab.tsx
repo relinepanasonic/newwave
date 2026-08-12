@@ -649,9 +649,12 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
 
   async function saveDetailEdit() {
     if (!detailRow?.app || !editForm) return
-    // Saving a form nobody actually edited writes the same numbers back and
-    // leaves the row "Berbeda" -- which reads as a broken save. Say what's
-    // wrong instead of issuing a pointless write.
+    // Clicking Simpan on a form whose values already match the DB used to be
+    // refused. But "I reviewed this row and it's right as-is" is a real
+    // outcome -- refusing left the row stuck on "Berbeda" with no way out
+    // except the separate Data App Benar button. Skip the pointless write,
+    // but still mark the row resolved so it lands in Fixed like any other
+    // reviewed row.
     const app = detailRow.app
     const unchanged =
       editForm.host_id === app.host_id &&
@@ -663,7 +666,8 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
       editForm.trans === (Number(app.trans) || 0) &&
       editForm.comment_count === (Number(app.comment_count) || 0)
     if (unchanged) {
-      setDetailSaveError('Nilai app sudah sama dengan yang di form — tidak ada yang perlu disimpan. Kalau CSV-nya yang salah, klik "Data App Benar". Kalau app-nya yang salah, pakai "← Samakan Semua dengan CSV" atau "← CSV" di baris merah.')
+      setFixedLog(prev => ({ ...prev, [detailRow.csvIdx]: new Date().toISOString() }))
+      closeDetail()
       return
     }
     setSavingDetail(true); setDetailSaveError('')
