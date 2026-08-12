@@ -56,6 +56,7 @@ const NAV_OPERATOR = [
   { key: 'schedule',    icon: CalendarDays,    href: '/schedule' },
   { key: 'myschedule',  icon: ClipboardList,   href: '/my-schedule' },
   { key: 'absensi',     icon: Headphones,      href: '/absensi' },
+  { key: 'livedetails', icon: ClipboardList,   href: '/recap-schedule' },
   { key: 'hosthrd',     icon: Wallet,          href: '/host-hrd' },
 ]
 

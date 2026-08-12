@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, PLATFORM_COLORS } from '@/lib/utils'
 import {
   Upload, AlertTriangle, CheckCircle2, XCircle, Link2, X, CalendarSearch, ExternalLink,
-  Pencil, FileSpreadsheet, Save, Sparkles, CalendarPlus, RefreshCw,
+  Pencil, FileSpreadsheet, Save, Sparkles, CalendarPlus, RefreshCw, Wrench,
 } from 'lucide-react'
 import CurrencyInput from '@/components/CurrencyInput'
 import TimeInput from '@/components/TimeInput'
@@ -160,7 +160,7 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
   const [rooms, setRooms] = useState<{ id: string; name: string }[]>([])
   const [fileName, setFileName] = useState('')
   const [loading, setLoading] = useState(false)
-  const [statusFilter, setStatusFilter] = useState<'all' | 'mismatch' | 'missing_in_app' | 'not_reported_confirmed'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'match' | 'fixed' | 'mismatch' | 'missing_in_app' | 'not_reported_confirmed'>('all')
   // Session-only manual matches: csv row index -> app report id / schedule slot id. Resets on new upload.
   const [manualMatches, setManualMatches] = useState<Record<number, string>>({})
   const [notReportedMatches, setNotReportedMatches] = useState<Record<number, string>>({})
@@ -609,12 +609,22 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
     return map
   }, [hosts])
 
-  const totalMatch = compareRows.filter(r => r.status === 'match').length
+  // A row this session's admin actually acted on -- either edited to agree
+  // with the CSV, or explicitly accepted as "app is right". Both are "already
+  // handled", vs a row that simply happened to agree from the start.
+  const isFixed = (r: CompareRow) => r.status === 'match' && (!!fixedLog[r.csvIdx] || r.acceptedApp)
+
+  const totalFixed = compareRows.filter(isFixed).length
+  const totalMatch = compareRows.filter(r => r.status === 'match' && !isFixed(r)).length
   const totalMismatch = compareRows.filter(r => r.status === 'mismatch').length
   const totalMissing = compareRows.filter(r => r.status === 'missing_in_app').length
   const totalNotReported = compareRows.filter(r => r.status === 'not_reported_confirmed').length
 
-  const visibleRows = compareRows.filter(r => statusFilter === 'all' ? true : r.status === statusFilter)
+  const visibleRows = compareRows.filter(r =>
+    statusFilter === 'all' ? true
+      : statusFilter === 'fixed' ? isFixed(r)
+      : statusFilter === 'match' ? (r.status === 'match' && !isFixed(r))
+      : r.status === statusFilter)
 
   function openDetail(r: CompareRow) {
     setDetailRow(r)
@@ -704,10 +714,11 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
 
       {csvRows.length > 0 && !loading && (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
             {[
               { key: 'all' as const, label: tr('totalBarisCard', lang), value: compareRows.length, icon: null, color: 'bg-gray-50 border-gray-100 text-gray-700' },
-              { key: 'all' as const, label: tr('cocokCard', lang), value: totalMatch, icon: CheckCircle2, color: 'bg-emerald-50 border-emerald-100 text-emerald-700' },
+              { key: 'match' as const, label: tr('cocokCard', lang), value: totalMatch, icon: CheckCircle2, color: 'bg-emerald-50 border-emerald-100 text-emerald-700' },
+              { key: 'fixed' as const, label: 'Fixed', value: totalFixed, icon: Wrench, color: 'bg-sky-50 border-sky-100 text-sky-700' },
               { key: 'mismatch' as const, label: tr('bedaCard', lang), value: totalMismatch, icon: AlertTriangle, color: 'bg-pink-50 border-pink-100 text-pink-700' },
               { key: 'missing_in_app' as const, label: tr('takAdaDiApp', lang), value: totalMissing, icon: XCircle, color: 'bg-red-50 border-red-100 text-red-700' },
               { key: 'not_reported_confirmed' as const, label: tr('takLaporCsv', lang), value: totalNotReported, icon: CalendarSearch, color: 'bg-purple-50 border-purple-100 text-purple-700' },
@@ -825,14 +836,15 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
                       <td className="px-1.5 py-1.5 text-center">
                         <div className="flex items-center justify-center gap-1 flex-wrap">
                           {r.status === 'match' && (
-                            r.acceptedApp ? (
+                            fixedLog[r.csvIdx] ? (
+                              <span className="text-[9px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap"
+                                title={`Sudah diperbaiki ${fmtFixedDate(fixedLog[r.csvIdx])}`}>
+                                Fixed · {fmtFixedDate(fixedLog[r.csvIdx])}
+                              </span>
+                            ) : r.acceptedApp ? (
                               <span className="text-[9px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap"
                                 title="Data app dianggap benar, CSV-nya yang salah">
-                                App Benar
-                              </span>
-                            ) : fixedLog[r.csvIdx] ? (
-                              <span className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">
-                                {tr('fixedLabel', lang)} · {fmtFixedDate(fixedLog[r.csvIdx])}
+                                Fixed · App Benar
                               </span>
                             ) : (
                               <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('cocokCard', lang)}</span>
