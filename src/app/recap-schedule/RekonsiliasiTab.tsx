@@ -118,6 +118,9 @@ interface AppReport {
   screenshot_url: string | null
   notes: string | null
   slot_id: string | null
+  // Set when an admin reviewed this report in Reconciliation. Durable, so
+  // the Fixed status survives re-uploading the CSV or reloading the page.
+  reconciled_at: string | null
   profiles: { full_name: string; username: string | null } | null
 }
 
@@ -210,7 +213,7 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
     const supabase = createClient()
     const [reportsRes, slotsRes, hostsRes, roomsRes] = await Promise.all([
       supabase.from('live_reports')
-        .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, profiles:host_id(full_name, username)')
+        .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, reconciled_at, profiles:host_id(full_name, username)')
         .gte('report_date', fetchStart).lte('report_date', fetchEnd),
       supabase.from('schedule_slots')
         .select('id, slot_date, session_no, jam_mulai, durasi, brand, platform, host_id')
@@ -360,16 +363,15 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
         // durable source of truth so the badge survives a page revisit.
         status = 'not_reported_confirmed'
       }
-      // A row the admin has already dealt with is settled, whether they edited
-      // it (fixedLog) or judged the app right and the CSV wrong (acceptedApp).
-      // Crucially this does NOT require the row to end up equal to the CSV:
-      // an edit that leaves some field still differing is still a decision
-      // that was made, and previously such a row fell back to "Berbeda" so
-      // the Fixed badge could never appear and the row looked untouched.
-      // Clearing mismatches keeps it visually clean and moves it out of the
-      // Berbeda count/filter.
+      // A row an admin has already reviewed is settled -- whether they edited
+      // it to agree with the CSV or judged the app right and the CSV wrong.
+      // Read from the report's own reconciled_at rather than session state so
+      // it survives re-uploading the CSV; the session maps are only consulted
+      // for rows resolved in this session before the refetch lands.
+      // This deliberately does NOT require the row to end up equal to the CSV
+      // -- a reviewed row that still differs is still reviewed.
       const isAcceptedApp = !!acceptedApp[csvIdx] && status === 'mismatch'
-      const isResolved = (isAcceptedApp || !!fixedLog[csvIdx]) && status === 'mismatch'
+      const isResolved = (!!app?.reconciled_at || isAcceptedApp || !!fixedLog[csvIdx]) && status === 'mismatch'
       if (isResolved) { mismatches.clear(); status = 'match' }
       return { csv, csvIdx, app, mismatches, status, isManual, notReportedSlot, acceptedApp: isAcceptedApp }
     })
@@ -466,7 +468,7 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
       start_time: csv.startSesi || slot.jam_mulai, duration_hours: csv.totalJam || slot.durasi,
       gmv: csv.gmv, impression: csv.impression, viewer: csv.viewer, trans: csv.trans, comment_count: csv.comment,
       notes: 'CSV',
-    }).select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, profiles:host_id(full_name, username)').single()
+    }).select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, reconciled_at, profiles:host_id(full_name, username)').single()
     setSavingNotReportedIdx(null)
     if (error) { setNotReportedError(error.message); return }
     if (data) {
@@ -551,7 +553,7 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
       start_time: csv.startSesi, duration_hours: csv.totalJam || null,
       gmv: csv.gmv, impression: csv.impression, viewer: csv.viewer, trans: csv.trans, comment_count: csv.comment,
       notes: 'CSV',
-    }).select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, profiles:host_id(full_name, username)').single()
+    }).select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, reconciled_at, profiles:host_id(full_name, username)').single()
     setSavingNotReportedIdx(null)
     if (repErr) {
       // Roll the slot back so a failed report doesn't strand an empty slot.
@@ -617,7 +619,8 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
   // A row this session's admin actually acted on -- either edited to agree
   // with the CSV, or explicitly accepted as "app is right". Both are "already
   // handled", vs a row that simply happened to agree from the start.
-  const isFixed = (r: CompareRow) => r.status === 'match' && (!!fixedLog[r.csvIdx] || r.acceptedApp)
+  const isFixed = (r: CompareRow) =>
+    r.status === 'match' && (!!r.app?.reconciled_at || !!fixedLog[r.csvIdx] || r.acceptedApp)
 
   const totalFixed = compareRows.filter(isFixed).length
   const totalMatch = compareRows.filter(r => r.status === 'match' && !isFixed(r)).length
@@ -647,6 +650,21 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
     setDetailSaveError('')
   }
 
+  // Records "an admin reviewed this row" on the report itself. Kept separate
+  // from the value-editing path because accepting the app's numbers and
+  // correcting them are both reviews, but only one of them writes metrics.
+  async function markReconciled(reportId: string, csvIdx: number) {
+    const stamp = new Date().toISOString()
+    setFixedLog(prev => ({ ...prev, [csvIdx]: stamp }))
+    const { data } = await createClient().from('live_reports')
+      .update({ reconciled_at: stamp }).eq('id', reportId)
+      .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, reconciled_at, profiles:host_id(full_name, username)')
+    if (data && data.length) {
+      const updated = data[0] as any
+      setAppReports(prev => prev.map(a => a.id === updated.id ? updated : a))
+    }
+  }
+
   async function saveDetailEdit() {
     if (!detailRow?.app || !editForm) return
     // Clicking Simpan on a form whose values already match the DB used to be
@@ -666,7 +684,8 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
       editForm.trans === (Number(app.trans) || 0) &&
       editForm.comment_count === (Number(app.comment_count) || 0)
     if (unchanged) {
-      setFixedLog(prev => ({ ...prev, [detailRow.csvIdx]: new Date().toISOString() }))
+      // Still persist the review itself, so Fixed survives a re-upload.
+      await markReconciled(detailRow.app.id, detailRow.csvIdx)
       closeDetail()
       return
     }
@@ -678,8 +697,9 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
       platform: editForm.platform || null,
       gmv: editForm.gmv, impression: editForm.impression, viewer: editForm.viewer,
       trans: editForm.trans, comment_count: editForm.comment_count,
+      reconciled_at: new Date().toISOString(),
     }).eq('id', detailRow.app.id)
-      .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, profiles:host_id(full_name, username)')
+      .select('id, report_date, host_id, brand, platform, start_time, duration_hours, gmv, impression, viewer, trans, comment_count, screenshot_url, notes, slot_id, reconciled_at, profiles:host_id(full_name, username)')
     setSavingDetail(false)
     if (error) { setDetailSaveError(error.message); return }
     // No .single() here on purpose: an UPDATE that matches no row is not a
@@ -844,21 +864,18 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
                       <MetricCell csvVal={r.csv.comment} appVal={r.app ? Number(r.app.comment_count) : undefined} mismatch={r.mismatches.has('comment')} fmt={fmtNum}/>
                       <td className="px-1.5 py-1.5 text-center">
                         <div className="flex items-center justify-center gap-1 flex-wrap">
-                          {r.status === 'match' && (
-                            fixedLog[r.csvIdx] ? (
-                              <span className="text-[9px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap"
-                                title={`Sudah diperbaiki ${fmtFixedDate(fixedLog[r.csvIdx])}`}>
-                                Fixed · {fmtFixedDate(fixedLog[r.csvIdx])}
-                              </span>
-                            ) : r.acceptedApp ? (
-                              <span className="text-[9px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap"
-                                title="Data app dianggap benar, CSV-nya yang salah">
-                                Fixed · App Benar
-                              </span>
-                            ) : (
+                          {r.status === 'match' && (() => {
+                            const stamp = fixedLog[r.csvIdx] || r.app?.reconciled_at
+                            if (!stamp) return (
                               <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('cocokCard', lang)}</span>
                             )
-                          )}
+                            return (
+                              <span className="text-[9px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap"
+                                title={`Sudah direkonsiliasi ${fmtFixedDate(stamp)}`}>
+                                Fixed · {fmtFixedDate(stamp)}
+                              </span>
+                            )
+                          })()}
                           {r.status === 'mismatch' && <span className="text-[9px] bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('bedaCard', lang)}</span>}
                           {r.status === 'missing_in_app' && <span className="text-[9px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('takAdaDiApp', lang)}</span>}
                           {r.status === 'not_reported_confirmed' && <span className="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">{tr('takLaporCsv', lang)}</span>}
@@ -952,20 +969,12 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
             </div>
           </div>
 
-          {extraAppReports.length > 0 && (
-            <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4">
-              <p className="text-xs font-bold text-amber-700 mb-2">
-                {extraAppReports.length} {tr('laporanDiAppTidakDiCsv', lang)}
-              </p>
-              <div className="space-y-1">
-                {extraAppReports.map(r => (
-                  <p key={r.id} className="text-[11px] text-amber-600">
-                    {fmtDate(r.report_date)} · {r.start_time?.slice(0, 5)} · {(r.profiles as any)?.full_name || '—'} · {r.brand} · {r.platform}
-                  </p>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* The "laporan di App tidak ada di CSV" list used to render here.
+              Removed as noise: it's read-only with no action attached, and
+              once a row has been backfilled via Buat Jadwal the same session
+              is already accounted for under Tidak Ada di App / Tidak Lapor.
+              extraAppReports itself is still used to build the manual-match
+              picker's candidate list. */}
         </>
       )}
 
@@ -1136,8 +1145,9 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
                     {/* Not every difference means the app is wrong -- sometimes the
                         CSV is. Without this the row would stay "Berbeda" forever
                         with no way to settle it short of falsifying the report. */}
-                    <button onClick={() => {
+                    <button onClick={async () => {
                         setAcceptedApp(prev => ({ ...prev, [detailRow.csvIdx]: new Date().toISOString() }))
+                        if (detailRow.app) await markReconciled(detailRow.app.id, detailRow.csvIdx)
                         closeDetail()
                       }} disabled={savingDetail}
                       className="px-4 py-2.5 text-sm font-semibold border border-sky-300 text-sky-700 rounded-xl hover:bg-sky-50 disabled:opacity-50 transition-colors whitespace-nowrap">
