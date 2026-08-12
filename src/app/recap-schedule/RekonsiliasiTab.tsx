@@ -360,15 +360,20 @@ export default function RekonsiliasiTab({ profile: _profile, refreshSignal }: { 
         // durable source of truth so the badge survives a page revisit.
         status = 'not_reported_confirmed'
       }
-      // "App yang benar": the host's report is right and the CSV is wrong, so
-      // this row is settled. Clearing mismatches too keeps the row visually
-      // clean (no leftover pink cells under a green badge) and moves it out
-      // of the Berbeda count/filter, same as a genuine match.
+      // A row the admin has already dealt with is settled, whether they edited
+      // it (fixedLog) or judged the app right and the CSV wrong (acceptedApp).
+      // Crucially this does NOT require the row to end up equal to the CSV:
+      // an edit that leaves some field still differing is still a decision
+      // that was made, and previously such a row fell back to "Berbeda" so
+      // the Fixed badge could never appear and the row looked untouched.
+      // Clearing mismatches keeps it visually clean and moves it out of the
+      // Berbeda count/filter.
       const isAcceptedApp = !!acceptedApp[csvIdx] && status === 'mismatch'
-      if (isAcceptedApp) { mismatches.clear(); status = 'match' }
+      const isResolved = (isAcceptedApp || !!fixedLog[csvIdx]) && status === 'mismatch'
+      if (isResolved) { mismatches.clear(); status = 'match' }
       return { csv, csvIdx, app, mismatches, status, isManual, notReportedSlot, acceptedApp: isAcceptedApp }
     })
-  }, [csvRows, appReports, hostMap, manualMatches, appById, notReportedMatches, scheduleById, acceptedApp])
+  }, [csvRows, appReports, hostMap, manualMatches, appById, notReportedMatches, scheduleById, acceptedApp, fixedLog])
 
   const usedAppIds = useMemo(() => new Set(compareRows.filter(r => r.app).map(r => r.app!.id)), [compareRows])
 
